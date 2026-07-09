@@ -18,6 +18,7 @@ import notesRoutes        from './routes/notes.routes';
 import focusRoutes        from './routes/focus.routes';
 import analyticsRoutes    from './routes/analytics.routes';
 import notificationsRoutes from './routes/notifications.routes';
+import dashboardRoutes    from './routes/dashboard.routes';
 import { errorHandler }   from './middleware/errorHandler';
 import { startScheduler } from './jobs/reminderScheduler';
 
@@ -42,6 +43,7 @@ app.use('/api/notes',         notesRoutes);
 app.use('/api/focus',         focusRoutes);
 app.use('/api/analytics',     analyticsRoutes);
 app.use('/api/notifications', notificationsRoutes);
+app.use('/api/dashboard',     dashboardRoutes);
 
 // ─── 404 catch ────────────────────────────────────────────────────────────────
 app.use((_req, res) => res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Route not found' } }));
