@@ -1,6 +1,6 @@
 /**
- * Shared TypeScript DTOs used by both frontend and backend.
- * Both sides import from here to guarantee shape agreement.
+ * backend/src/types/index.ts
+ * TypeScript DTOs used by backend.
  */
 
 // ─── User ───────────────────────────────────────────────────────────────────

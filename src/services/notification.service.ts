@@ -6,7 +6,7 @@ import { prisma } from '../lib/prismaClient';
 import { sendPush, PushSubscription } from '../lib/pushSender';
 import { sendMail } from '../lib/mailer';
 import { createError } from '../middleware/errorHandler';
-import type { NotificationChannel } from '../../../shared/types';
+import type { NotificationChannel } from '../types';
 
 /** Saves or updates a user's web push subscription. */
 export async function registerPushSubscription(userId: string, subscription: PushSubscription): Promise<void> {

@@ -5,7 +5,7 @@
 
 import { prisma } from '../lib/prismaClient';
 import { createError } from '../middleware/errorHandler';
-import type { TaskDTO, CreateTaskRequest, UpdateTaskRequest } from '../../../shared/types';
+import type { TaskDTO, CreateTaskRequest, UpdateTaskRequest } from '../types';
 
 /** Converts Prisma Task row to TaskDTO. */
 function toDTO(t: {

@@ -144,7 +144,13 @@ vite.config.ts.timestamp-*
 
 # Prisma
 prisma/*.db
-prisma/migrations/
 *.db
 *.sqlite
 *.sqlite3
+
+# Build output
+dist/
+
+# Environment variables
+.env.local
+.env.*.local
