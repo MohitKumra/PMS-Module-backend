@@ -1,0 +1,2 @@
+// Native Prisma Multi-File Schema configuration.
+// Individual schemas are loaded from models/ and enums/ folders.

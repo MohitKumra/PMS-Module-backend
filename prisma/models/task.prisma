@@ -1,0 +1,17 @@
+model Task {
+  id             String     @id @default(cuid())
+  userId         String
+  user           User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title          String
+  description    String?
+  status         TaskStatus @default(TODO)
+  priority       Priority   @default(MEDIUM)
+  dueDate        DateTime?
+  recurrenceRule String? // RRULE string e.g. "FREQ=DAILY;INTERVAL=1"
+  parentTaskId   String? // for recurring task instances
+  attachmentUrl  String?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  @@index([userId, dueDate])
+}

@@ -1,0 +1,18 @@
+model User {
+  id               String   @id @default(cuid())
+  email            String   @unique
+  passwordHash     String? // null if Google-only account
+  googleId         String?  @unique
+  name             String?
+  avatarUrl        String?
+  timezone         String   @default("UTC")
+  pushSubscription String? // Stringified PushSubscription JSON
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  tasks         Task[]
+  habits        Habit[]
+  notes         Note[]
+  focusSessions FocusSession[]
+  notifications NotificationLog[]
+}

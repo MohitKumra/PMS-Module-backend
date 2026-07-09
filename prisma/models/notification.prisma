@@ -1,0 +1,10 @@
+model NotificationLog {
+  id      String              @id @default(cuid())
+  userId  String
+  user    User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channel NotificationChannel @default(BROWSER_PUSH)
+  title   String
+  body    String
+  sentAt  DateTime            @default(now())
+  readAt  DateTime?
+}

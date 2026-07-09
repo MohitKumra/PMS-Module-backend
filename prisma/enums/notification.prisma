@@ -1,0 +1,5 @@
+enum NotificationChannel {
+  BROWSER_PUSH
+  EMAIL
+  NATIVE_LOCAL
+}
