@@ -6,41 +6,53 @@ import { prisma } from '../lib/prismaClient';
 import type { AnalyticsSummaryDTO, DailyAnalyticsDTO, ProjectAnalyticsDTO } from '../types';
 
 export async function getSummary(userId: string): Promise<AnalyticsSummaryDTO> {
-  const [tasksTotal, tasksCompleted, habits, sessions] = await Promise.all([
+  // Get all habits with their completions for streak calculations
+  const habits = await prisma.habit.findMany({
+    where: { userId },
+    include: {
+      completions: {
+        select: { date: true },
+      },
+    },
+  });
+
+  const [tasksTotal, tasksCompleted, sessions] = await Promise.all([
     prisma.task.count({ where: { userId } }),
     prisma.task.count({ where: { userId, status: 'DONE' } }),
-    prisma.habit.findMany({
-      where: { userId },
-      include: {
-        completions: {
-          where: {
-            date: {
-              gte: (() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; })(),
-              lte: (() => { const d = new Date(); d.setHours(23, 59, 59, 999); return d; })(),
-            },
-          },
-        },
-      },
-    }),
     prisma.focusSession.findMany({ where: { userId, completed: true } }),
   ]);
 
-  // Longest habit streak across all habits
+  // Calculate streaks using UTC dates for consistency
   let longestHabitStreak = 0;
+  let currentHabitStreak = 0;
+  
   for (const habit of habits) {
-    const streak = calcStreak(habit.completions.map((c: any) => c.date.toISOString().split('T')[0]));
-    if (streak > longestHabitStreak) longestHabitStreak = streak;
+    const dateStrings = habit.completions.map((c: any) => c.date.toISOString().split('T')[0]);
+    const streak = calcCurrentStreak(dateStrings);
+    const bestStreak = calcBestStreak(dateStrings);
+    
+    if (streak > currentHabitStreak) currentHabitStreak = streak;
+    if (bestStreak > longestHabitStreak) longestHabitStreak = bestStreak;
   }
 
   const focusMinutesTotal = sessions.reduce((acc: any, s: any) => acc + s.durationMin, 0);
 
+  // Get today's completions for habitsCompletedToday
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const todayStr = today.toISOString().split('T')[0];
+  const habitsCompletedToday = habits.filter((h: any) => 
+    h.completions.some((c: any) => c.date.toISOString().split('T')[0] === todayStr)
+  ).length;
+
   return {
     tasksCompleted, tasksTotal,
     taskCompletionRate: tasksTotal > 0 ? Math.round((tasksCompleted / tasksTotal) * 100) : 0,
-    habitsCompletedToday: habits.filter((h: any) => h.completions.length > 0).length,
+    habitsCompletedToday,
     habitsTotal: habits.length,
     focusMinutesTotal, focusSessionsTotal: sessions.length,
     longestHabitStreak,
+    currentHabitStreak,
   };
 }
 
@@ -274,6 +286,41 @@ export async function getUpcomingDeadlines(userId: string, days = 7) {
 }
 
 // ─── Helper Functions ──────────────────────────────────────────────────────────
+
+/** Current streak - counts consecutive days ending today (or yesterday if today not completed). */
+function calcCurrentStreak(dates: string[]): number {
+  if (dates.length === 0) return 0;
+  const sorted = [...new Set(dates)].sort().reverse();
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1);
+  
+  // Check if the most recent date is today or yesterday
+  const mostRecent = new Date(sorted[0]); mostRecent.setHours(0, 0, 0, 0);
+  if (mostRecent < yesterday) return 0; // Streak is broken
+  
+  let streak = 1;
+  let cursor = mostRecent;
+  for (let i = 1; i < sorted.length; i++) {
+    const prev = new Date(sorted[i]); prev.setHours(0, 0, 0, 0);
+    const diff = (cursor.getTime() - prev.getTime()) / (1000 * 60 * 60 * 24);
+    if (diff === 1) { streak++; cursor = prev; } else break;
+  }
+  return streak;
+}
+
+/** Best streak - longest consecutive streak ever achieved. */
+function calcBestStreak(dates: string[]): number {
+  if (dates.length === 0) return 0;
+  const sorted = [...new Set(dates)].sort();
+  let best = 1, current = 1;
+  for (let i = 1; i < sorted.length; i++) {
+    const prev = new Date(sorted[i - 1]); prev.setHours(0, 0, 0, 0);
+    const curr = new Date(sorted[i]); curr.setHours(0, 0, 0, 0);
+    const diff = (curr.getTime() - prev.getTime()) / (1000 * 60 * 60 * 24);
+    if (diff === 1) { current++; best = Math.max(best, current); } else current = 1;
+  }
+  return best;
+}
 
 /** Streak helper (same algorithm as habit.service.ts). */
 function calcStreak(dates: string[]): number {

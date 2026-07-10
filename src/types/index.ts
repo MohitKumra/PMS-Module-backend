@@ -86,12 +86,24 @@ export interface HabitDTO {
   currentStreak: number;
   completedToday: boolean;
   completionsThisWeek: number;
+  completionsLastWeek: number;
+  bestStreak: number;
+  weekPattern: boolean[]; // Mon..Sun
+  completionDates: string[];
 }
 
 export interface CreateHabitRequest {
   title: string;
   targetPerWeek?: number;
   reminderTime?: string;
+}
+
+export interface HabitsListResponse {
+  data: HabitDTO[];
+  meta: {
+    total: number;
+    weeklyTrend: number;         // real % change vs last week, computed server-side
+}
 }
 
 export interface UpdateHabitRequest {
@@ -160,6 +172,7 @@ export interface AnalyticsSummaryDTO {
   focusMinutesTotal: number;
   focusSessionsTotal: number;
   longestHabitStreak: number;
+  currentHabitStreak: number; // Current active streak (not broken)
 }
 
 export interface DailyAnalyticsDTO {
