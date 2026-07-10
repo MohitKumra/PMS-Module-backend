@@ -1,0 +1,11 @@
+enum MessageType {
+  SYSTEM
+  PROJECT
+  REMINDER
+  ACHIEVEMENT
+}
+
+enum MessageStatus {
+  SENT
+  READ
+}

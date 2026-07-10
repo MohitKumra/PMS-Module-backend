@@ -1,67 +1,123 @@
 // backend/src/services/dashboard.service.ts
-// Aggregates data from Tasks, Habits, FocusSessions, and Analytics for the dashboard.
+// Aggregates data from Tasks, Habits, Projects, FocusSessions, and Messages for the enhanced dashboard.
 
 import { prisma } from '../lib/prismaClient';
-import type { AnalyticsSummaryDTO } from '../types';
+import type { AnalyticsSummaryDTO, EnhancedDashboardDTO } from '../types';
+import { getSummary } from './analytics.service';
+import { getWeeklyProgress, getUpcomingDeadlines } from './analytics.service';
 
 /**
  * Get dashboard summary data for a user.
  * Returns all the stats needed for the dashboard in a single call.
  */
 export async function getDashboardSummary(userId: string): Promise<AnalyticsSummaryDTO> {
-  const [tasksTotal, tasksCompleted, habits, sessions] = await Promise.all([
-    prisma.task.count({ where: { userId } }),
-    prisma.task.count({ where: { userId, status: 'DONE' } }),
-    prisma.habit.findMany({
-      where: { userId },
+  return getSummary(userId);
+}
+
+/**
+ * Get enhanced dashboard data with projects, messages, and weekly progress
+ */
+export async function getEnhancedDashboard(userId: string): Promise<EnhancedDashboardDTO> {
+  const [summary, activeProjects, recentMessages, projectStats, weeklyProgress, upcomingDeadlines] = await Promise.all([
+    getSummary(userId),
+    // Get active projects (top 6 by recent activity)
+    prisma.project.findMany({
+      where: {
+        userId,
+        status: { in: ['PLANNING', 'ACTIVE'] },
+      },
       include: {
-        completions: {
-          where: {
-            date: {
-              gte: (() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; })(),
-              lte: (() => { const d = new Date(); d.setHours(23, 59, 59, 999); return d; })(),
-            },
-          },
+        _count: { select: { tasks: true } },
+        tasks: {
+          include: { task: true },
         },
       },
+      orderBy: { updatedAt: 'desc' },
+      take: 6,
     }),
-    prisma.focusSession.findMany({ where: { userId, completed: true } }),
+    // Get recent messages (top 10)
+    prisma.message.findMany({
+      where: { userId },
+      include: { project: true },
+      orderBy: { createdAt: 'desc' },
+      take: 10,
+    }),
+    // Get project statistics
+    prisma.project.groupBy({
+      by: ['status'],
+      where: { userId },
+      _count: true,
+    }),
+    // Get weekly progress
+    getWeeklyProgress(userId, 8), // Last 8 weeks
+    // Get upcoming deadlines
+    getUpcomingDeadlines(userId, 7), // Next 7 days
   ]);
 
-  // Calculate longest habit streak
-  function calcStreak(dates: string[]): number {
-    if (dates.length === 0) return 0;
-    const sorted = [...new Set(dates)].sort().reverse();
-    const today = new Date(); today.setHours(0, 0, 0, 0);
-    const yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1);
-    let cursor = new Date(sorted[0]); cursor.setHours(0, 0, 0, 0);
-    if (cursor < yesterday) return 0;
-    let streak = 1;
-    for (let i = 1; i < sorted.length; i++) {
-      const prev = new Date(sorted[i]); prev.setHours(0, 0, 0, 0);
-      const diff = (cursor.getTime() - prev.getTime()) / (1000 * 60 * 60 * 24);
-      if (diff === 1) { streak++; cursor = prev; } else break;
-    }
-    return streak;
-  }
+  // Transform active projects
+  const projectsData = activeProjects.map((p) => {
+    const completedTaskCount = p.tasks.filter((pt) => pt.task.status === 'DONE').length;
+    return {
+      id: p.id,
+      name: p.name,
+      description: p.description,
+      status: p.status,
+      color: p.color ?? '#4F46E5',
+      userId: p.userId,
+      startDate: p.startDate?.toISOString() ?? null,
+      dueDate: p.dueDate?.toISOString() ?? null,
+      progress: p.progress,
+      createdAt: p.createdAt.toISOString(),
+      updatedAt: p.updatedAt.toISOString(),
+      taskCount: p._count.tasks,
+      completedTaskCount,
+    };
+  });
 
-  let longestHabitStreak = 0;
-  for (const habit of habits) {
-    const streak = calcStreak(habit.completions.map((c) => c.date.toISOString().split('T')[0]));
-    if (streak > longestHabitStreak) longestHabitStreak = streak;
-  }
+  // Transform messages
+  const messagesData = recentMessages.map((m) => ({
+    id: m.id,
+    type: m.type,
+    content: m.content,
+    userId: m.userId,
+    projectId: m.projectId,
+    status: m.status,
+    readAt: m.readAt?.toISOString() ?? null,
+    priority: m.priority,
+    actionUrl: m.actionUrl,
+    createdAt: m.createdAt.toISOString(),
+    updatedAt: m.updatedAt.toISOString(),
+    project: m.project ? {
+      id: m.project.id,
+      name: m.project.name,
+      description: m.project.description,
+      status: m.project.status,
+      color: m.project.color ?? '#4F46E5',
+      userId: m.project.userId,
+      startDate: m.project.startDate?.toISOString() ?? null,
+      dueDate: m.project.dueDate?.toISOString() ?? null,
+      progress: m.project.progress,
+      createdAt: m.project.createdAt.toISOString(),
+      updatedAt: m.project.updatedAt.toISOString(),
+    } : undefined,
+  }));
 
-  const focusMinutesTotal = sessions.reduce((acc, s) => acc + s.durationMin, 0);
+  // Calculate project stats
+  const totalProjects = projectStats.reduce((acc, stat) => acc + stat._count, 0);
+  const activeProjectsCount = projectStats.find((s) => s.status === 'ACTIVE')?._count ?? 0;
+  const completedProjectsCount = projectStats.find((s) => s.status === 'COMPLETED')?._count ?? 0;
 
   return {
-    tasksCompleted,
-    tasksTotal,
-    taskCompletionRate: tasksTotal > 0 ? Math.round((tasksCompleted / tasksTotal) * 100) : 0,
-    habitsCompletedToday: habits.filter((h) => h.completions.length > 0).length,
-    habitsTotal: habits.length,
-    focusMinutesTotal,
-    focusSessionsTotal: sessions.length,
-    longestHabitStreak,
+    ...summary,
+    activeProjects: projectsData,
+    recentMessages: messagesData,
+    projectStats: {
+      totalProjects,
+      activeProjectsCount,
+      completedProjectsCount,
+    },
+    weeklyProgress,
+    upcomingDeadlines,
   };
 }
 

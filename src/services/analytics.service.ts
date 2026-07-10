@@ -1,10 +1,9 @@
 // backend/src/services/analytics.service.ts
-// Aggregates data from Tasks, Habits, and FocusSessions to produce
-// summary and daily-breakdown analytics for the Analytics dashboard.
-// No new tables — everything derived from existing data.
+// Aggregates data from Tasks, Habits, Projects, and FocusSessions to produce
+// comprehensive analytics for the individual productivity dashboard.
 
 import { prisma } from '../lib/prismaClient';
-import type { AnalyticsSummaryDTO, DailyAnalyticsDTO } from '../types';
+import type { AnalyticsSummaryDTO, DailyAnalyticsDTO, ProjectAnalyticsDTO } from '../types';
 
 export async function getSummary(userId: string): Promise<AnalyticsSummaryDTO> {
   const [tasksTotal, tasksCompleted, habits, sessions] = await Promise.all([
@@ -90,6 +89,192 @@ export async function getDailyBreakdown(userId: string, days = 30): Promise<Dail
   return Array.from(bucket.values()).sort((a, b) => a.date.localeCompare(b.date));
 }
 
+/** Get detailed analytics for all user projects */
+export async function getProjectAnalytics(userId: string): Promise<ProjectAnalyticsDTO[]> {
+  const projects = await prisma.project.findMany({
+    where: { userId },
+    include: {
+      tasks: {
+        include: { task: true },
+      },
+    },
+  });
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  return projects.map((project) => {
+    const totalTasks = project.tasks.length;
+    const completedTasks = project.tasks.filter((pt) => pt.task.status === 'DONE').length;
+    const overdueTasks = project.tasks.filter(
+      (pt) => pt.task.dueDate && new Date(pt.task.dueDate) < today && pt.task.status !== 'DONE'
+    ).length;
+
+    let daysRemaining: number | null = null;
+    if (project.dueDate) {
+      const dueDate = new Date(project.dueDate);
+      daysRemaining = Math.ceil((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    }
+
+    // Calculate weekly progress for this project (last 4 weeks)
+    const fourWeeksAgo = new Date();
+    fourWeeksAgo.setDate(fourWeeksAgo.getDate() - 28);
+    fourWeeksAgo.setHours(0, 0, 0, 0);
+
+    const weeklyData = new Map<string, number>();
+    for (let i = 0; i < 4; i++) {
+      const weekStart = new Date();
+      weekStart.setDate(weekStart.getDate() - (i * 7));
+      const weekKey = getWeekKey(weekStart);
+      weeklyData.set(weekKey, 0);
+    }
+
+    project.tasks.forEach((pt) => {
+      if (pt.task.status === 'DONE' && pt.task.updatedAt >= fourWeeksAgo) {
+        const weekKey = getWeekKey(pt.task.updatedAt);
+        if (weeklyData.has(weekKey)) {
+          weeklyData.set(weekKey, (weeklyData.get(weekKey) || 0) + 1);
+        }
+      }
+    });
+
+    const weeklyProgress = Array.from(weeklyData.entries())
+      .map(([week, tasksCompleted]) => ({ week, tasksCompleted }))
+      .sort((a, b) => a.week.localeCompare(b.week));
+
+    return {
+      projectId: project.id,
+      projectName: project.name,
+      status: project.status,
+      progress: project.progress,
+      totalTasks,
+      completedTasks,
+      overdueTasks,
+      daysRemaining,
+      weeklyProgress,
+    };
+  });
+}
+
+/** Get weekly progress trend (last 12 weeks) */
+export async function getWeeklyProgress(userId: string, weeks = 12) {
+  const since = new Date();
+  since.setDate(since.getDate() - (weeks * 7));
+  since.setHours(0, 0, 0, 0);
+
+  const [tasks, completions, sessions, projects] = await Promise.all([
+    prisma.task.findMany({
+      where: { userId, status: 'DONE', updatedAt: { gte: since } },
+      select: { updatedAt: true },
+    }),
+    prisma.habitCompletion.findMany({
+      where: { habit: { userId }, date: { gte: since } },
+      select: { date: true },
+    }),
+    prisma.focusSession.findMany({
+      where: { userId, completed: true, startedAt: { gte: since } },
+      select: { startedAt: true, durationMin: true },
+    }),
+    prisma.project.findMany({
+      where: { userId, status: 'COMPLETED', updatedAt: { gte: since } },
+      select: { updatedAt: true },
+    }),
+  ]);
+
+  // Build week buckets
+  const bucket = new Map<string, any>();
+  for (let i = 0; i < weeks; i++) {
+    const weekStart = new Date();
+    weekStart.setDate(weekStart.getDate() - (i * 7));
+    const weekKey = getWeekKey(weekStart);
+    bucket.set(weekKey, {
+      week: weekKey,
+      tasksCompleted: 0,
+      focusMinutes: 0,
+      habitsCompleted: 0,
+      projectsCompleted: 0,
+    });
+  }
+
+  tasks.forEach((t: any) => {
+    const weekKey = getWeekKey(t.updatedAt);
+    if (bucket.has(weekKey)) bucket.get(weekKey)!.tasksCompleted++;
+  });
+
+  completions.forEach((c: any) => {
+    const weekKey = getWeekKey(c.date);
+    if (bucket.has(weekKey)) bucket.get(weekKey)!.habitsCompleted++;
+  });
+
+  sessions.forEach((s: any) => {
+    const weekKey = getWeekKey(s.startedAt);
+    if (bucket.has(weekKey)) bucket.get(weekKey)!.focusMinutes += s.durationMin;
+  });
+
+  projects.forEach((p: any) => {
+    const weekKey = getWeekKey(p.updatedAt);
+    if (bucket.has(weekKey)) bucket.get(weekKey)!.projectsCompleted++;
+  });
+
+  return Array.from(bucket.values()).sort((a, b) => a.week.localeCompare(b.week));
+}
+
+/** Get upcoming deadlines (tasks and projects) */
+export async function getUpcomingDeadlines(userId: string, days = 7) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const futureDate = new Date(today);
+  futureDate.setDate(futureDate.getDate() + days);
+
+  const [tasks, projects] = await Promise.all([
+    prisma.task.findMany({
+      where: {
+        userId,
+        status: { not: 'DONE' },
+        dueDate: {
+          gte: today,
+          lte: futureDate,
+        },
+      },
+      select: { id: true, title: true, dueDate: true },
+      orderBy: { dueDate: 'asc' },
+    }),
+    prisma.project.findMany({
+      where: {
+        userId,
+        status: { in: ['PLANNING', 'ACTIVE'] },
+        dueDate: {
+          gte: today,
+          lte: futureDate,
+        },
+      },
+      select: { id: true, name: true, dueDate: true },
+      orderBy: { dueDate: 'asc' },
+    }),
+  ]);
+
+  const deadlines = [
+    ...tasks.map((task) => ({
+      type: 'task' as const,
+      id: task.id,
+      title: task.title,
+      dueDate: task.dueDate!.toISOString(),
+      daysUntilDue: Math.ceil((task.dueDate!.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)),
+    })),
+    ...projects.map((project) => ({
+      type: 'project' as const,
+      id: project.id,
+      title: project.name,
+      dueDate: project.dueDate!.toISOString(),
+      daysUntilDue: Math.ceil((project.dueDate!.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)),
+    })),
+  ];
+
+  return deadlines.sort((a, b) => a.daysUntilDue - b.daysUntilDue);
+}
+
+// ─── Helper Functions ──────────────────────────────────────────────────────────
+
 /** Streak helper (same algorithm as habit.service.ts). */
 function calcStreak(dates: string[]): number {
   if (dates.length === 0) return 0;
@@ -105,4 +290,14 @@ function calcStreak(dates: string[]): number {
     if (diff === 1) { streak++; cursor = prev; } else break;
   }
   return streak;
+}
+
+/** Get ISO week key "YYYY-WW" for grouping by week */
+function getWeekKey(date: Date): string {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() + 3 - ((d.getDay() + 6) % 7));
+  const week1 = new Date(d.getFullYear(), 0, 4);
+  const weekNum = 1 + Math.round(((d.getTime() - week1.getTime()) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7);
+  return `${d.getFullYear()}-W${weekNum.toString().padStart(2, '0')}`;
 }

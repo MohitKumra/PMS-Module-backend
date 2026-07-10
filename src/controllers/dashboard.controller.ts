@@ -18,3 +18,10 @@ export async function today(req: Request, res: Response, next: NextFunction) {
     res.json({ pendingTasks, habitsToComplete });
   } catch (err) { next(err); }
 }
+
+export async function enhanced(req: Request, res: Response, next: NextFunction) {
+  try {
+    const dashboard = await dashboardService.getEnhancedDashboard(req.user!.sub);
+    res.json(dashboard);
+  } catch (err) { next(err); }
+}

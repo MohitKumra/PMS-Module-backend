@@ -191,6 +191,124 @@ export interface PushSubscriptionRequest {
   };
 }
 
+// ─── Projects (Individual) ────────────────────────────────────────────────────
+
+export type ProjectStatus = 'PLANNING' | 'ACTIVE' | 'ON_HOLD' | 'COMPLETED' | 'CANCELLED';
+
+export interface ProjectDTO {
+  id: string;
+  name: string;
+  description: string | null;
+  status: ProjectStatus;
+  color: string;
+  userId: string;
+  startDate: string | null;
+  dueDate: string | null;
+  progress: number; // 0-100
+  createdAt: string;
+  updatedAt: string;
+  taskCount?: number;
+  completedTaskCount?: number;
+}
+
+export interface CreateProjectRequest {
+  name: string;
+  description?: string;
+  status?: ProjectStatus;
+  color?: string;
+  startDate?: string;
+  dueDate?: string;
+}
+
+export interface UpdateProjectRequest {
+  name?: string;
+  description?: string | null;
+  status?: ProjectStatus;
+  color?: string;
+  startDate?: string | null;
+  dueDate?: string | null;
+  progress?: number;
+}
+
+export interface AssignTaskToProjectRequest {
+  taskId: string;
+  order?: number;
+}
+
+// ─── Messages (System/Project Notifications) ──────────────────────────────────
+
+export type MessageType = 'SYSTEM' | 'PROJECT' | 'REMINDER' | 'ACHIEVEMENT';
+export type MessageStatus = 'SENT' | 'READ';
+
+export interface MessageDTO {
+  id: string;
+  type: MessageType;
+  content: string;
+  userId: string;
+  projectId: string | null;
+  status: MessageStatus;
+  readAt: string | null;
+  priority: string | null; // LOW, NORMAL, HIGH
+  actionUrl: string | null; // Link to relevant page
+  createdAt: string;
+  updatedAt: string;
+  project?: ProjectDTO;
+}
+
+export interface CreateMessageRequest {
+  type?: MessageType;
+  content: string;
+  projectId?: string;
+  priority?: string;
+  actionUrl?: string;
+}
+
+export interface UpdateMessageRequest {
+  status?: MessageStatus;
+  readAt?: string;
+}
+
+// ─── Enhanced Analytics (Individual Focus) ────────────────────────────────────
+
+export interface ProjectAnalyticsDTO {
+  projectId: string;
+  projectName: string;
+  status: ProjectStatus;
+  progress: number;
+  totalTasks: number;
+  completedTasks: number;
+  overdueTasks: number;
+  daysRemaining: number | null;
+  weeklyProgress: Array<{
+    week: string;
+    tasksCompleted: number;
+  }>;
+}
+
+export interface EnhancedDashboardDTO extends AnalyticsSummaryDTO {
+  activeProjects: ProjectDTO[];
+  recentMessages: MessageDTO[];
+  projectStats: {
+    totalProjects: number;
+    activeProjectsCount: number;
+    completedProjectsCount: number;
+  };
+  weeklyProgress: {
+    week: string; // "YYYY-WW"
+    tasksCompleted: number;
+    focusMinutes: number;
+    habitsCompleted: number;
+    projectsCompleted: number;
+  }[];
+  upcomingDeadlines: Array<{
+    type: 'task' | 'project';
+    id: string;
+    title: string;
+    dueDate: string;
+    daysUntilDue: number;
+  }>;
+}
+
 // ─── API Envelope ─────────────────────────────────────────────────────────────
 
 /** Standard list response envelope. */

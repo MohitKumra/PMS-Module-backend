@@ -15,4 +15,8 @@ model User {
   notes         Note[]
   focusSessions FocusSession[]
   notifications NotificationLog[]
+
+  // Personal project management
+  projects Project[]
+  messages Message[]
 }
