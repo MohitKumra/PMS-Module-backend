@@ -92,8 +92,8 @@ async function checkHabitReminders() {
         const formattedUserTime = `${hour}:${minute}`;
 
         if (formattedUserTime === habit.reminderTime) {
-          // Verify if already completed today
-          const todayStart = new Date(now); todayStart.setHours(0,0,0,0);
+          // Verify if already completed today — use UTC midnight to match habit.service.ts
+          const todayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
           const alreadyCompletedToday = await prisma.habitCompletion.findFirst({
             where: {
               habitId: habit.id,

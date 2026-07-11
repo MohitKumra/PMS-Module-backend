@@ -3,8 +3,7 @@
 
 import { prisma } from '../lib/prismaClient';
 import type { AnalyticsSummaryDTO, EnhancedDashboardDTO } from '../types';
-import { getSummary } from './analytics.service';
-import { getWeeklyProgress, getUpcomingDeadlines } from './analytics.service';
+import { getSummary, getWeeklyProgress, getUpcomingDeadlines } from './analytics.service';
 
 /**
  * Get dashboard summary data for a user.
@@ -55,8 +54,8 @@ export async function getEnhancedDashboard(userId: string): Promise<EnhancedDash
   ]);
 
   // Transform active projects
-  const projectsData = activeProjects.map((p) => {
-    const completedTaskCount = p.tasks.filter((pt) => pt.task.status === 'DONE').length;
+  const projectsData = activeProjects.map((p: any) => {
+    const completedTaskCount = p.tasks.filter((pt: any) => pt.task.status === 'DONE').length;
     return {
       id: p.id,
       name: p.name,
@@ -75,7 +74,7 @@ export async function getEnhancedDashboard(userId: string): Promise<EnhancedDash
   });
 
   // Transform messages
-  const messagesData = recentMessages.map((m) => ({
+  const messagesData = recentMessages.map((m: any) => ({
     id: m.id,
     type: m.type,
     content: m.content,
@@ -103,9 +102,9 @@ export async function getEnhancedDashboard(userId: string): Promise<EnhancedDash
   }));
 
   // Calculate project stats
-  const totalProjects = projectStats.reduce((acc, stat) => acc + stat._count, 0);
-  const activeProjectsCount = projectStats.find((s) => s.status === 'ACTIVE')?._count ?? 0;
-  const completedProjectsCount = projectStats.find((s) => s.status === 'COMPLETED')?._count ?? 0;
+  const totalProjects = projectStats.reduce((acc: any, stat: any) => acc + stat._count, 0);
+  const activeProjectsCount = projectStats.find((s: any) => s.status === 'ACTIVE')?._count ?? 0;
+  const completedProjectsCount = projectStats.find((s: any) => s.status === 'COMPLETED')?._count ?? 0;
 
   return {
     ...summary,
@@ -132,20 +131,26 @@ export async function getPendingTasksCount(userId: string): Promise<number> {
 
 /**
  * Get habits that need to be completed today.
+ * Uses UTC-based "today" to stay consistent with habit.service.ts.
  */
 export async function getHabitsToCompleteToday(userId: string): Promise<number> {
+  const now = new Date();
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const tomorrow = new Date(today);
+  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+
   const habits = await prisma.habit.findMany({
     where: { userId },
     include: {
       completions: {
         where: {
           date: {
-            gte: (() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; })(),
-            lte: (() => { const d = new Date(); d.setHours(23, 59, 59, 999); return d; })(),
+            gte: today,
+            lt: tomorrow,
           },
         },
       },
     },
   });
-  return habits.filter((h) => h.completions.length === 0).length;
+  return habits.filter((h: any) => h.completions.length === 0).length;
 }

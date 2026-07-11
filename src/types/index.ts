@@ -173,6 +173,7 @@ export interface AnalyticsSummaryDTO {
   focusSessionsTotal: number;
   longestHabitStreak: number;
   currentHabitStreak: number; // Current active streak (not broken)
+  productivityScore: number; // 0-100 productivity score
 }
 
 export interface DailyAnalyticsDTO {

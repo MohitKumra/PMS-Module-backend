@@ -19,6 +19,7 @@ import focusRoutes        from './routes/focus.routes';
 import analyticsRoutes    from './routes/analytics.routes';
 import notificationsRoutes from './routes/notifications.routes';
 import dashboardRoutes    from './routes/dashboard.routes';
+import searchRoutes       from './routes/search.routes';
 import projectsController  from './controllers/projects.controller';
 import messagesController  from './controllers/messages.controller';
 import { errorHandler }   from './middleware/errorHandler';
@@ -46,6 +47,7 @@ app.use('/api/focus',         focusRoutes);
 app.use('/api/analytics',     analyticsRoutes);
 app.use('/api/notifications', notificationsRoutes);
 app.use('/api/dashboard',     dashboardRoutes);
+app.use('/api/search',        searchRoutes);
 app.use('/api/projects',      projectsController);
 app.use('/api/messages',      messagesController);
 

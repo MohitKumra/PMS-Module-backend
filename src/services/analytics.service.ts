@@ -1,9 +1,22 @@
 // backend/src/services/analytics.service.ts
 // Aggregates data from Tasks, Habits, Projects, and FocusSessions to produce
 // comprehensive analytics for the individual productivity dashboard.
+// IMPORTANT: All date handling uses UTC-based "today" to stay consistent
+// with habit.service.ts — never use local-time setHours(0,0,0,0).
 
 import { prisma } from '../lib/prismaClient';
 import type { AnalyticsSummaryDTO, DailyAnalyticsDTO, ProjectAnalyticsDTO } from '../types';
+
+/** UTC midnight for "today" — matches habit.service.ts definition exactly. */
+function utcToday(): Date {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+}
+
+/** Convert any Date to a UTC-only "YYYY-MM-DD" string. */
+function toDateStr(d: Date): string {
+  return d.toISOString().split('T')[0];
+}
 
 export async function getSummary(userId: string): Promise<AnalyticsSummaryDTO> {
   // Get all habits with their completions for streak calculations
@@ -16,10 +29,11 @@ export async function getSummary(userId: string): Promise<AnalyticsSummaryDTO> {
     },
   });
 
-  const [tasksTotal, tasksCompleted, allSessions] = await Promise.all([
+  const [tasksTotal, tasksCompleted, allSessions, notes] = await Promise.all([
     prisma.task.count({ where: { userId } }),
     prisma.task.count({ where: { userId, status: 'DONE' } }),
     prisma.focusSession.findMany({ where: { userId } }),
+    prisma.note.findMany({ where: { userId } }),
   ]);
 
   // Count completed sessions separately for focusSessionsTotal
@@ -30,7 +44,7 @@ export async function getSummary(userId: string): Promise<AnalyticsSummaryDTO> {
   let currentHabitStreak = 0;
   
   for (const habit of habits) {
-    const dateStrings = habit.completions.map((c: any) => c.date.toISOString().split('T')[0]);
+    const dateStrings = habit.completions.map((c: any) => toDateStr(c.date));
     const streak = calcCurrentStreak(dateStrings);
     const bestStreak = calcBestStreak(dateStrings);
     
@@ -42,12 +56,57 @@ export async function getSummary(userId: string): Promise<AnalyticsSummaryDTO> {
   const focusMinutesTotal = allSessions.reduce((acc: any, s: any) => acc + s.durationMin, 0);
 
   // Get today's completions for habitsCompletedToday
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const todayStr = today.toISOString().split('T')[0];
+  // Use UTC-based "today" to match how habit.service.ts stores completion dates
+  const today = utcToday();
+  const todayStr = toDateStr(today);
   const habitsCompletedToday = habits.filter((h: any) => 
-    h.completions.some((c: any) => c.date.toISOString().split('T')[0] === todayStr)
+    h.completions.some((c: any) => toDateStr(c.date) === todayStr)
   ).length;
+
+  // Calculate productivity score
+  // Weighted average of different metrics
+  let score = 0;
+  const weights = {
+    taskCompletion: 0.3, // 30%
+    habitCompletion: 0.25, // 25%
+    focusTime: 0.2, // 20%
+    journalConsistency: 0.1, // 10%
+    streak: 0.15, // 15%
+  };
+
+  // Task completion rate (0-100)
+  const taskCompletionScore = tasksTotal > 0 ? (tasksCompleted / tasksTotal) * 100 : 0;
+
+  // Habit completion rate (0-100)
+  const habitCompletionScore = habits.length > 0 ? (habitsCompletedToday / habits.length) * 100 : 0;
+
+  // Focus time score (assume 4hrs (240min) is max, 0-100)
+  const focusScore = Math.min((focusMinutesTotal / 240) * 100, 100);
+
+  // Journal consistency (check last 7 UTC days for journal entries)
+  const last7Days = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(today);
+    d.setUTCDate(d.getUTCDate() - i);
+    return toDateStr(d);
+  });
+  const journalDates = notes.filter(n => n.isJournal).map(n => {
+    const d = new Date(n.createdAt);
+    return toDateStr(d); // just use UTC date from createdAt
+  });
+  const journalDaysCount = last7Days.filter(d => journalDates.includes(d)).length;
+  const journalScore = (journalDaysCount / 7) * 100;
+
+  // Streak score (max 100 for 14-day streak)
+  const streakScore = Math.min((currentHabitStreak / 14) * 100, 100);
+
+  // Calculate weighted total score
+  score = Math.round(
+    taskCompletionScore * weights.taskCompletion +
+    habitCompletionScore * weights.habitCompletion +
+    focusScore * weights.focusTime +
+    journalScore * weights.journalConsistency +
+    streakScore * weights.streak
+  );
 
   return {
     tasksCompleted, tasksTotal,
@@ -57,14 +116,15 @@ export async function getSummary(userId: string): Promise<AnalyticsSummaryDTO> {
     focusMinutesTotal, focusSessionsTotal: sessions.length,
     longestHabitStreak,
     currentHabitStreak,
+    productivityScore: score,
   };
 }
 
 /** Daily breakdown for the past N days (default 30). */
 export async function getDailyBreakdown(userId: string, days = 30): Promise<DailyAnalyticsDTO[]> {
-  const since = new Date();
-  since.setDate(since.getDate() - days);
-  since.setHours(0, 0, 0, 0);
+  const today = utcToday();
+  const since = new Date(today);
+  since.setUTCDate(since.getUTCDate() - days);
 
   const [tasks, completions, allFocusSessions] = await Promise.all([
     prisma.task.findMany({
@@ -81,24 +141,25 @@ export async function getDailyBreakdown(userId: string, days = 30): Promise<Dail
     }),
   ]);
 
-  // Build day buckets
+  // Build day buckets using UTC dates
   const bucket = new Map<string, DailyAnalyticsDTO>();
   for (let i = 0; i < days; i++) {
-    const d = new Date(); d.setDate(d.getDate() - i); d.setHours(0, 0, 0, 0);
-    const key = d.toISOString().split('T')[0];
+    const d = new Date(today);
+    d.setUTCDate(d.getUTCDate() - i);
+    const key = toDateStr(d);
     bucket.set(key, { date: key, tasksCompleted: 0, focusMinutes: 0, habitsCompleted: 0 });
   }
 
   tasks.forEach((t: any) => {
-    const key = t.updatedAt.toISOString().split('T')[0];
+    const key = toDateStr(t.updatedAt);
     if (bucket.has(key)) bucket.get(key)!.tasksCompleted++;
   });
   completions.forEach((c: any) => {
-    const key = c.date.toISOString().split('T')[0];
+    const key = toDateStr(c.date);
     if (bucket.has(key)) bucket.get(key)!.habitsCompleted++;
   });
   allFocusSessions.forEach((s: any) => {
-    const key = s.startedAt.toISOString().split('T')[0];
+    const key = toDateStr(s.startedAt);
     if (bucket.has(key)) bucket.get(key)!.focusMinutes += s.durationMin;
   });
 
@@ -116,8 +177,7 @@ export async function getProjectAnalytics(userId: string): Promise<ProjectAnalyt
     },
   });
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  const today = utcToday();
 
   return projects.map((project) => {
     const totalTasks = project.tasks.length;
@@ -133,14 +193,13 @@ export async function getProjectAnalytics(userId: string): Promise<ProjectAnalyt
     }
 
     // Calculate weekly progress for this project (last 4 weeks)
-    const fourWeeksAgo = new Date();
-    fourWeeksAgo.setDate(fourWeeksAgo.getDate() - 28);
-    fourWeeksAgo.setHours(0, 0, 0, 0);
+    const fourWeeksAgo = new Date(today);
+    fourWeeksAgo.setUTCDate(fourWeeksAgo.getUTCDate() - 28);
 
     const weeklyData = new Map<string, number>();
     for (let i = 0; i < 4; i++) {
-      const weekStart = new Date();
-      weekStart.setDate(weekStart.getDate() - (i * 7));
+      const weekStart = new Date(today);
+      weekStart.setUTCDate(weekStart.getUTCDate() - (i * 7));
       const weekKey = getWeekKey(weekStart);
       weeklyData.set(weekKey, 0);
     }
@@ -174,9 +233,9 @@ export async function getProjectAnalytics(userId: string): Promise<ProjectAnalyt
 
 /** Get weekly progress trend (last 12 weeks) */
 export async function getWeeklyProgress(userId: string, weeks = 12) {
-  const since = new Date();
-  since.setDate(since.getDate() - (weeks * 7));
-  since.setHours(0, 0, 0, 0);
+  const today = utcToday();
+  const since = new Date(today);
+  since.setUTCDate(since.getUTCDate() - (weeks * 7));
 
   const [tasks, completions, allFocusSessions, projects] = await Promise.all([
     prisma.task.findMany({
@@ -200,8 +259,8 @@ export async function getWeeklyProgress(userId: string, weeks = 12) {
   // Build week buckets
   const bucket = new Map<string, any>();
   for (let i = 0; i < weeks; i++) {
-    const weekStart = new Date();
-    weekStart.setDate(weekStart.getDate() - (i * 7));
+    const weekStart = new Date(today);
+    weekStart.setUTCDate(weekStart.getUTCDate() - (i * 7));
     const weekKey = getWeekKey(weekStart);
     bucket.set(weekKey, {
       week: weekKey,
@@ -237,10 +296,9 @@ export async function getWeeklyProgress(userId: string, weeks = 12) {
 
 /** Get upcoming deadlines (tasks and projects) */
 export async function getUpcomingDeadlines(userId: string, days = 7) {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  const today = utcToday();
   const futureDate = new Date(today);
-  futureDate.setDate(futureDate.getDate() + days);
+  futureDate.setUTCDate(futureDate.getUTCDate() + days);
 
   const [tasks, projects] = await Promise.all([
     prisma.task.findMany({
@@ -295,17 +353,18 @@ export async function getUpcomingDeadlines(userId: string, days = 7) {
 function calcCurrentStreak(dates: string[]): number {
   if (dates.length === 0) return 0;
   const sorted = [...new Set(dates)].sort().reverse();
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  const yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1);
-  
-  // Check if the most recent date is today or yesterday
-  const mostRecent = new Date(sorted[0]); mostRecent.setHours(0, 0, 0, 0);
+  const today = utcToday();
+  const yesterday = new Date(today);
+  yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+
+  // Check if the most recent date is today or yesterday — dates are already UTC YYYY-MM-DD strings
+  const mostRecent = new Date(`${sorted[0]}T00:00:00.000Z`);
   if (mostRecent < yesterday) return 0; // Streak is broken
-  
+
   let streak = 1;
   let cursor = mostRecent;
   for (let i = 1; i < sorted.length; i++) {
-    const prev = new Date(sorted[i]); prev.setHours(0, 0, 0, 0);
+    const prev = new Date(`${sorted[i]}T00:00:00.000Z`);
     const diff = (cursor.getTime() - prev.getTime()) / (1000 * 60 * 60 * 24);
     if (diff === 1) { streak++; cursor = prev; } else break;
   }
@@ -318,8 +377,8 @@ function calcBestStreak(dates: string[]): number {
   const sorted = [...new Set(dates)].sort();
   let best = 1, current = 1;
   for (let i = 1; i < sorted.length; i++) {
-    const prev = new Date(sorted[i - 1]); prev.setHours(0, 0, 0, 0);
-    const curr = new Date(sorted[i]); curr.setHours(0, 0, 0, 0);
+    const prev = new Date(`${sorted[i - 1]}T00:00:00.000Z`);
+    const curr = new Date(`${sorted[i]}T00:00:00.000Z`);
     const diff = (curr.getTime() - prev.getTime()) / (1000 * 60 * 60 * 24);
     if (diff === 1) { current++; best = Math.max(best, current); } else current = 1;
   }
@@ -330,13 +389,14 @@ function calcBestStreak(dates: string[]): number {
 function calcStreak(dates: string[]): number {
   if (dates.length === 0) return 0;
   const sorted = [...new Set(dates)].sort().reverse();
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  const yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1);
-  let cursor = new Date(sorted[0]); cursor.setHours(0, 0, 0, 0);
+  const today = utcToday();
+  const yesterday = new Date(today);
+  yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+  let cursor = new Date(`${sorted[0]}T00:00:00.000Z`);
   if (cursor < yesterday) return 0;
   let streak = 1;
   for (let i = 1; i < sorted.length; i++) {
-    const prev = new Date(sorted[i]); prev.setHours(0, 0, 0, 0);
+    const prev = new Date(`${sorted[i]}T00:00:00.000Z`);
     const diff = (cursor.getTime() - prev.getTime()) / (1000 * 60 * 60 * 24);
     if (diff === 1) { streak++; cursor = prev; } else break;
   }
@@ -345,10 +405,12 @@ function calcStreak(dates: string[]): number {
 
 /** Get ISO week key "YYYY-WW" for grouping by week */
 function getWeekKey(date: Date): string {
+  // Clone in UTC to avoid local-time interference
   const d = new Date(date);
-  d.setHours(0, 0, 0, 0);
-  d.setDate(d.getDate() + 3 - ((d.getDay() + 6) % 7));
-  const week1 = new Date(d.getFullYear(), 0, 4);
-  const weekNum = 1 + Math.round(((d.getTime() - week1.getTime()) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7);
-  return `${d.getFullYear()}-W${weekNum.toString().padStart(2, '0')}`;
+  const utcTs = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+  const utcDate = new Date(utcTs);
+  utcDate.setUTCDate(utcDate.getUTCDate() + 3 - ((utcDate.getUTCDay() + 6) % 7));
+  const week1 = new Date(Date.UTC(utcDate.getUTCFullYear(), 0, 4));
+  const weekNum = 1 + Math.round(((utcDate.getTime() - week1.getTime()) / 86400000 - 3 + ((week1.getUTCDay() + 6) % 7)) / 7);
+  return `${utcDate.getUTCFullYear()}-W${weekNum.toString().padStart(2, '0')}`;
 }
