@@ -16,11 +16,14 @@ export async function getSummary(userId: string): Promise<AnalyticsSummaryDTO> {
     },
   });
 
-  const [tasksTotal, tasksCompleted, sessions] = await Promise.all([
+  const [tasksTotal, tasksCompleted, allSessions] = await Promise.all([
     prisma.task.count({ where: { userId } }),
     prisma.task.count({ where: { userId, status: 'DONE' } }),
-    prisma.focusSession.findMany({ where: { userId, completed: true } }),
+    prisma.focusSession.findMany({ where: { userId } }),
   ]);
+
+  // Count completed sessions separately for focusSessionsTotal
+  const sessions = allSessions.filter((s) => s.completed);
 
   // Calculate streaks using UTC dates for consistency
   let longestHabitStreak = 0;
@@ -35,7 +38,8 @@ export async function getSummary(userId: string): Promise<AnalyticsSummaryDTO> {
     if (bestStreak > longestHabitStreak) longestHabitStreak = bestStreak;
   }
 
-  const focusMinutesTotal = sessions.reduce((acc: any, s: any) => acc + s.durationMin, 0);
+  // Count ALL focus minutes (not just completed sessions)
+  const focusMinutesTotal = allSessions.reduce((acc: any, s: any) => acc + s.durationMin, 0);
 
   // Get today's completions for habitsCompletedToday
   const today = new Date();
@@ -62,7 +66,7 @@ export async function getDailyBreakdown(userId: string, days = 30): Promise<Dail
   since.setDate(since.getDate() - days);
   since.setHours(0, 0, 0, 0);
 
-  const [tasks, completions, sessions] = await Promise.all([
+  const [tasks, completions, allFocusSessions] = await Promise.all([
     prisma.task.findMany({
       where: { userId, status: 'DONE', updatedAt: { gte: since } },
       select: { updatedAt: true },
@@ -72,7 +76,7 @@ export async function getDailyBreakdown(userId: string, days = 30): Promise<Dail
       select: { date: true },
     }),
     prisma.focusSession.findMany({
-      where: { userId, completed: true, startedAt: { gte: since } },
+      where: { userId, startedAt: { gte: since } },
       select: { startedAt: true, durationMin: true },
     }),
   ]);
@@ -93,7 +97,7 @@ export async function getDailyBreakdown(userId: string, days = 30): Promise<Dail
     const key = c.date.toISOString().split('T')[0];
     if (bucket.has(key)) bucket.get(key)!.habitsCompleted++;
   });
-  sessions.forEach((s: any) => {
+  allFocusSessions.forEach((s: any) => {
     const key = s.startedAt.toISOString().split('T')[0];
     if (bucket.has(key)) bucket.get(key)!.focusMinutes += s.durationMin;
   });
@@ -174,7 +178,7 @@ export async function getWeeklyProgress(userId: string, weeks = 12) {
   since.setDate(since.getDate() - (weeks * 7));
   since.setHours(0, 0, 0, 0);
 
-  const [tasks, completions, sessions, projects] = await Promise.all([
+  const [tasks, completions, allFocusSessions, projects] = await Promise.all([
     prisma.task.findMany({
       where: { userId, status: 'DONE', updatedAt: { gte: since } },
       select: { updatedAt: true },
@@ -184,7 +188,7 @@ export async function getWeeklyProgress(userId: string, weeks = 12) {
       select: { date: true },
     }),
     prisma.focusSession.findMany({
-      where: { userId, completed: true, startedAt: { gte: since } },
+      where: { userId, startedAt: { gte: since } },
       select: { startedAt: true, durationMin: true },
     }),
     prisma.project.findMany({
@@ -218,7 +222,7 @@ export async function getWeeklyProgress(userId: string, weeks = 12) {
     if (bucket.has(weekKey)) bucket.get(weekKey)!.habitsCompleted++;
   });
 
-  sessions.forEach((s: any) => {
+  allFocusSessions.forEach((s: any) => {
     const weekKey = getWeekKey(s.startedAt);
     if (bucket.has(weekKey)) bucket.get(weekKey)!.focusMinutes += s.durationMin;
   });
