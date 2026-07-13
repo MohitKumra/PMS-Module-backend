@@ -8,14 +8,16 @@ import * as notifService from './notification.service';
 
 function toDTO(s: {
   id: string; userId: string; durationMin: number; startedAt: Date; completed: boolean;
+  taskId: string | null; isBreak: boolean;
 }): FocusSessionDTO {
   return {
     id: s.id, userId: s.userId, durationMin: s.durationMin,
     startedAt: s.startedAt.toISOString(), completed: s.completed,
+    taskId: s.taskId, isBreak: s.isBreak,
   };
 }
 
-export async function listSessions(userId: string, limit = 20): Promise<{ data: FocusSessionDTO[]; meta: { total: number } }> {
+export async function listSessions(userId: string, limit = 100): Promise<{ data: FocusSessionDTO[]; meta: { total: number } }> {
   const [sessions, total] = await Promise.all([
     prisma.focusSession.findMany({
       where: { userId }, orderBy: { startedAt: 'desc' }, take: limit,
@@ -30,6 +32,8 @@ export async function logSession(userId: string, data: CreateFocusSessionRequest
     data: {
       userId, durationMin: data.durationMin,
       startedAt: new Date(data.startedAt), completed: data.completed,
+      taskId: data.taskId ?? null,
+      isBreak: data.isBreak ?? false,
     },
   });
 

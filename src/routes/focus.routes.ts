@@ -12,6 +12,8 @@ const logSchema = z.object({
   durationMin: z.number().int().min(1).max(120),
   startedAt: z.string().datetime({ offset: true }),
   completed: z.boolean(),
+  taskId: z.string().nullable().optional(),
+  isBreak: z.boolean().optional(),
 });
 
 router.get('/',   ctrl.list);

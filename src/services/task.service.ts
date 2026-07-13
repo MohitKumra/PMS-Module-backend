@@ -78,6 +78,8 @@ function toDTO(t: any): TaskDTO {
     skipDates: t.skipDates || [],
     parentTaskId: t.parentTaskId,
     attachmentUrl: t.attachmentUrl,
+    inProgressAt: t.inProgressAt?.toISOString() ?? null,
+    completedAt: t.completedAt?.toISOString() ?? null,
     subTasks: t.subTasks?.map(subTaskToDTO),
     createdAt: t.createdAt.toISOString(),
     updatedAt: t.updatedAt.toISOString(),
@@ -155,12 +157,15 @@ export async function createTask(userId: string, data: CreateTaskRequest): Promi
       userId,
       title: data.title,
       description: data.description ?? null,
+      status: data.status ?? 'TODO',
       priority: data.priority ?? 'MEDIUM',
       dueDate,
       recurrenceRule: data.recurrenceRule ?? null,
       recurrenceEndDate: (data.recurrenceEndDate && data.recurrenceEndDate !== '') ? new Date(data.recurrenceEndDate) : null,
       skipDates: data.skipDates || [],
       parentTaskId: data.parentTaskId ?? null,
+      inProgressAt: data.status === 'IN_PROGRESS' ? new Date() : null,
+      completedAt: data.status === 'DONE' ? new Date() : null,
       subTasks: data.subTasks && data.subTasks.length > 0 ? {
         create: data.subTasks.map((st, index) => ({
           title: normalizeSubTaskTitle(st.title),
@@ -179,6 +184,22 @@ export async function updateTask(userId: string, taskId: string, data: UpdateTas
 
   const wasNotDone = existing.status !== 'DONE';
   const isBeingMarkedDone = data.status === 'DONE';
+
+  let nextInProgressAt: Date | null | undefined = undefined;
+  let nextCompletedAt: Date | null | undefined = undefined;
+
+  if (data.status !== undefined) {
+    if (data.status === 'IN_PROGRESS') {
+      nextInProgressAt = existing.inProgressAt || new Date();
+      nextCompletedAt = null;
+    } else if (data.status === 'DONE') {
+      nextCompletedAt = existing.completedAt || new Date();
+      nextInProgressAt = existing.inProgressAt || existing.createdAt;
+    } else if (data.status === 'TODO') {
+      nextInProgressAt = null;
+      nextCompletedAt = null;
+    }
+  }
 
   // Resolve the effective recurrence rule and due date after this update,
   // so we can anchor recurrence to "today" if the task ends up recurring
@@ -249,6 +270,8 @@ export async function updateTask(userId: string, taskId: string, data: UpdateTas
         ...(data.recurrenceEndDate !== undefined && { recurrenceEndDate: (data.recurrenceEndDate && data.recurrenceEndDate !== '') ? new Date(data.recurrenceEndDate) : null }),
         ...(data.skipDates !== undefined && { skipDates: data.skipDates }),
         ...(data.attachmentUrl !== undefined && { attachmentUrl: data.attachmentUrl }),
+        ...(nextInProgressAt !== undefined && { inProgressAt: nextInProgressAt }),
+        ...(nextCompletedAt !== undefined && { completedAt: nextCompletedAt }),
       },
       include: { subTasks: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] } },
     });

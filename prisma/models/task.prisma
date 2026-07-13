@@ -12,6 +12,8 @@ model Task {
   skipDates        String[] // Dates to skip (YYYY-MM-DD)
   parentTaskId     String? // for recurring task instances
   attachmentUrl    String?
+  inProgressAt     DateTime?
+  completedAt      DateTime?
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
 

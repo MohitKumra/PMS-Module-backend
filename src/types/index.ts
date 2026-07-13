@@ -162,6 +162,8 @@ export interface TaskDTO {
   skipDates: string[]; // YYYY-MM-DD
   parentTaskId: string | null;
   attachmentUrl: string | null;
+  inProgressAt: string | null;
+  completedAt: string | null;
   subTasks?: SubTaskDTO[];
   createdAt: string;
   updatedAt: string;
@@ -170,6 +172,7 @@ export interface TaskDTO {
 export interface CreateTaskRequest {
   title: string;
   description?: string;
+  status?: TaskStatus;
   priority?: Priority;
   dueDate?: string;
   recurrenceRule?: string;
@@ -272,12 +275,16 @@ export interface FocusSessionDTO {
   durationMin: number;
   startedAt: string;
   completed: boolean;
+  taskId: string | null;
+  isBreak: boolean;
 }
 
 export interface CreateFocusSessionRequest {
   durationMin: number;
   startedAt: string;
   completed: boolean;
+  taskId?: string | null;
+  isBreak?: boolean;
 }
 
 // ─── Calendar ────────────────────────────────────────────────────────────────
