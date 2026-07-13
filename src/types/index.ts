@@ -11,7 +11,10 @@ export interface UserDTO {
   email: string;
   name: string | null;
   avatarUrl: string | null;
+  recoveryEmail: string | null;
   timezone: string;
+  hasPassword: boolean;
+  hasGoogle: boolean;
   createdAt: string; // ISO 8601
 }
 
@@ -33,10 +36,117 @@ export interface AuthResponse {
   user: UserDTO;
 }
 
+export type ThemePreference = 'LIGHT' | 'DARK' | 'SYSTEM';
+export type LayoutPreference = 'COMFORTABLE' | 'COMPACT' | 'EXPANDED';
+
+export interface NotificationPreferenceDTO {
+  taskDue: boolean;
+  habitReminder: boolean;
+  projectDeadline: boolean;
+  focusSessionComplete: boolean;
+  calendarSync: boolean;
+}
+
+export interface AppearanceSettingsDTO {
+  themePreference: ThemePreference;
+  layoutPreference: LayoutPreference;
+  calendarView: 'day' | 'week' | 'month' | 'agenda';
+}
+
+export interface GoogleCalendarIntegrationDTO {
+  connected: boolean;
+  googleEmail: string | null;
+  calendarId: string | null;
+  connectedAt: string | null;
+  lastSyncedAt: string | null;
+  isActive: boolean;
+  syncTasks: boolean;
+}
+
+export interface SecuritySettingsDTO {
+  hasPassword: boolean;
+  hasGoogle: boolean;
+  recoveryEmail: string | null;
+}
+
+export interface SettingsDTO {
+  appearance: AppearanceSettingsDTO;
+  notifications: NotificationPreferenceDTO;
+  integrations: {
+    googleCalendar: GoogleCalendarIntegrationDTO;
+  };
+  security: SecuritySettingsDTO;
+}
+
+export interface UpdateAppearanceRequest {
+  themePreference?: ThemePreference;
+  layoutPreference?: LayoutPreference;
+  calendarView?: 'day' | 'week' | 'month' | 'agenda';
+}
+
+export interface UpdateNotificationPreferencesRequest extends NotificationPreferenceDTO {}
+
+export interface UpdateRecoveryEmailRequest {
+  recoveryEmail: string | null;
+}
+
+export interface ChangePasswordRequest {
+  currentPassword?: string;
+  newPassword: string;
+}
+
+export interface SetPasswordRequest {
+  newPassword: string;
+}
+
+export interface GoogleAuthStartResponse {
+  url: string;
+}
+
+export type GoogleAuthPurpose = 'signin' | 'calendar-connect';
+
+export interface GoogleCalendarSyncResponse {
+  synced: number;
+  created: number;
+  updated: number;
+  deleted: number;
+  skipped: number;
+}
+
 // ─── Tasks ───────────────────────────────────────────────────────────────────
 
 export type TaskStatus = 'TODO' | 'IN_PROGRESS' | 'DONE';
 export type Priority = 'LOW' | 'MEDIUM' | 'HIGH';
+
+// ─── SubTasks ──────────────────────────────────────────────────────────────────
+
+export interface SubTaskDTO {
+  id: string;
+  taskId: string;
+  title: string;
+  completed: boolean;
+  order: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateSubTaskRequest {
+  title: string;
+  order?: number;
+}
+
+export interface TaskSubTaskInput {
+  id?: string;
+  title: string;
+  order?: number;
+  completed?: boolean;
+}
+
+export interface UpdateSubTaskRequest {
+  title?: string;
+  completed?: boolean;
+  order?: number;
+}
 
 /** Full task shape returned by the API. */
 export interface TaskDTO {
@@ -48,8 +158,11 @@ export interface TaskDTO {
   priority: Priority;
   dueDate: string | null; // ISO 8601
   recurrenceRule: string | null; // RRULE string
+  recurrenceEndDate: string | null; // ISO 8601
+  skipDates: string[]; // YYYY-MM-DD
   parentTaskId: string | null;
   attachmentUrl: string | null;
+  subTasks?: SubTaskDTO[];
   createdAt: string;
   updatedAt: string;
 }
@@ -60,7 +173,10 @@ export interface CreateTaskRequest {
   priority?: Priority;
   dueDate?: string;
   recurrenceRule?: string;
+  recurrenceEndDate?: string;
+  skipDates?: string[];
   parentTaskId?: string;
+  subTasks?: CreateSubTaskRequest[];
 }
 
 export interface UpdateTaskRequest {
@@ -70,7 +186,10 @@ export interface UpdateTaskRequest {
   priority?: Priority;
   dueDate?: string | null;
   recurrenceRule?: string | null;
+  recurrenceEndDate?: string | null;
+  skipDates?: string[];
   attachmentUrl?: string | null;
+  subTasks?: TaskSubTaskInput[];
 }
 
 // ─── Habits ──────────────────────────────────────────────────────────────────
@@ -159,6 +278,40 @@ export interface CreateFocusSessionRequest {
   durationMin: number;
   startedAt: string;
   completed: boolean;
+}
+
+// ─── Calendar ────────────────────────────────────────────────────────────────
+
+export type CalendarEventType = 'TASK_DUE' | 'FOCUS_SESSION';
+
+export interface CalendarEventDTO {
+  id: string;
+  type: CalendarEventType;
+  title: string;
+  startAt: string;
+  endAt: string;
+  allDay: boolean;
+  taskId: string | null;
+  priority: Priority | null;
+  status: TaskStatus | null;
+  sourceLabel: string;
+  metadata?: {
+    durationMin?: number;
+    description?: string | null;
+  };
+}
+
+export interface CalendarOverviewDTO {
+  range: {
+    from: string;
+    to: string;
+  };
+  events: CalendarEventDTO[];
+  meta: {
+    totalEvents: number;
+    taskEvents: number;
+    focusEvents: number;
+  };
 }
 
 // ─── Analytics ───────────────────────────────────────────────────────────────

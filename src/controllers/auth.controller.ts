@@ -4,7 +4,10 @@
 
 import { Request, Response, NextFunction } from 'express';
 import * as authService from '../services/auth.service';
+import * as googleService from '../services/google.service';
 import { z } from 'zod';
+import { verifyRefreshToken } from '../lib/jwt';
+import { env } from '../config/env';
 
 const REFRESH_COOKIE = 'refreshToken';
 const COOKIE_OPTS = {
@@ -15,7 +18,13 @@ const COOKIE_OPTS = {
 export async function signup(req: Request, res: Response, next: NextFunction) {
   try {
     const { email, password, name } = req.body;
-    const result = await authService.signup(email, password, name);
+    const timezone = req.headers['x-client-timezone'];
+    const result = await authService.signup(
+      email,
+      password,
+      name,
+      typeof timezone === 'string' ? timezone : undefined,
+    );
     res.status(201).json(result);
   } catch (err) { next(err); }
 }
@@ -23,7 +32,12 @@ export async function signup(req: Request, res: Response, next: NextFunction) {
 export async function login(req: Request, res: Response, next: NextFunction) {
   try {
     const { email, password } = req.body;
-    const { response, refreshToken } = await authService.login(email, password);
+    const timezone = req.headers['x-client-timezone'];
+    const { response, refreshToken } = await authService.login(
+      email,
+      password,
+      typeof timezone === 'string' ? timezone : undefined,
+    );
     res.cookie(REFRESH_COOKIE, refreshToken, COOKIE_OPTS);
     res.json(response);
   } catch (err) { next(err); }
@@ -62,5 +76,54 @@ export async function getMe(req: Request, res: Response, next: NextFunction) {
   try {
     const user = await authService.getMe(req.user!.sub);
     res.json(user);
+  } catch (err) { next(err); }
+}
+
+export async function googleStart(req: Request, res: Response, next: NextFunction) {
+  try {
+    const purpose = req.query.purpose === 'calendar-connect' ? 'calendar-connect' : 'signin';
+    const returnTo = typeof req.query.returnTo === 'string' && req.query.returnTo.trim()
+      ? req.query.returnTo.trim()
+      : purpose === 'calendar-connect'
+        ? `${env.FRONTEND_URL}/settings?integration=google-calendar`
+        : `${env.FRONTEND_URL}/google/callback`;
+    const { url } = googleService.buildGoogleAuthRedirect(purpose, returnTo);
+    res.json({ url });
+  } catch (err) { next(err); }
+}
+
+export async function googleCallback(req: Request, res: Response, next: NextFunction) {
+  try {
+    const code = typeof req.query.code === 'string' ? req.query.code : '';
+    const state = typeof req.query.state === 'string' ? req.query.state : '';
+    const currentRefreshToken = req.cookies?.[REFRESH_COOKIE];
+    let currentUserId: string | undefined;
+
+    if (currentRefreshToken) {
+      try {
+        const payload = verifyRefreshToken(currentRefreshToken);
+        currentUserId = payload.sub;
+      } catch {
+        currentUserId = undefined;
+      }
+    }
+
+    const result = await googleService.handleGoogleAuthCallback(code, state, currentUserId);
+    res.cookie(REFRESH_COOKIE, result.refreshToken, COOKIE_OPTS);
+    res.redirect(result.redirectTo);
+  } catch (err) { next(err); }
+}
+
+export async function changePassword(req: Request, res: Response, next: NextFunction) {
+  try {
+    await authService.changePassword(req.user!.sub, req.body.currentPassword, req.body.newPassword);
+    res.json({ success: true });
+  } catch (err) { next(err); }
+}
+
+export async function setPassword(req: Request, res: Response, next: NextFunction) {
+  try {
+    await authService.setPassword(req.user!.sub, req.body.newPassword);
+    res.json({ success: true });
   } catch (err) { next(err); }
 }

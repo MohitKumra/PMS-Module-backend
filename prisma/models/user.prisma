@@ -5,6 +5,7 @@ model User {
   googleId         String?  @unique
   name             String?
   avatarUrl        String?
+  recoveryEmail    String?
   timezone         String   @default("UTC")
   pushSubscription String? // Stringified PushSubscription JSON
   createdAt        DateTime @default(now())
@@ -15,6 +16,11 @@ model User {
   notes         Note[]
   focusSessions FocusSession[]
   notifications NotificationLog[]
+  passwordResetTokens PasswordResetToken[]
+  preferences   UserPreference?
+  notificationPreferences NotificationPreference?
+  googleCalendarConnection GoogleCalendarConnection?
+  googleCalendarSyncItems GoogleCalendarSyncItem[]
 
   // Personal project management
   projects Project[]

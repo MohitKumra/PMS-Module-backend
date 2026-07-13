@@ -28,6 +28,7 @@ const envSchema = z.object({
   VAPID_PRIVATE_KEY: z.string().optional(),
   VAPID_EMAIL: z.string().default('mailto:admin@productivity.app'),
 
+  BACKEND_URL: z.string().default('http://localhost:3001'),
   FRONTEND_URL: z.string().default('http://localhost:5173'),
 });
 

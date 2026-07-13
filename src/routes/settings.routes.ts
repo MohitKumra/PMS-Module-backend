@@ -1,0 +1,36 @@
+import { Router } from 'express';
+import { z } from 'zod';
+import * as ctrl from '../controllers/settings.controller';
+import { authenticate } from '../middleware/authenticate';
+import { validate } from '../middleware/validate';
+
+const router = Router();
+router.use(authenticate);
+
+const appearanceSchema = z.object({
+  themePreference: z.enum(['LIGHT', 'DARK', 'SYSTEM']).optional(),
+  layoutPreference: z.enum(['COMFORTABLE', 'COMPACT', 'EXPANDED']).optional(),
+  calendarView: z.enum(['day', 'week', 'month', 'agenda']).optional(),
+});
+
+const notificationsSchema = z.object({
+  taskDue: z.boolean(),
+  habitReminder: z.boolean(),
+  projectDeadline: z.boolean(),
+  focusSessionComplete: z.boolean(),
+  calendarSync: z.boolean(),
+});
+
+const recoverySchema = z.object({
+  recoveryEmail: z.string().email().nullable().optional(),
+});
+
+router.get('/', ctrl.getSettings);
+router.patch('/appearance', validate({ body: appearanceSchema }), ctrl.updateAppearance);
+router.patch('/notifications', validate({ body: notificationsSchema }), ctrl.updateNotifications);
+router.patch('/security/recovery-email', validate({ body: recoverySchema }), ctrl.updateRecoveryEmail);
+router.get('/google-calendar/start', ctrl.googleCalendarStart);
+router.post('/google-calendar/sync', ctrl.syncGoogleCalendar);
+router.post('/google-calendar/disconnect', ctrl.disconnectGoogleCalendar);
+
+export default router;

@@ -8,6 +8,14 @@ import { env } from '../config/env';
 
 let _transporter: nodemailer.Transporter | null = null;
 
+function sanitizeSmtpSecret(value?: string | null): string | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) return undefined;
+  // Gmail app passwords are often copied with spaces for readability.
+  // Nodemailer/SMTP auth expects the raw secret string, so strip whitespace.
+  return trimmed.replace(/\s+/g, '');
+}
+
 async function getTransporter(): Promise<nodemailer.Transporter> {
   if (_transporter) return _transporter;
 
@@ -15,15 +23,22 @@ async function getTransporter(): Promise<nodemailer.Transporter> {
     _transporter = nodemailer.createTransport({
       host: env.SMTP_HOST,
       port: parseInt(env.SMTP_PORT ?? '587'),
-      auth: { user: env.SMTP_USER, pass: env.SMTP_PASS },
+      auth: { user: env.SMTP_USER?.trim(), pass: sanitizeSmtpSecret(env.SMTP_PASS) },
+    });
+  } else if (env.SMTP_USER && env.SMTP_PASS) {
+    // Gmail convenience path: allow a direct Gmail app-password setup without
+    // requiring a separate SMTP_HOST entry.
+    _transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: { user: env.SMTP_USER.trim(), pass: sanitizeSmtpSecret(env.SMTP_PASS) },
     });
   } else {
     // Dev fallback: Ethereal test account (emails viewable at ethereal.email)
     const testAccount = await nodemailer.createTestAccount();
     _transporter = nodemailer.createTransport({
-      host: 'smtp.ethereal.email',
-      port: 587,
-      auth: { user: testAccount.user, pass: testAccount.pass },
+      host: env.SMTP_HOST || 'smtp.ethereal.email',
+      port: parseInt(env.SMTP_PORT ?? '587'),
+      auth: { user: env.SMTP_USER || testAccount.user, pass: env.SMTP_PASS || testAccount.pass },
     });
     console.info('📧  Mailer: using Ethereal test account', testAccount.user);
   }

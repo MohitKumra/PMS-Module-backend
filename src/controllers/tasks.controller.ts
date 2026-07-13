@@ -36,3 +36,41 @@ export async function remove(req: Request, res: Response, next: NextFunction) {
     res.status(204).send();
   } catch (err) { next(err); }
 }
+
+// Subtask controllers
+export async function listSubTasks(req: Request, res: Response, next: NextFunction) {
+  try {
+    const subTasks = await taskService.listSubTasks(req.user!.sub, req.params.taskId as string);
+    res.json(subTasks);
+  } catch (err) { next(err); }
+}
+
+export async function createSubTask(req: Request, res: Response, next: NextFunction) {
+  try {
+    const subTask = await taskService.createSubTask(req.user!.sub, req.params.taskId as string, req.body);
+    res.status(201).json(subTask);
+  } catch (err) { next(err); }
+}
+
+export async function updateSubTask(req: Request, res: Response, next: NextFunction) {
+  try {
+    const subTask = await taskService.updateSubTask(
+      req.user!.sub, 
+      req.params.taskId as string, 
+      req.params.subTaskId as string, 
+      req.body
+    );
+    res.json(subTask);
+  } catch (err) { next(err); }
+}
+
+export async function deleteSubTask(req: Request, res: Response, next: NextFunction) {
+  try {
+    await taskService.deleteSubTask(
+      req.user!.sub, 
+      req.params.taskId as string, 
+      req.params.subTaskId as string
+    );
+    res.status(204).send();
+  } catch (err) { next(err); }
+}

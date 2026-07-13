@@ -118,7 +118,7 @@ async function checkHabitReminders() {
                 habit.userId,
                 `Habit Reminder: ${habit.title}`,
                 `Don't forget to check off your habit "${habit.title}" today!`,
-                ['BROWSER_PUSH']
+                ['BROWSER_PUSH', 'EMAIL']
               );
             }
           }

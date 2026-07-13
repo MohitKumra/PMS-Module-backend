@@ -1,0 +1,31 @@
+model GoogleCalendarConnection {
+  userId           String   @id
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  googleAccountId  String   @unique
+  googleEmail      String
+  accessToken      String?
+  refreshToken     String?
+  scope            String
+  expiresAt        DateTime?
+  calendarId       String?
+  isActive         Boolean  @default(true)
+  syncTasks        Boolean  @default(true)
+  connectedAt      DateTime @default(now())
+  lastSyncedAt     DateTime?
+  revokedAt        DateTime?
+}
+
+model GoogleCalendarSyncItem {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  localType     String
+  localId       String
+  googleEventId String
+  calendarId    String?
+  syncedAt      DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([userId, localType, localId])
+  @@index([userId, googleEventId])
+}
