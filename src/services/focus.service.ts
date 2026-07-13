@@ -4,6 +4,7 @@
 
 import { prisma } from '../lib/prismaClient';
 import type { FocusSessionDTO, CreateFocusSessionRequest } from '../types';
+import * as notifService from './notification.service';
 
 function toDTO(s: {
   id: string; userId: string; durationMin: number; startedAt: Date; completed: boolean;
@@ -31,5 +32,22 @@ export async function logSession(userId: string, data: CreateFocusSessionRequest
       startedAt: new Date(data.startedAt), completed: data.completed,
     },
   });
+
+  if (data.completed) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { notificationPreferences: true },
+    });
+
+    if (user?.notificationPreferences?.focusSessionComplete) {
+      await notifService.sendNotification(
+        userId,
+        `Focus session complete: ${data.durationMin} min`,
+        'Your focus block finished successfully.',
+        ['BROWSER_PUSH', 'EMAIL'],
+      );
+    }
+  }
+
   return toDTO(session);
 }

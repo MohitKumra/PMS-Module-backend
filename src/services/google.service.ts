@@ -4,6 +4,7 @@ import { prisma } from '../lib/prismaClient';
 import { env } from '../config/env';
 import { createError } from '../middleware/errorHandler';
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from '../lib/jwt';
+import * as notifService from './notification.service';
 import type {
   GoogleAuthPurpose,
   GoogleCalendarIntegrationDTO,
@@ -74,11 +75,11 @@ function decryptSecret(value: string | null | undefined): string | null {
 }
 
 function signGoogleState(state: GoogleOAuthState): string {
-  return jwt.sign(state, env.JWT_SECRET, { expiresIn: '10m' });
+  return encodeURIComponent(jwt.sign(state, env.JWT_SECRET, { expiresIn: '10m' }));
 }
 
 function verifyGoogleState(state: string): GoogleOAuthState {
-  return jwt.verify(state, env.JWT_SECRET) as GoogleOAuthState;
+  return jwt.verify(decodeURIComponent(state), env.JWT_SECRET) as GoogleOAuthState;
 }
 
 export function buildGoogleAuthUrl(purpose: GoogleAuthPurpose, returnTo: string): GoogleAuthStartResponse {
@@ -353,7 +354,10 @@ async function callGoogleCalendarApi(
 }
 
 export async function syncGoogleCalendarTasks(userId: string): Promise<GoogleCalendarSyncResponse> {
-  const user = await prisma.user.findUnique({ where: { id: userId } });
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    include: { notificationPreferences: true },
+  });
   if (!user) throw createError(404, 'USER_NOT_FOUND', 'User not found');
 
   const connection = await prisma.googleCalendarConnection.findUnique({ where: { userId } });
@@ -479,6 +483,15 @@ export async function syncGoogleCalendarTasks(userId: string): Promise<GoogleCal
       lastSyncedAt: new Date(),
     },
   });
+
+  if (user.notificationPreferences?.calendarSync) {
+    await notifService.sendNotification(
+      userId,
+      'Google Calendar synced',
+      `Synced ${created + updated + deleted} calendar item${created + updated + deleted === 1 ? '' : 's'}.`,
+      ['BROWSER_PUSH', 'EMAIL'],
+    );
+  }
 
   return { synced: created + updated + deleted, created, updated, deleted, skipped };
 }

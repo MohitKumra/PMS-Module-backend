@@ -25,7 +25,11 @@ async function checkTaskReminders() {
         },
       },
       include: {
-        user: true,
+        user: {
+          include: {
+            notificationPreferences: true,
+          },
+        },
       },
     });
 
@@ -41,6 +45,9 @@ async function checkTaskReminders() {
       });
 
       if (!alreadySent) {
+        if (!task.user.notificationPreferences?.taskDue) {
+          continue;
+        }
         console.info(`⏰  Task Reminder triggered for User ${task.userId}: "${task.title}"`);
         const title = `Task Due Soon: ${task.title}`;
         const body = task.description
@@ -57,6 +64,61 @@ async function checkTaskReminders() {
 }
 
 /**
+ * Checks for projects that are due soon and notifies users who opted in.
+ */
+async function checkProjectDeadlines() {
+  const now = new Date();
+  const twentyFourHoursLater = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+
+  try {
+    const projectsDueSoon = await prisma.project.findMany({
+      where: {
+        dueDate: {
+          gte: now,
+          lte: twentyFourHoursLater,
+        },
+      },
+      include: {
+        user: {
+          include: {
+            notificationPreferences: true,
+          },
+        },
+      },
+    });
+
+    for (const project of projectsDueSoon) {
+      if (!project.user.notificationPreferences?.projectDeadline) {
+        continue;
+      }
+
+      const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+      const alreadySent = await prisma.notificationLog.findFirst({
+        where: {
+          userId: project.userId,
+          title: { contains: project.name },
+          sentAt: { gte: oneDayAgo },
+        },
+      });
+
+      if (!alreadySent) {
+        console.info(`📅  Project Deadline triggered for User ${project.userId}: "${project.name}"`);
+        await notifService.sendNotification(
+          project.userId,
+          `Project deadline: ${project.name}`,
+          project.description
+            ? `"${project.description}" is due within 24 hours.`
+            : 'Your project is due within 24 hours.',
+          ['BROWSER_PUSH', 'EMAIL'],
+        );
+      }
+    }
+  } catch (err) {
+    console.error('❌  Error running project deadline check:', err);
+  }
+}
+
+/**
  * Checks for habits that match the current time in the user's timezone.
  */
 async function checkHabitReminders() {
@@ -69,7 +131,11 @@ async function checkHabitReminders() {
         reminderTime: { not: null },
       },
       include: {
-        user: true,
+        user: {
+          include: {
+            notificationPreferences: true,
+          },
+        },
       },
     });
 
@@ -102,6 +168,9 @@ async function checkHabitReminders() {
           });
 
           if (!alreadyCompletedToday) {
+            if (!habit.user.notificationPreferences?.habitReminder) {
+              continue;
+            }
             // Check if notified in the last 10 minutes to avoid double-runs
             const tenMinAgo = new Date(now.getTime() - 10 * 60 * 1000);
             const alreadyNotified = await prisma.notificationLog.findFirst({
@@ -139,6 +208,7 @@ export function startScheduler() {
   // Cron pattern: run every minute
   cron.schedule('*/1 * * * *', async () => {
     await checkTaskReminders();
+    await checkProjectDeadlines();
     await checkHabitReminders();
   });
 }
