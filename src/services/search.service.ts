@@ -1,10 +1,10 @@
 // backend/src/services/search.service.ts
-// Global search service for searching tasks, habits, notes, projects, and messages
+// Global search service for searching tasks, habits, notes, and projects
 
 import { prisma } from '../lib/prismaClient';
 
 export interface SearchResult {
-  type: 'task' | 'habit' | 'note' | 'project' | 'message';
+  type: 'task' | 'habit' | 'note' | 'project';
   id: string;
   title: string;
   description?: string | null;
@@ -15,9 +15,9 @@ export interface SearchResult {
 
 export async function search(userId: string, query: string): Promise<SearchResult[]> {
   const lowerQuery = query.toLowerCase();
-  
+
   // Perform parallel searches across all models
-  const [tasks, habits, notes, projects, messages] = await Promise.all([
+  const [tasks, habits, notes, projects] = await Promise.all([
     prisma.task.findMany({
       where: {
         userId,
@@ -58,18 +58,11 @@ export async function search(userId: string, query: string): Promise<SearchResul
       },
       take: 10,
     }),
-    prisma.message.findMany({
-      where: {
-        userId,
-        content: { contains: lowerQuery, mode: 'insensitive' },
-      },
-      take: 10,
-    }),
   ]);
 
   // Transform all results to unified format
   const results: SearchResult[] = [
-    ...tasks.map(task => ({
+    ...tasks.map((task) => ({
       type: 'task' as const,
       id: task.id,
       title: task.title,
@@ -83,7 +76,7 @@ export async function search(userId: string, query: string): Promise<SearchResul
         projectId: task.projectTasks?.projectId ?? null,
       },
     })),
-    ...habits.map(habit => ({
+    ...habits.map((habit) => ({
       type: 'habit' as const,
       id: habit.id,
       title: habit.title,
@@ -92,7 +85,7 @@ export async function search(userId: string, query: string): Promise<SearchResul
         targetPerWeek: habit.targetPerWeek,
       },
     })),
-    ...notes.map(note => ({
+    ...notes.map((note) => ({
       type: 'note' as const,
       id: note.id,
       title: note.title || 'Untitled Note',
@@ -105,7 +98,7 @@ export async function search(userId: string, query: string): Promise<SearchResul
         projectId: note.projectId,
       },
     })),
-    ...projects.map(project => ({
+    ...projects.map((project) => ({
       type: 'project' as const,
       id: project.id,
       title: project.name,
@@ -116,17 +109,6 @@ export async function search(userId: string, query: string): Promise<SearchResul
         status: project.status,
         progress: project.progress,
         dueDate: project.dueDate?.toISOString(),
-      },
-    })),
-    ...messages.map(message => ({
-      type: 'message' as const,
-      id: message.id,
-      title: 'Message',
-      description: message.content,
-      createdAt: message.createdAt.toISOString(),
-      metadata: {
-        type: message.type,
-        projectId: message.projectId,
       },
     })),
   ];

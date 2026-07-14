@@ -24,15 +24,6 @@ const updateSubTaskSchema = createSubTaskSchema.partial().extend({
   completed: z.boolean().optional(),
 });
 
-const createDependencySchema = z.object({
-  dependsOnTaskId: z.string().min(1),
-  type: z.enum(['FINISH_TO_START', 'START_TO_START', 'FINISH_TO_FINISH']).optional(),
-});
-
-const createCommentSchema = z.object({
-  content: z.string().trim().min(1).max(4000),
-});
-
 const createTimeEntrySchema = z.object({
   minutes: z.number().int().positive(),
   note: z.string().max(2000).optional(),
@@ -42,7 +33,7 @@ const createTimeEntrySchema = z.object({
 const createSchema = z.object({
   title: z.string().min(1).max(500),
   description: z.string().max(5000).optional(),
-  status: z.enum(['TODO', 'IN_PROGRESS', 'WAITING', 'BLOCKED', 'IN_REVIEW', 'DELEGATED', 'DONE', 'CANCELLED']).optional(),
+  status: z.enum(['TODO', 'IN_PROGRESS', 'DONE', 'CANCELLED']).optional(),
   priority: z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']).optional(),
   dueDate: z.string().optional().refine(val => !val || /^\d{4}-\d{2}-\d{2}$/.test(val), 'Invalid date format'),
   recurrenceRule: z.string().max(200).optional(),
@@ -54,7 +45,7 @@ const createSchema = z.object({
 });
 
 const updateSchema = createSchema.partial().extend({
-  status: z.enum(['TODO', 'IN_PROGRESS', 'WAITING', 'BLOCKED', 'IN_REVIEW', 'DELEGATED', 'DONE', 'CANCELLED']).optional(),
+  status: z.enum(['TODO', 'IN_PROGRESS', 'DONE', 'CANCELLED']).optional(),
   priority: z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']).optional(),
   dueDate: z.string().nullable().optional().refine(val => val === null || !val || /^\d{4}-\d{2}-\d{2}$/.test(val), 'Invalid date format'),
   recurrenceRule: z.string().max(200).nullable().optional(),
@@ -68,7 +59,6 @@ const updateSchema = createSchema.partial().extend({
 const idParams = z.object({ id: z.string() });
 const taskIdParams = z.object({ taskId: z.string() });
 const subTaskIdParams = z.object({ taskId: z.string(), subTaskId: z.string() });
-const dependencyIdParams = z.object({ taskId: z.string(), dependencyId: z.string() });
 
 // Task routes
 router.get('/',    ctrl.list);
@@ -83,10 +73,7 @@ router.post('/:taskId/subtasks', validate({ params: taskIdParams, body: createSu
 router.patch('/:taskId/subtasks/:subTaskId', validate({ params: subTaskIdParams, body: updateSubTaskSchema }), ctrl.updateSubTask);
 router.delete('/:taskId/subtasks/:subTaskId', validate({ params: subTaskIdParams }), ctrl.deleteSubTask);
 
-// Detail routes
-router.post('/:taskId/dependencies', validate({ params: taskIdParams, body: createDependencySchema }), ctrl.createDependency);
-router.delete('/:taskId/dependencies/:dependencyId', validate({ params: dependencyIdParams }), ctrl.deleteDependency);
-router.post('/:taskId/comments', validate({ params: taskIdParams, body: createCommentSchema }), ctrl.createComment);
+// Time entry routes
 router.post('/:taskId/time-entries', validate({ params: taskIdParams, body: createTimeEntrySchema }), ctrl.createTimeEntry);
 
 export default router;

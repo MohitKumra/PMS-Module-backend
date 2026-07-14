@@ -19,9 +19,6 @@ model Task {
   projectTasks      ProjectTask?
   subTasks          SubTask[]
   notes             Note[]
-  dependencies      TaskDependency[] @relation("TaskDependencies")
-  dependentOn       TaskDependency[] @relation("TaskDependents")
-  comments          TaskComment[]
   activity          TaskActivity[]
   timeEntries       TaskTimeEntry[]
   user              User         @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -40,35 +37,6 @@ model SubTask {
   task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
 
   @@index([taskId])
-}
-
-model TaskDependency {
-  id              String             @id @default(cuid())
-  taskId          String
-  dependsOnTaskId String
-  type            TaskDependencyType @default(FINISH_TO_START)
-  createdAt       DateTime           @default(now())
-  updatedAt       DateTime           @updatedAt
-  task            Task               @relation("TaskDependencies", fields: [taskId], references: [id], onDelete: Cascade)
-  dependsOnTask   Task               @relation("TaskDependents", fields: [dependsOnTaskId], references: [id], onDelete: Cascade)
-
-  @@unique([taskId, dependsOnTaskId, type])
-  @@index([taskId])
-  @@index([dependsOnTaskId])
-}
-
-model TaskComment {
-  id        String   @id @default(cuid())
-  taskId    String
-  userId    String
-  content   String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([taskId])
-  @@index([userId])
 }
 
 model TaskActivity {

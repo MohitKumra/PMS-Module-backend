@@ -6,6 +6,7 @@ import { prisma } from '../lib/prismaClient';
 import { createError } from '../middleware/errorHandler';
 import { RRule, RRuleSet, rrulestr } from 'rrule';
 import { updateProjectProgress } from './project.service';
+import { syncGoogleCalendarTasks } from './google.service';
 import type {
   TaskDTO,
   TaskDetailDTO,
@@ -15,10 +16,6 @@ import type {
   CreateSubTaskRequest,
   UpdateSubTaskRequest,
   TaskSubTaskInput,
-  TaskDependencyDTO,
-  CreateTaskDependencyRequest,
-  TaskCommentDTO,
-  CreateTaskCommentRequest,
   TaskTimeEntryDTO,
   CreateTaskTimeEntryRequest,
 } from '../types';
@@ -106,6 +103,18 @@ function toDTO(t: any): TaskDTO {
   };
 }
 
+/**
+ * Fire-and-forget trigger to sync changes to Google Calendar.
+ * Catches errors silently so a sync failure never blocks the task operation.
+ */
+async function triggerCalendarSync(userId: string): Promise<void> {
+  try {
+    await syncGoogleCalendarTasks(userId);
+  } catch {
+    // Sync failures should never break the task operation
+  }
+}
+
 function subTaskToDTO(st: any): SubTaskDTO {
   return {
     id: st.id,
@@ -115,37 +124,6 @@ function subTaskToDTO(st: any): SubTaskDTO {
     order: st.order,
     createdAt: st.createdAt.toISOString(),
     updatedAt: st.updatedAt.toISOString(),
-  };
-}
-
-function dependencyToDTO(dep: any): TaskDependencyDTO {
-  return {
-    id: dep.id,
-    taskId: dep.taskId,
-    dependsOnTaskId: dep.dependsOnTaskId,
-    type: dep.type,
-    createdAt: dep.createdAt.toISOString(),
-    updatedAt: dep.updatedAt.toISOString(),
-    dependsOnTask: dep.dependsOnTask
-      ? {
-          id: dep.dependsOnTask.id,
-          title: dep.dependsOnTask.title,
-          status: dep.dependsOnTask.status,
-          priority: dep.dependsOnTask.priority,
-          dueDate: dep.dependsOnTask.dueDate?.toISOString() ?? null,
-        }
-      : undefined,
-  };
-}
-
-function commentToDTO(comment: any): TaskCommentDTO {
-  return {
-    id: comment.id,
-    taskId: comment.taskId,
-    userId: comment.userId,
-    content: comment.content,
-    createdAt: comment.createdAt.toISOString(),
-    updatedAt: comment.updatedAt.toISOString(),
   };
 }
 
@@ -211,9 +189,6 @@ export async function getTask(userId: string, taskId: string): Promise<TaskDetai
     include: {
       subTasks: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] },
       projectTasks: { include: { project: true } },
-      dependencies: { include: { dependsOnTask: true }, orderBy: { createdAt: 'asc' } },
-      dependentOn: { include: { task: true }, orderBy: { createdAt: 'asc' } },
-      comments: { orderBy: { createdAt: 'desc' } },
       activity: { orderBy: { createdAt: 'desc' } },
       timeEntries: { orderBy: { createdAt: 'desc' } },
     }
@@ -225,8 +200,6 @@ export async function getTask(userId: string, taskId: string): Promise<TaskDetai
   });
   return {
     ...toDTO(task),
-    dependencies: task.dependencies.map(dependencyToDTO),
-    comments: task.comments.map(commentToDTO),
     activity: task.activity.map((item) => ({
       id: item.id,
       taskId: item.taskId,
@@ -289,6 +262,10 @@ export async function createTask(userId: string, data: CreateTaskRequest): Promi
     }
   });
   await createActivity(task.id, userId, 'CREATED', `Created task "${task.title}"`);
+
+  // Fire-and-forget: sync to Google Calendar if connected
+  triggerCalendarSync(userId);
+
   return toDTO(task);
 }
 
@@ -309,8 +286,7 @@ export async function updateTask(userId: string, taskId: string, data: UpdateTas
     } else if (data.status === 'DONE') {
       nextCompletedAt = existing.completedAt || new Date();
       nextInProgressAt = existing.inProgressAt || existing.createdAt;
-    } else if (data.status === 'TODO' || data.status === 'WAITING' || data.status === 'BLOCKED'
-      || data.status === 'IN_REVIEW' || data.status === 'DELEGATED' || data.status === 'CANCELLED') {
+    } else if (data.status === 'TODO' || data.status === 'CANCELLED') {
       nextInProgressAt = null;
       nextCompletedAt = null;
     }
@@ -406,6 +382,26 @@ export async function updateTask(userId: string, taskId: string, data: UpdateTas
     await createActivity(task.id, userId, 'DESCRIPTION_CHANGED', 'Updated task details');
   }
 
+  // If task is being unmarked (DONE → TODO), delete the previously generated next occurrence
+  if (!wasNotDone && existing.status === 'DONE' && data.status === 'TODO' && existing.recurrenceRule) {
+    const rootId = existing.parentTaskId ?? taskId;
+    // Find any future occurrence that was generated from this task and delete it
+    const futureOccurrence = await prisma.task.findFirst({
+      where: {
+        parentTaskId: rootId,
+        status: 'TODO',
+        recurrenceRule: { not: null },
+        id: { not: taskId }, // Not the current task itself
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (futureOccurrence) {
+      // Delete subtasks first (foreign key constraint)
+      await prisma.subTask.deleteMany({ where: { taskId: futureOccurrence.id } });
+      await prisma.task.delete({ where: { id: futureOccurrence.id } });
+    }
+  }
+
   // If task is being marked as done and it's a recurring task, create next occurrence
   if (wasNotDone && isBeingMarkedDone && task.recurrenceRule) {
     const nextOccurrenceDate = getNextOccurrence(
@@ -416,39 +412,51 @@ export async function updateTask(userId: string, taskId: string, data: UpdateTas
     );
 
     if (nextOccurrenceDate) {
-      // Get subtasks from original task to copy
-      const originalSubTasks = await prisma.subTask.findMany({
-        where: { taskId: task.id },
-        orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
+      // Idempotency guard: check if a future occurrence already exists
+      const rootId = task.parentTaskId ?? task.id;
+      const existingOccurrence = await prisma.task.findFirst({
+        where: {
+          parentTaskId: rootId,
+          dueDate: nextOccurrenceDate,
+          status: 'TODO',
+          id: { not: task.id },
+        },
       });
 
-      // Create new task for next occurrence
-      await prisma.task.create({
-        data: {
-          userId,
-          title: task.title,
-          description: task.description,
-          priority: task.priority,
-          status: 'TODO',
-          dueDate: nextOccurrenceDate,
-          recurrenceRule: task.recurrenceRule,
-          recurrenceEndDate: task.recurrenceEndDate,
-          skipDates: task.skipDates,
-          // Fixed: previously this copied `task.parentTaskId`, which just
-          // re-copied the parent's own parent (usually null), so the chain
-          // never actually linked occurrences together. Every occurrence
-          // should point back to the original series root.
-          parentTaskId: task.parentTaskId ?? task.id,
-          attachmentUrl: task.attachmentUrl,
-          subTasks: originalSubTasks.length > 0 ? {
-            create: originalSubTasks.map((st) => ({
-              title: st.title,
-              order: st.order,
-              completed: false
-            }))
-          } : undefined
-        }
-      });
+      if (existingOccurrence) {
+        // Next occurrence already exists — skip creation to prevent duplicates
+        console.log(`Skipping duplicate occurrence creation for task ${task.id}, occurrence ${nextOccurrenceDate.toISOString()}`);
+      } else {
+        // Get subtasks from original task to copy
+        const originalSubTasks = await prisma.subTask.findMany({
+          where: { taskId: task.id },
+          orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
+        });
+
+        // Create new task for next occurrence
+        await prisma.task.create({
+          data: {
+            userId,
+            title: task.title,
+            description: task.description,
+            priority: task.priority,
+            status: 'TODO',
+            dueDate: nextOccurrenceDate,
+            recurrenceRule: task.recurrenceRule,
+            recurrenceEndDate: task.recurrenceEndDate,
+            skipDates: task.skipDates,
+            parentTaskId: task.parentTaskId ?? task.id,
+            attachmentUrl: task.attachmentUrl,
+            subTasks: originalSubTasks.length > 0 ? {
+              create: originalSubTasks.map((st) => ({
+                title: st.title,
+                order: st.order,
+                completed: false
+              }))
+            } : undefined
+          }
+        });
+      }
     }
   }
 
@@ -456,6 +464,9 @@ export async function updateTask(userId: string, taskId: string, data: UpdateTas
   if (projectTask) {
     await updateProjectProgress(projectTask.projectId);
   }
+
+  // Fire-and-forget: sync to Google Calendar if connected
+  triggerCalendarSync(userId);
 
   return toDTO(task);
 }
@@ -468,6 +479,9 @@ export async function deleteTask(userId: string, taskId: string): Promise<void> 
   if (projectTask) {
     await updateProjectProgress(projectTask.projectId);
   }
+
+  // Fire-and-forget: sync to Google Calendar if connected
+  triggerCalendarSync(userId);
 }
 
 // Subtask CRUD
@@ -524,45 +538,6 @@ export async function deleteSubTask(userId: string, taskId: string, subTaskId: s
   if (!subTask) throw createError(404, 'SUBTASK_NOT_FOUND', 'Subtask not found');
   await prisma.subTask.delete({ where: { id: subTaskId } });
   await createActivity(taskId, userId, 'SUBTASK_DELETED', `Deleted subtask "${subTask.title}"`);
-}
-
-export async function createTaskDependency(userId: string, taskId: string, data: CreateTaskDependencyRequest) {
-  const task = await prisma.task.findFirst({ where: { id: taskId, userId } });
-  if (!task) throw createError(404, 'TASK_NOT_FOUND', 'Task not found');
-  if (data.dependsOnTaskId === taskId) throw createError(400, 'INVALID_DEPENDENCY', 'A task cannot depend on itself');
-  const dependsOnTask = await prisma.task.findFirst({ where: { id: data.dependsOnTaskId, userId } });
-  if (!dependsOnTask) throw createError(404, 'TASK_NOT_FOUND', 'Dependency task not found');
-  const dependency = await prisma.taskDependency.create({
-    data: {
-      taskId,
-      dependsOnTaskId: data.dependsOnTaskId,
-      type: data.type ?? 'FINISH_TO_START',
-    },
-    include: { dependsOnTask: true },
-  });
-  await createActivity(taskId, userId, 'DEPENDENCY_ADDED', `Added dependency on "${dependsOnTask.title}"`);
-  return dependencyToDTO(dependency);
-}
-
-export async function deleteTaskDependency(userId: string, taskId: string, dependencyId: string) {
-  const task = await prisma.task.findFirst({ where: { id: taskId, userId } });
-  if (!task) throw createError(404, 'TASK_NOT_FOUND', 'Task not found');
-  const dependency = await prisma.taskDependency.findFirst({ where: { id: dependencyId, taskId } });
-  if (!dependency) throw createError(404, 'TASK_DEPENDENCY_NOT_FOUND', 'Task dependency not found');
-  await prisma.taskDependency.delete({ where: { id: dependencyId } });
-  await createActivity(taskId, userId, 'DEPENDENCY_REMOVED', 'Removed a dependency');
-}
-
-export async function createTaskComment(userId: string, taskId: string, data: CreateTaskCommentRequest) {
-  const task = await prisma.task.findFirst({ where: { id: taskId, userId } });
-  if (!task) throw createError(404, 'TASK_NOT_FOUND', 'Task not found');
-  const content = data.content.trim();
-  if (!content) throw createError(400, 'INVALID_COMMENT', 'Comment content is required');
-  const comment = await prisma.taskComment.create({
-    data: { taskId, userId, content },
-  });
-  await createActivity(taskId, userId, 'COMMENT_ADDED', 'Added a comment');
-  return commentToDTO(comment);
 }
 
 export async function createTaskTimeEntry(userId: string, taskId: string, data: CreateTaskTimeEntryRequest) {

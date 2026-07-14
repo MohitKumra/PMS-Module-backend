@@ -29,7 +29,7 @@ function mapTaskEvent(task: {
   description: string | null;
   dueDate: Date | null;
   priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
-  status: 'TODO' | 'IN_PROGRESS' | 'WAITING' | 'BLOCKED' | 'IN_REVIEW' | 'DELEGATED' | 'DONE' | 'CANCELLED';
+  status: 'TODO' | 'IN_PROGRESS' | 'DONE' | 'CANCELLED';
 }): CalendarEventDTO {
   const startAt = task.dueDate ?? new Date();
   return {

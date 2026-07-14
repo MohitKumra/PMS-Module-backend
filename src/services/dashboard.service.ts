@@ -1,5 +1,5 @@
 // backend/src/services/dashboard.service.ts
-// Aggregates data from Tasks, Habits, Projects, FocusSessions, and Messages for the enhanced dashboard.
+// Aggregates data from Tasks, Habits, Projects, FocusSessions for the enhanced dashboard.
 
 import { prisma } from '../lib/prismaClient';
 import type { AnalyticsSummaryDTO, EnhancedDashboardDTO } from '../types';
@@ -17,7 +17,7 @@ export async function getDashboardSummary(userId: string): Promise<AnalyticsSumm
  * Get enhanced dashboard data with projects, messages, and weekly progress
  */
 export async function getEnhancedDashboard(userId: string): Promise<EnhancedDashboardDTO> {
-  const [summary, activeProjects, recentMessages, projectStats, weeklyProgress, upcomingDeadlines] = await Promise.all([
+  const [summary, activeProjects, projectStats, weeklyProgress, upcomingDeadlines] = await Promise.all([
     getSummary(userId),
     // Get active projects (top 6 by recent activity)
     prisma.project.findMany({
@@ -33,13 +33,6 @@ export async function getEnhancedDashboard(userId: string): Promise<EnhancedDash
       },
       orderBy: { updatedAt: 'desc' },
       take: 6,
-    }),
-    // Get recent messages (top 10)
-    prisma.message.findMany({
-      where: { userId },
-      include: { project: true },
-      orderBy: { createdAt: 'desc' },
-      take: 10,
     }),
     // Get project statistics
     prisma.project.groupBy({
@@ -73,34 +66,6 @@ export async function getEnhancedDashboard(userId: string): Promise<EnhancedDash
     };
   });
 
-  // Transform messages
-  const messagesData = recentMessages.map((m: any) => ({
-    id: m.id,
-    type: m.type,
-    content: m.content,
-    userId: m.userId,
-    projectId: m.projectId,
-    status: m.status,
-    readAt: m.readAt?.toISOString() ?? null,
-    priority: m.priority,
-    actionUrl: m.actionUrl,
-    createdAt: m.createdAt.toISOString(),
-    updatedAt: m.updatedAt.toISOString(),
-    project: m.project ? {
-      id: m.project.id,
-      name: m.project.name,
-      description: m.project.description,
-      status: m.project.status,
-      color: m.project.color ?? '#4F46E5',
-      userId: m.project.userId,
-      startDate: m.project.startDate?.toISOString() ?? null,
-      dueDate: m.project.dueDate?.toISOString() ?? null,
-      progress: m.project.progress,
-      createdAt: m.project.createdAt.toISOString(),
-      updatedAt: m.project.updatedAt.toISOString(),
-    } : undefined,
-  }));
-
   // Calculate project stats
   const totalProjects = projectStats.reduce((acc: any, stat: any) => acc + stat._count, 0);
   const activeProjectsCount = projectStats.find((s: any) => s.status === 'ACTIVE')?._count ?? 0;
@@ -109,7 +74,6 @@ export async function getEnhancedDashboard(userId: string): Promise<EnhancedDash
   return {
     ...summary,
     activeProjects: projectsData,
-    recentMessages: messagesData,
     projectStats: {
       totalProjects,
       activeProjectsCount,

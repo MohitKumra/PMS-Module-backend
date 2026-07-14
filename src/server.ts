@@ -23,7 +23,6 @@ import settingsRoutes      from './routes/settings.routes';
 import dashboardRoutes    from './routes/dashboard.routes';
 import searchRoutes       from './routes/search.routes';
 import projectsController  from './controllers/projects.controller';
-import messagesController  from './controllers/messages.controller';
 import { errorHandler }   from './middleware/errorHandler';
 import { startScheduler } from './jobs/reminderScheduler';
 
@@ -53,7 +52,6 @@ app.use('/api/settings',      settingsRoutes);
 app.use('/api/dashboard',     dashboardRoutes);
 app.use('/api/search',        searchRoutes);
 app.use('/api/projects',      projectsController);
-app.use('/api/messages',      messagesController);
 
 // ─── 404 catch ────────────────────────────────────────────────────────────────
 app.use((_req, res) => res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Route not found' } }));

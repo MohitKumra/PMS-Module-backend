@@ -14,9 +14,7 @@ model User {
   googleCalendarConnection GoogleCalendarConnection?
   googleCalendarSyncItems  GoogleCalendarSyncItem[]
   habits                   Habit[]
-  messages                 Message[]
   notes                    Note[]
-  taskComments             TaskComment[]
   taskActivities           TaskActivity[]
   taskTimeEntries          TaskTimeEntry[]
   notifications            NotificationLog[]

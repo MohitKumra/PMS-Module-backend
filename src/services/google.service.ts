@@ -297,12 +297,16 @@ export async function getGoogleCalendarIntegration(userId: string): Promise<Goog
   };
 }
 
-async function getValidAccessToken(connection: {
-  accessToken: string | null;
-  refreshToken: string | null;
-  expiresAt: Date | null;
-  googleAccountId: string;
-}): Promise<string> {
+async function getValidAccessToken(
+  connection: {
+    userId: string;
+    accessToken: string | null;
+    refreshToken: string | null;
+    expiresAt: Date | null;
+    googleAccountId: string;
+  },
+  persistRefresh?: boolean,
+): Promise<string> {
   const accessToken = decryptSecret(connection.accessToken);
   if (accessToken && connection.expiresAt && connection.expiresAt.getTime() > Date.now() + 60_000) {
     return accessToken;
@@ -314,6 +318,16 @@ async function getValidAccessToken(connection: {
   }
 
   const refreshed = await refreshGoogleAccessToken(refreshToken);
+
+  // Persist the refreshed token immediately so subsequent calls don't re-refresh
+  await prisma.googleCalendarConnection.update({
+    where: { userId: connection.userId },
+    data: {
+      accessToken: encryptSecret(refreshed.access_token),
+      expiresAt: new Date(Date.now() + (refreshed.expires_in ?? 3600) * 1000),
+    },
+  });
+
   return refreshed.access_token;
 }
 

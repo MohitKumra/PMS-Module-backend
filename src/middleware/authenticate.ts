@@ -27,11 +27,21 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
   const token = authHeader.slice(7);
   try {
     const payload = verifyAccessToken(token);
+
+    // Verify the user still exists in the database.
+    // If the user was deleted, reject the request immediately instead of
+    // letting downstream services fail with foreign key constraint violations.
+    const user = await prisma.user.findUnique({ where: { id: payload.sub } });
+    if (!user) {
+      res.status(401).json({ error: { code: 'USER_NOT_FOUND', message: 'User account no longer exists' } });
+      return;
+    }
+
     req.user = payload;
     const clientTimezone = req.headers['x-client-timezone'];
     if (typeof clientTimezone === 'string' && clientTimezone.trim()) {
       try {
-        await prisma.user.update({
+        await prisma.user.updateMany({
           where: { id: payload.sub },
           data: { timezone: clientTimezone.trim() },
         });
