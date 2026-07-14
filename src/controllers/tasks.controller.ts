@@ -74,3 +74,31 @@ export async function deleteSubTask(req: Request, res: Response, next: NextFunct
     res.status(204).send();
   } catch (err) { next(err); }
 }
+
+export async function createDependency(req: Request, res: Response, next: NextFunction) {
+  try {
+    const dependency = await taskService.createTaskDependency(req.user!.sub, req.params.taskId as string, req.body);
+    res.status(201).json(dependency);
+  } catch (err) { next(err); }
+}
+
+export async function deleteDependency(req: Request, res: Response, next: NextFunction) {
+  try {
+    await taskService.deleteTaskDependency(req.user!.sub, req.params.taskId as string, req.params.dependencyId as string);
+    res.status(204).send();
+  } catch (err) { next(err); }
+}
+
+export async function createComment(req: Request, res: Response, next: NextFunction) {
+  try {
+    const comment = await taskService.createTaskComment(req.user!.sub, req.params.taskId as string, req.body);
+    res.status(201).json(comment);
+  } catch (err) { next(err); }
+}
+
+export async function createTimeEntry(req: Request, res: Response, next: NextFunction) {
+  try {
+    const entry = await taskService.createTaskTimeEntry(req.user!.sub, req.params.taskId as string, req.body);
+    res.status(201).json(entry);
+  } catch (err) { next(err); }
+}

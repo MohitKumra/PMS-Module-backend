@@ -2,6 +2,7 @@
 // System messages and notifications service for personal productivity insights
 
 import { prisma } from '../lib/prismaClient';
+import { createError } from '../middleware/errorHandler';
 import type {
   MessageDTO,
   CreateMessageRequest,
@@ -66,7 +67,7 @@ export async function getMessage(userId: string, messageId: string): Promise<Mes
     include: { project: true },
   });
 
-  if (!message) throw new Error('Message not found');
+  if (!message) throw createError(404, 'MESSAGE_NOT_FOUND', 'Message not found');
 
   return toDTO(message);
 }
@@ -98,7 +99,7 @@ export async function markAsRead(userId: string, messageId: string): Promise<Mes
     where: { id: messageId, userId },
   });
 
-  if (!existing) throw new Error('Message not found');
+  if (!existing) throw createError(404, 'MESSAGE_NOT_FOUND', 'Message not found');
 
   const updated = await prisma.message.update({
     where: { id: messageId },
@@ -129,7 +130,7 @@ export async function deleteMessage(userId: string, messageId: string): Promise<
     where: { id: messageId, userId },
   });
 
-  if (!existing) throw new Error('Message not found');
+  if (!existing) throw createError(404, 'MESSAGE_NOT_FOUND', 'Message not found');
 
   await prisma.message.delete({ where: { id: messageId } });
 }

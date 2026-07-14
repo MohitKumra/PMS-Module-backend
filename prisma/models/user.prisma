@@ -1,28 +1,28 @@
 model User {
-  id               String   @id @default(cuid())
-  email            String   @unique
-  passwordHash     String? // null if Google-only account
-  googleId         String?  @unique
-  name             String?
-  avatarUrl        String?
-  recoveryEmail    String?
-  timezone         String   @default("UTC")
-  pushSubscription String? // Stringified PushSubscription JSON
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-
-  tasks         Task[]
-  habits        Habit[]
-  notes         Note[]
-  focusSessions FocusSession[]
-  notifications NotificationLog[]
-  passwordResetTokens PasswordResetToken[]
-  preferences   UserPreference?
-  notificationPreferences NotificationPreference?
+  id                       String                    @id @default(cuid())
+  email                    String                    @unique
+  passwordHash             String?
+  googleId                 String?                   @unique
+  name                     String?
+  avatarUrl                String?
+  timezone                 String                    @default("UTC")
+  pushSubscription         String?
+  createdAt                DateTime                  @default(now())
+  updatedAt                DateTime                  @updatedAt
+  recoveryEmail            String?
+  focusSessions            FocusSession[]
   googleCalendarConnection GoogleCalendarConnection?
-  googleCalendarSyncItems GoogleCalendarSyncItem[]
-
-  // Personal project management
-  projects Project[]
-  messages Message[]
+  googleCalendarSyncItems  GoogleCalendarSyncItem[]
+  habits                   Habit[]
+  messages                 Message[]
+  notes                    Note[]
+  taskComments             TaskComment[]
+  taskActivities           TaskActivity[]
+  taskTimeEntries          TaskTimeEntry[]
+  notifications            NotificationLog[]
+  notificationPreferences  NotificationPreference?
+  passwordResetTokens      PasswordResetToken[]
+  projects                 Project[]
+  tasks                    Task[]
+  preferences              UserPreference?
 }

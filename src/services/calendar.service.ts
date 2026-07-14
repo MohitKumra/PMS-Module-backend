@@ -28,8 +28,8 @@ function mapTaskEvent(task: {
   title: string;
   description: string | null;
   dueDate: Date | null;
-  priority: 'LOW' | 'MEDIUM' | 'HIGH';
-  status: 'TODO' | 'IN_PROGRESS' | 'DONE';
+  priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  status: 'TODO' | 'IN_PROGRESS' | 'WAITING' | 'BLOCKED' | 'IN_REVIEW' | 'DELEGATED' | 'DONE' | 'CANCELLED';
 }): CalendarEventDTO {
   const startAt = task.dueDate ?? new Date();
   return {
@@ -42,7 +42,7 @@ function mapTaskEvent(task: {
     taskId: task.id,
     priority: task.priority,
     status: task.status,
-    sourceLabel: task.status === 'DONE' ? 'Completed task' : 'Task due date',
+    sourceLabel: task.status === 'DONE' ? 'Completed task' : task.status === 'CANCELLED' ? 'Cancelled task' : 'Task due date',
     metadata: {
       description: task.description,
     },
@@ -54,20 +54,24 @@ function mapFocusEvent(session: {
   startedAt: Date;
   durationMin: number;
   completed: boolean;
+  isBreak: boolean;
 }): CalendarEventDTO {
   const startAt = session.startedAt;
   const endAt = addMinutes(startAt, session.durationMin);
+  const isBreakSession = session.isBreak;
   return {
     id: `focus-${session.id}`,
     type: 'FOCUS_SESSION',
-    title: session.completed ? 'Focus session' : 'Incomplete focus session',
+    title: isBreakSession
+      ? (session.completed ? 'Break' : 'Incomplete break')
+      : (session.completed ? 'Focus session' : 'Incomplete focus session'),
     startAt: toIsoDate(startAt),
     endAt: toIsoDate(endAt),
     allDay: false,
     taskId: null,
     priority: null,
     status: null,
-    sourceLabel: session.completed ? 'Pomodoro' : 'Focus draft',
+    sourceLabel: isBreakSession ? 'Break' : (session.completed ? 'Pomodoro' : 'Focus draft'),
     metadata: {
       durationMin: session.durationMin,
     },

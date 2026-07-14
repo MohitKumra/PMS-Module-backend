@@ -2,6 +2,7 @@
 // Personal project management service for individual productivity tracking
 
 import { prisma } from '../lib/prismaClient';
+import { createError } from '../middleware/errorHandler';
 import type {
   ProjectDTO,
   CreateProjectRequest,
@@ -65,7 +66,7 @@ export async function getProject(userId: string, projectId: string): Promise<Pro
     },
   });
 
-  if (!project) throw new Error('Project not found');
+  if (!project) throw createError(404, 'PROJECT_NOT_FOUND', 'Project not found');
 
   const completedTaskCount = project.tasks.filter((pt) => pt.task.status === 'DONE').length;
 
@@ -105,7 +106,7 @@ export async function updateProject(
     where: { id: projectId, userId },
   });
 
-  if (!existing) throw new Error('Project not found');
+  if (!existing) throw createError(404, 'PROJECT_NOT_FOUND', 'Project not found');
 
   const updated = await prisma.project.update({
     where: { id: projectId },
@@ -137,7 +138,7 @@ export async function deleteProject(userId: string, projectId: string): Promise<
     where: { id: projectId, userId },
   });
 
-  if (!existing) throw new Error('Project not found');
+  if (!existing) throw createError(404, 'PROJECT_NOT_FOUND', 'Project not found');
 
   await prisma.project.delete({ where: { id: projectId } });
 }
@@ -152,20 +153,20 @@ export async function assignTaskToProject(
   const project = await prisma.project.findFirst({
     where: { id: projectId, userId },
   });
-  if (!project) throw new Error('Project not found');
+  if (!project) throw createError(404, 'PROJECT_NOT_FOUND', 'Project not found');
 
   // Verify task belongs to user
   const task = await prisma.task.findFirst({
     where: { id: req.taskId, userId },
   });
-  if (!task) throw new Error('Task not found');
+  if (!task) throw createError(404, 'TASK_NOT_FOUND', 'Task not found');
 
    // Check if task is already assigned to this project
    const existing = await prisma.projectTask.findUnique({
      where: { taskId: req.taskId },
    });
 
-  if (existing) throw new Error('Task already assigned to this project');
+  if (existing) throw createError(400, 'TASK_ALREADY_ASSIGNED', 'Task already assigned to this project');
 
   await prisma.projectTask.create({
     data: {
@@ -174,6 +175,8 @@ export async function assignTaskToProject(
       order: req.order ?? 0,
     },
   });
+
+  await updateProjectProgress(projectId);
 }
 
 /** Remove a task from a project */
@@ -185,11 +188,13 @@ export async function removeTaskFromProject(
   const project = await prisma.project.findFirst({
     where: { id: projectId, userId },
   });
-  if (!project) throw new Error('Project not found');
+  if (!project) throw createError(404, 'PROJECT_NOT_FOUND', 'Project not found');
 
   await prisma.projectTask.deleteMany({
     where: { projectId, taskId },
   });
+
+  await updateProjectProgress(projectId);
 }
 
 /** Get all tasks for a project */
@@ -204,7 +209,7 @@ export async function getProjectTasks(userId: string, projectId: string) {
     },
   });
 
-  if (!project) throw new Error('Project not found');
+  if (!project) throw createError(404, 'PROJECT_NOT_FOUND', 'Project not found');
 
   return project.tasks.map((pt) => ({
     ...pt.task,

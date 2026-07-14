@@ -88,7 +88,7 @@ export function buildGoogleAuthUrl(purpose: GoogleAuthPurpose, returnTo: string)
   }
 
   const state = signGoogleState({ purpose, returnTo });
-  const redirectUri = `${env.BACKEND_URL}/api/auth/google/callback`;
+  const redirectUri = `${env.BACKEND_URL}/api/auth/google/callback` || 'http://localhost:3001/api/auth/google/callback';
   const scopes = GOOGLE_SCOPES[purpose].join(' ');
   const params = new URLSearchParams({
     client_id: env.GOOGLE_CLIENT_ID,
@@ -105,7 +105,7 @@ export function buildGoogleAuthUrl(purpose: GoogleAuthPurpose, returnTo: string)
 }
 
 async function exchangeCodeForTokens(code: string): Promise<GoogleTokenResponse> {
-  const redirectUri = `${env.BACKEND_URL}/api/auth/google/callback`;
+  const redirectUri = `${env.BACKEND_URL}/api/auth/google/callback` || 'http://localhost:3001/api/auth/google/callback';
   const response = await fetch(GOOGLE_TOKEN_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },

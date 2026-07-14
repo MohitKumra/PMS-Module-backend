@@ -52,8 +52,9 @@ export async function getSummary(userId: string): Promise<AnalyticsSummaryDTO> {
     if (bestStreak > longestHabitStreak) longestHabitStreak = bestStreak;
   }
 
-  // Count ALL focus minutes (not just completed sessions)
-  const focusMinutesTotal = allSessions.reduce((acc: any, s: any) => acc + s.durationMin, 0);
+  // Count focus minutes from non-break sessions only
+  const focusSessionsOnly = allSessions.filter((s: any) => !s.isBreak);
+  const focusMinutesTotal = focusSessionsOnly.reduce((acc: any, s: any) => acc + s.durationMin, 0);
 
   // Get today's completions for habitsCompletedToday
   // Use UTC-based "today" to match how habit.service.ts stores completion dates
@@ -158,10 +159,12 @@ export async function getDailyBreakdown(userId: string, days = 30): Promise<Dail
     const key = toDateStr(c.date);
     if (bucket.has(key)) bucket.get(key)!.habitsCompleted++;
   });
-  allFocusSessions.forEach((s: any) => {
-    const key = toDateStr(s.startedAt);
-    if (bucket.has(key)) bucket.get(key)!.focusMinutes += s.durationMin;
-  });
+  allFocusSessions
+    .filter((s: any) => !s.isBreak)
+    .forEach((s: any) => {
+      const key = toDateStr(s.startedAt);
+      if (bucket.has(key)) bucket.get(key)!.focusMinutes += s.durationMin;
+    });
 
   return Array.from(bucket.values()).sort((a, b) => a.date.localeCompare(b.date));
 }
@@ -281,10 +284,12 @@ export async function getWeeklyProgress(userId: string, weeks = 12) {
     if (bucket.has(weekKey)) bucket.get(weekKey)!.habitsCompleted++;
   });
 
-  allFocusSessions.forEach((s: any) => {
-    const weekKey = getWeekKey(s.startedAt);
-    if (bucket.has(weekKey)) bucket.get(weekKey)!.focusMinutes += s.durationMin;
-  });
+  allFocusSessions
+    .filter((s: any) => !s.isBreak)
+    .forEach((s: any) => {
+      const weekKey = getWeekKey(s.startedAt);
+      if (bucket.has(weekKey)) bucket.get(weekKey)!.focusMinutes += s.durationMin;
+    });
 
   projects.forEach((p: any) => {
     const weekKey = getWeekKey(p.updatedAt);

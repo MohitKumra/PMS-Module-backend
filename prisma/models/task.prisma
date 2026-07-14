@@ -1,38 +1,102 @@
 model Task {
-  id               String        @id @default(cuid())
-  userId           String
-  user             User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  title            String
-  description      String?
-  status           TaskStatus    @default(TODO)
-  priority         Priority      @default(MEDIUM)
-  dueDate          DateTime?
-  recurrenceRule   String? // RRULE string e.g. "FREQ=DAILY;INTERVAL=1"
-  recurrenceEndDate DateTime? // End date for recurrence
-  skipDates        String[] // Dates to skip (YYYY-MM-DD)
-  parentTaskId     String? // for recurring task instances
-  attachmentUrl    String?
-  inProgressAt     DateTime?
-  completedAt      DateTime?
-  createdAt        DateTime      @default(now())
-  updatedAt        DateTime      @updatedAt
-
-  // Relations
-  subTasks         SubTask[]
-  projectTasks     ProjectTask[]
+  id                String       @id @default(cuid())
+  userId            String
+  title             String
+  description       String?
+  status            TaskStatus   @default(TODO)
+  priority          Priority     @default(MEDIUM)
+  dueDate           DateTime?
+  recurrenceRule    String?
+  parentTaskId      String?
+  attachmentUrl     String?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+  recurrenceEndDate DateTime?
+  skipDates         String[]
+  completedAt       DateTime?
+  inProgressAt      DateTime?
+  estimatedDuration Int?         // estimated duration in minutes
+  projectTasks      ProjectTask?
+  subTasks          SubTask[]
+  notes             Note[]
+  dependencies      TaskDependency[] @relation("TaskDependencies")
+  dependentOn       TaskDependency[] @relation("TaskDependents")
+  comments          TaskComment[]
+  activity          TaskActivity[]
+  timeEntries       TaskTimeEntry[]
+  user              User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, dueDate])
 }
 
 model SubTask {
-  id        String     @id @default(cuid())
+  id        String   @id @default(cuid())
   taskId    String
-  task      Task       @relation(fields: [taskId], references: [id], onDelete: Cascade)
   title     String
-  completed Boolean    @default(false)
-  order     Int        @default(0)
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
+  completed Boolean  @default(false)
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
 
   @@index([taskId])
+}
+
+model TaskDependency {
+  id              String             @id @default(cuid())
+  taskId          String
+  dependsOnTaskId String
+  type            TaskDependencyType @default(FINISH_TO_START)
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  task            Task               @relation("TaskDependencies", fields: [taskId], references: [id], onDelete: Cascade)
+  dependsOnTask   Task               @relation("TaskDependents", fields: [dependsOnTaskId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, dependsOnTaskId, type])
+  @@index([taskId])
+  @@index([dependsOnTaskId])
+}
+
+model TaskComment {
+  id        String   @id @default(cuid())
+  taskId    String
+  userId    String
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@index([userId])
+}
+
+model TaskActivity {
+  id        String   @id @default(cuid())
+  taskId    String
+  userId    String
+  type      String
+  content   String
+  createdAt DateTime @default(now())
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@index([userId])
+}
+
+model TaskTimeEntry {
+  id        String   @id @default(cuid())
+  taskId    String
+  userId    String
+  minutes   Int
+  note      String?
+  startedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@index([userId])
 }

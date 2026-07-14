@@ -10,7 +10,7 @@ export async function searchHandler(
   next: NextFunction
 ) {
   try {
-    const userId = (req as any).user?.id;
+    const userId = req.user!.sub;
     const query = req.query.q as string;
 
     if (!query || query.trim().length === 0) {

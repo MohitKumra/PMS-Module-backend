@@ -2,14 +2,14 @@
 import { Router } from 'express';
 import { authenticate } from '../middleware/authenticate';
 import * as messageService from '../services/message.service';
-import type { CreateMessageRequest, UpdateMessageRequest } from '../types';
+import type { CreateMessageRequest } from '../types';
 
 const router = Router();
 
 // All routes require authentication
 router.use(authenticate);
 
-// GET /api/messages — List all messages for the authenticated user
+// GET /api/messages - List all messages for the authenticated user
 router.get('/', async (req, res, next) => {
   try {
     const userId = req.user!.sub;
@@ -27,7 +27,7 @@ router.get('/', async (req, res, next) => {
   }
 });
 
-// GET /api/messages/unread-count — Get count of unread messages
+// GET /api/messages/unread-count - Get count of unread messages
 router.get('/unread-count', async (req, res, next) => {
   try {
     const userId = req.user!.sub;
@@ -38,7 +38,18 @@ router.get('/unread-count', async (req, res, next) => {
   }
 });
 
-// GET /api/messages/:id — Get a single message
+// POST /api/messages/mark-all-read - Mark all messages as read
+router.post('/mark-all-read', async (req, res, next) => {
+  try {
+    const userId = req.user!.sub;
+    await messageService.markAllAsRead(userId);
+    res.json({ message: 'All messages marked as read' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /api/messages/:id - Get a single message
 router.get('/:id', async (req, res, next) => {
   try {
     const userId = req.user!.sub;
@@ -49,7 +60,7 @@ router.get('/:id', async (req, res, next) => {
   }
 });
 
-// POST /api/messages — Create a new message (manual notification)
+// POST /api/messages - Create a new message (manual notification)
 router.post('/', async (req, res, next) => {
   try {
     const userId = req.user!.sub;
@@ -61,7 +72,7 @@ router.post('/', async (req, res, next) => {
   }
 });
 
-// PATCH /api/messages/:id — Update a message (mark as read)
+// PATCH /api/messages/:id - Update a message (mark as read)
 router.patch('/:id', async (req, res, next) => {
   try {
     const userId = req.user!.sub;
@@ -72,18 +83,7 @@ router.patch('/:id', async (req, res, next) => {
   }
 });
 
-// POST /api/messages/mark-all-read — Mark all messages as read
-router.post('/mark-all-read', async (req, res, next) => {
-  try {
-    const userId = req.user!.sub;
-    await messageService.markAllAsRead(userId);
-    res.json({ message: 'All messages marked as read' });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// DELETE /api/messages/:id — Delete a message
+// DELETE /api/messages/:id - Delete a message
 router.delete('/:id', async (req, res, next) => {
   try {
     const userId = req.user!.sub;

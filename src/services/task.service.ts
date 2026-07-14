@@ -5,14 +5,22 @@
 import { prisma } from '../lib/prismaClient';
 import { createError } from '../middleware/errorHandler';
 import { RRule, RRuleSet, rrulestr } from 'rrule';
+import { updateProjectProgress } from './project.service';
 import type {
   TaskDTO,
+  TaskDetailDTO,
   CreateTaskRequest,
   UpdateTaskRequest,
   SubTaskDTO,
   CreateSubTaskRequest,
   UpdateSubTaskRequest,
   TaskSubTaskInput,
+  TaskDependencyDTO,
+  CreateTaskDependencyRequest,
+  TaskCommentDTO,
+  CreateTaskCommentRequest,
+  TaskTimeEntryDTO,
+  CreateTaskTimeEntryRequest,
 } from '../types';
 
 /**
@@ -64,6 +72,16 @@ function getNextOccurrence(
 }
 
 /** Converts Prisma Task row to TaskDTO. */
+function toProjectSummary(projectTask: any) {
+  return projectTask?.project
+    ? {
+        id: projectTask.project.id,
+        name: projectTask.project.name,
+        color: projectTask.project.color ?? null,
+      }
+    : null;
+}
+
 function toDTO(t: any): TaskDTO {
   return {
     id: t.id,
@@ -80,6 +98,8 @@ function toDTO(t: any): TaskDTO {
     attachmentUrl: t.attachmentUrl,
     inProgressAt: t.inProgressAt?.toISOString() ?? null,
     completedAt: t.completedAt?.toISOString() ?? null,
+    estimatedDuration: t.estimatedDuration ?? null,
+    project: toProjectSummary(t.projectTasks),
     subTasks: t.subTasks?.map(subTaskToDTO),
     createdAt: t.createdAt.toISOString(),
     updatedAt: t.updatedAt.toISOString(),
@@ -96,6 +116,56 @@ function subTaskToDTO(st: any): SubTaskDTO {
     createdAt: st.createdAt.toISOString(),
     updatedAt: st.updatedAt.toISOString(),
   };
+}
+
+function dependencyToDTO(dep: any): TaskDependencyDTO {
+  return {
+    id: dep.id,
+    taskId: dep.taskId,
+    dependsOnTaskId: dep.dependsOnTaskId,
+    type: dep.type,
+    createdAt: dep.createdAt.toISOString(),
+    updatedAt: dep.updatedAt.toISOString(),
+    dependsOnTask: dep.dependsOnTask
+      ? {
+          id: dep.dependsOnTask.id,
+          title: dep.dependsOnTask.title,
+          status: dep.dependsOnTask.status,
+          priority: dep.dependsOnTask.priority,
+          dueDate: dep.dependsOnTask.dueDate?.toISOString() ?? null,
+        }
+      : undefined,
+  };
+}
+
+function commentToDTO(comment: any): TaskCommentDTO {
+  return {
+    id: comment.id,
+    taskId: comment.taskId,
+    userId: comment.userId,
+    content: comment.content,
+    createdAt: comment.createdAt.toISOString(),
+    updatedAt: comment.updatedAt.toISOString(),
+  };
+}
+
+function timeEntryToDTO(entry: any): TaskTimeEntryDTO {
+  return {
+    id: entry.id,
+    taskId: entry.taskId,
+    userId: entry.userId,
+    minutes: entry.minutes,
+    note: entry.note ?? null,
+    startedAt: entry.startedAt?.toISOString() ?? null,
+    createdAt: entry.createdAt.toISOString(),
+    updatedAt: entry.updatedAt.toISOString(),
+  };
+}
+
+async function createActivity(taskId: string, userId: string, type: string, content: string) {
+  await prisma.taskActivity.create({
+    data: { taskId, userId, type, content },
+  });
 }
 
 function normalizeSubTaskTitle(title: string): string {
@@ -125,20 +195,59 @@ export async function listTasks(userId: string, filters?: {
     prisma.task.findMany({
       where,
       orderBy: [{ dueDate: 'asc' }, { createdAt: 'desc' }],
-      include: { subTasks: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] } }
+      include: {
+        subTasks: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] },
+        projectTasks: { include: { project: true } },
+      }
     }),
     prisma.task.count({ where }),
   ]);
   return { data: tasks.map(toDTO), meta: { total } };
 }
 
-export async function getTask(userId: string, taskId: string): Promise<TaskDTO> {
+export async function getTask(userId: string, taskId: string): Promise<TaskDetailDTO> {
   const task = await prisma.task.findFirst({
     where: { id: taskId, userId },
-    include: { subTasks: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] } }
+    include: {
+      subTasks: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] },
+      projectTasks: { include: { project: true } },
+      dependencies: { include: { dependsOnTask: true }, orderBy: { createdAt: 'asc' } },
+      dependentOn: { include: { task: true }, orderBy: { createdAt: 'asc' } },
+      comments: { orderBy: { createdAt: 'desc' } },
+      activity: { orderBy: { createdAt: 'desc' } },
+      timeEntries: { orderBy: { createdAt: 'desc' } },
+    }
   });
   if (!task) throw createError(404, 'TASK_NOT_FOUND', 'Task not found');
-  return toDTO(task);
+  const linkedNotes = await prisma.note.findMany({
+    where: { userId, taskId },
+    orderBy: { updatedAt: 'desc' },
+  });
+  return {
+    ...toDTO(task),
+    dependencies: task.dependencies.map(dependencyToDTO),
+    comments: task.comments.map(commentToDTO),
+    activity: task.activity.map((item) => ({
+      id: item.id,
+      taskId: item.taskId,
+      userId: item.userId,
+      type: item.type,
+      content: item.content,
+      createdAt: item.createdAt.toISOString(),
+    })),
+    timeEntries: task.timeEntries.map(timeEntryToDTO),
+    linkedNotes: linkedNotes.map((note) => ({
+      id: note.id,
+      userId: note.userId,
+      title: note.title,
+      content: note.content,
+      isJournal: note.isJournal,
+      taskId: note.taskId,
+      projectId: note.projectId,
+      createdAt: note.createdAt.toISOString(),
+      updatedAt: note.updatedAt.toISOString(),
+    })),
+  };
 }
 
 export async function createTask(userId: string, data: CreateTaskRequest): Promise<TaskDTO> {
@@ -164,6 +273,7 @@ export async function createTask(userId: string, data: CreateTaskRequest): Promi
       recurrenceEndDate: (data.recurrenceEndDate && data.recurrenceEndDate !== '') ? new Date(data.recurrenceEndDate) : null,
       skipDates: data.skipDates || [],
       parentTaskId: data.parentTaskId ?? null,
+      estimatedDuration: data.estimatedDuration ?? null,
       inProgressAt: data.status === 'IN_PROGRESS' ? new Date() : null,
       completedAt: data.status === 'DONE' ? new Date() : null,
       subTasks: data.subTasks && data.subTasks.length > 0 ? {
@@ -173,8 +283,12 @@ export async function createTask(userId: string, data: CreateTaskRequest): Promi
         }))
       } : undefined,
     },
-    include: { subTasks: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] } }
+    include: {
+      subTasks: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] },
+      projectTasks: { include: { project: true } },
+    }
   });
+  await createActivity(task.id, userId, 'CREATED', `Created task "${task.title}"`);
   return toDTO(task);
 }
 
@@ -195,7 +309,8 @@ export async function updateTask(userId: string, taskId: string, data: UpdateTas
     } else if (data.status === 'DONE') {
       nextCompletedAt = existing.completedAt || new Date();
       nextInProgressAt = existing.inProgressAt || existing.createdAt;
-    } else if (data.status === 'TODO') {
+    } else if (data.status === 'TODO' || data.status === 'WAITING' || data.status === 'BLOCKED'
+      || data.status === 'IN_REVIEW' || data.status === 'DELEGATED' || data.status === 'CANCELLED') {
       nextInProgressAt = null;
       nextCompletedAt = null;
     }
@@ -270,12 +385,26 @@ export async function updateTask(userId: string, taskId: string, data: UpdateTas
         ...(data.recurrenceEndDate !== undefined && { recurrenceEndDate: (data.recurrenceEndDate && data.recurrenceEndDate !== '') ? new Date(data.recurrenceEndDate) : null }),
         ...(data.skipDates !== undefined && { skipDates: data.skipDates }),
         ...(data.attachmentUrl !== undefined && { attachmentUrl: data.attachmentUrl }),
+        ...(data.estimatedDuration !== undefined && { estimatedDuration: data.estimatedDuration }),
         ...(nextInProgressAt !== undefined && { inProgressAt: nextInProgressAt }),
         ...(nextCompletedAt !== undefined && { completedAt: nextCompletedAt }),
       },
-      include: { subTasks: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] } },
+      include: {
+        subTasks: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] },
+        projectTasks: { include: { project: true } },
+      },
     });
   });
+
+  if (data.status !== undefined && data.status !== existing.status) {
+    await createActivity(task.id, userId, 'STATUS_CHANGED', `Changed status to ${task.status}`);
+  }
+  if (data.title !== undefined && data.title !== existing.title) {
+    await createActivity(task.id, userId, 'TITLE_CHANGED', 'Updated task title');
+  }
+  if (data.description !== undefined) {
+    await createActivity(task.id, userId, 'DESCRIPTION_CHANGED', 'Updated task details');
+  }
 
   // If task is being marked as done and it's a recurring task, create next occurrence
   if (wasNotDone && isBeingMarkedDone && task.recurrenceRule) {
@@ -323,13 +452,22 @@ export async function updateTask(userId: string, taskId: string, data: UpdateTas
     }
   }
 
+  const projectTask = await prisma.projectTask.findUnique({ where: { taskId } });
+  if (projectTask) {
+    await updateProjectProgress(projectTask.projectId);
+  }
+
   return toDTO(task);
 }
 
 export async function deleteTask(userId: string, taskId: string): Promise<void> {
   const existing = await prisma.task.findFirst({ where: { id: taskId, userId } });
   if (!existing) throw createError(404, 'TASK_NOT_FOUND', 'Task not found');
+  const projectTask = await prisma.projectTask.findUnique({ where: { taskId } });
   await prisma.task.delete({ where: { id: taskId } });
+  if (projectTask) {
+    await updateProjectProgress(projectTask.projectId);
+  }
 }
 
 // Subtask CRUD
@@ -356,6 +494,7 @@ export async function createSubTask(userId: string, taskId: string, data: Create
       order: nextOrder
     }
   });
+  await createActivity(taskId, userId, 'SUBTASK_CREATED', `Added subtask "${title}"`);
   return subTaskToDTO(subTask);
 }
 
@@ -372,6 +511,9 @@ export async function updateSubTask(userId: string, taskId: string, subTaskId: s
       ...(data.order !== undefined && { order: data.order }),
     }
   });
+  if (data.completed !== undefined) {
+    await createActivity(taskId, userId, data.completed ? 'SUBTASK_COMPLETED' : 'SUBTASK_REOPENED', `Updated subtask "${updated.title}"`);
+  }
   return subTaskToDTO(updated);
 }
 
@@ -381,4 +523,61 @@ export async function deleteSubTask(userId: string, taskId: string, subTaskId: s
   const subTask = await prisma.subTask.findFirst({ where: { id: subTaskId, taskId } });
   if (!subTask) throw createError(404, 'SUBTASK_NOT_FOUND', 'Subtask not found');
   await prisma.subTask.delete({ where: { id: subTaskId } });
+  await createActivity(taskId, userId, 'SUBTASK_DELETED', `Deleted subtask "${subTask.title}"`);
+}
+
+export async function createTaskDependency(userId: string, taskId: string, data: CreateTaskDependencyRequest) {
+  const task = await prisma.task.findFirst({ where: { id: taskId, userId } });
+  if (!task) throw createError(404, 'TASK_NOT_FOUND', 'Task not found');
+  if (data.dependsOnTaskId === taskId) throw createError(400, 'INVALID_DEPENDENCY', 'A task cannot depend on itself');
+  const dependsOnTask = await prisma.task.findFirst({ where: { id: data.dependsOnTaskId, userId } });
+  if (!dependsOnTask) throw createError(404, 'TASK_NOT_FOUND', 'Dependency task not found');
+  const dependency = await prisma.taskDependency.create({
+    data: {
+      taskId,
+      dependsOnTaskId: data.dependsOnTaskId,
+      type: data.type ?? 'FINISH_TO_START',
+    },
+    include: { dependsOnTask: true },
+  });
+  await createActivity(taskId, userId, 'DEPENDENCY_ADDED', `Added dependency on "${dependsOnTask.title}"`);
+  return dependencyToDTO(dependency);
+}
+
+export async function deleteTaskDependency(userId: string, taskId: string, dependencyId: string) {
+  const task = await prisma.task.findFirst({ where: { id: taskId, userId } });
+  if (!task) throw createError(404, 'TASK_NOT_FOUND', 'Task not found');
+  const dependency = await prisma.taskDependency.findFirst({ where: { id: dependencyId, taskId } });
+  if (!dependency) throw createError(404, 'TASK_DEPENDENCY_NOT_FOUND', 'Task dependency not found');
+  await prisma.taskDependency.delete({ where: { id: dependencyId } });
+  await createActivity(taskId, userId, 'DEPENDENCY_REMOVED', 'Removed a dependency');
+}
+
+export async function createTaskComment(userId: string, taskId: string, data: CreateTaskCommentRequest) {
+  const task = await prisma.task.findFirst({ where: { id: taskId, userId } });
+  if (!task) throw createError(404, 'TASK_NOT_FOUND', 'Task not found');
+  const content = data.content.trim();
+  if (!content) throw createError(400, 'INVALID_COMMENT', 'Comment content is required');
+  const comment = await prisma.taskComment.create({
+    data: { taskId, userId, content },
+  });
+  await createActivity(taskId, userId, 'COMMENT_ADDED', 'Added a comment');
+  return commentToDTO(comment);
+}
+
+export async function createTaskTimeEntry(userId: string, taskId: string, data: CreateTaskTimeEntryRequest) {
+  const task = await prisma.task.findFirst({ where: { id: taskId, userId } });
+  if (!task) throw createError(404, 'TASK_NOT_FOUND', 'Task not found');
+  if (data.minutes <= 0) throw createError(400, 'INVALID_TIME_ENTRY', 'Minutes must be positive');
+  const entry = await prisma.taskTimeEntry.create({
+    data: {
+      taskId,
+      userId,
+      minutes: data.minutes,
+      note: data.note?.trim() || null,
+      startedAt: data.startedAt ? new Date(data.startedAt) : null,
+    },
+  });
+  await createActivity(taskId, userId, 'TIME_LOGGED', `Logged ${data.minutes} minutes`);
+  return timeEntryToDTO(entry);
 }

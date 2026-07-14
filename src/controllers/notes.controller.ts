@@ -4,8 +4,12 @@ import * as notesService from '../services/notes.service';
 
 export async function list(req: Request, res: Response, next: NextFunction) {
   try {
-    const isJournal = req.query.isJournal !== undefined ? req.query.isJournal === 'true' : undefined;
-    res.json(await notesService.listNotes(req.user!.sub, isJournal));
+    const filters = {
+      isJournal: req.query.isJournal !== undefined ? req.query.isJournal === 'true' : undefined,
+      taskId: typeof req.query.taskId === 'string' ? req.query.taskId : undefined,
+      projectId: typeof req.query.projectId === 'string' ? req.query.projectId : undefined,
+    };
+    res.json(await notesService.listNotes(req.user!.sub, filters));
   } catch (err) { next(err); }
 }
 

@@ -12,6 +12,8 @@ const createSchema = z.object({
   title: z.string().max(500).optional(),
   content: z.string().min(1),
   isJournal: z.boolean().optional(),
+  taskId: z.string().nullable().optional(),
+  projectId: z.string().nullable().optional(),
 });
 const idParams = z.object({ id: z.string() });
 

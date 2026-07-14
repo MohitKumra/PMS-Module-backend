@@ -26,6 +26,9 @@ export async function search(userId: string, query: string): Promise<SearchResul
           { description: { contains: lowerQuery, mode: 'insensitive' } },
         ],
       },
+      include: {
+        projectTasks: true,
+      },
       take: 10,
     }),
     prisma.habit.findMany({
@@ -77,6 +80,7 @@ export async function search(userId: string, query: string): Promise<SearchResul
         status: task.status,
         priority: task.priority,
         dueDate: task.dueDate?.toISOString(),
+        projectId: task.projectTasks?.projectId ?? null,
       },
     })),
     ...habits.map(habit => ({
@@ -97,6 +101,8 @@ export async function search(userId: string, query: string): Promise<SearchResul
       updatedAt: note.updatedAt.toISOString(),
       metadata: {
         isJournal: note.isJournal,
+        taskId: note.taskId,
+        projectId: note.projectId,
       },
     })),
     ...projects.map(project => ({

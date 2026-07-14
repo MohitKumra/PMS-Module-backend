@@ -1,17 +1,17 @@
 model Message {
-  id          String        @id @default(cuid())
-  type        MessageType   @default(SYSTEM)
-  content     String
-  userId      String
-  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  projectId   String?
-  project     Project?      @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  status      MessageStatus @default(SENT)
-  readAt      DateTime?
-  priority    String?       @default("NORMAL") // LOW, NORMAL, HIGH
-  actionUrl   String? // Link to relevant page/task
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  id        String        @id @default(cuid())
+  type      MessageType   @default(SYSTEM)
+  content   String
+  projectId String?
+  status    MessageStatus @default(SENT)
+  readAt    DateTime?
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  actionUrl String?
+  priority  String?       @default("NORMAL")
+  userId    String
+  project   Project?      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([projectId])

@@ -115,8 +115,18 @@ export interface GoogleCalendarSyncResponse {
 
 // ─── Tasks ───────────────────────────────────────────────────────────────────
 
-export type TaskStatus = 'TODO' | 'IN_PROGRESS' | 'DONE';
-export type Priority = 'LOW' | 'MEDIUM' | 'HIGH';
+export type TaskStatus =
+  | 'TODO'
+  | 'IN_PROGRESS'
+  | 'WAITING'
+  | 'BLOCKED'
+  | 'IN_REVIEW'
+  | 'DELEGATED'
+  | 'DONE'
+  | 'CANCELLED';
+
+export type Priority = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+export type TaskDependencyType = 'FINISH_TO_START' | 'START_TO_START' | 'FINISH_TO_FINISH';
 
 // ─── SubTasks ──────────────────────────────────────────────────────────────────
 
@@ -164,6 +174,12 @@ export interface TaskDTO {
   attachmentUrl: string | null;
   inProgressAt: string | null;
   completedAt: string | null;
+  estimatedDuration: number | null; // minutes
+  project?: {
+    id: string;
+    name: string;
+    color: string | null;
+  } | null;
   subTasks?: SubTaskDTO[];
   createdAt: string;
   updatedAt: string;
@@ -179,6 +195,7 @@ export interface CreateTaskRequest {
   recurrenceEndDate?: string;
   skipDates?: string[];
   parentTaskId?: string;
+  estimatedDuration?: number | null;
   subTasks?: CreateSubTaskRequest[];
 }
 
@@ -192,7 +209,70 @@ export interface UpdateTaskRequest {
   recurrenceEndDate?: string | null;
   skipDates?: string[];
   attachmentUrl?: string | null;
+  estimatedDuration?: number | null;
   subTasks?: TaskSubTaskInput[];
+}
+
+export interface TaskDependencyDTO {
+  id: string;
+  taskId: string;
+  dependsOnTaskId: string;
+  type: TaskDependencyType;
+  createdAt: string;
+  updatedAt: string;
+  dependsOnTask?: Pick<TaskDTO, 'id' | 'title' | 'status' | 'priority' | 'dueDate'>;
+}
+
+export interface CreateTaskDependencyRequest {
+  dependsOnTaskId: string;
+  type?: TaskDependencyType;
+}
+
+export interface TaskCommentDTO {
+  id: string;
+  taskId: string;
+  userId: string;
+  content: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateTaskCommentRequest {
+  content: string;
+}
+
+export interface TaskActivityDTO {
+  id: string;
+  taskId: string;
+  userId: string;
+  type: string;
+  content: string;
+  createdAt: string;
+}
+
+export interface CreateTaskTimeEntryRequest {
+  minutes: number;
+  note?: string;
+  startedAt?: string;
+}
+
+export interface TaskTimeEntryDTO {
+  id: string;
+  taskId: string;
+  userId: string;
+  minutes: number;
+  note: string | null;
+  startedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TaskDetailDTO extends TaskDTO {
+  dependencies: TaskDependencyDTO[];
+  comments: TaskCommentDTO[];
+  activity: TaskActivityDTO[];
+  timeEntries: TaskTimeEntryDTO[];
+  linkedNotes: NoteDTO[];
 }
 
 // ─── Habits ──────────────────────────────────────────────────────────────────
@@ -251,6 +331,8 @@ export interface NoteDTO {
   title: string | null;
   content: string;
   isJournal: boolean;
+  taskId: string | null;
+  projectId: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -259,12 +341,16 @@ export interface CreateNoteRequest {
   title?: string;
   content: string;
   isJournal?: boolean;
+  taskId?: string | null;
+  projectId?: string | null;
 }
 
 export interface UpdateNoteRequest {
   title?: string | null;
   content?: string;
   isJournal?: boolean;
+  taskId?: string | null;
+  projectId?: string | null;
 }
 
 // ─── Focus Sessions ──────────────────────────────────────────────────────────
