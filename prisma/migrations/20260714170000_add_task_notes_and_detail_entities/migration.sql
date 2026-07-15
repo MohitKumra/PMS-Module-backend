@@ -1,10 +1,12 @@
 -- CreateEnum
 CREATE TYPE "TaskDependencyType" AS ENUM ('FINISH_TO_START', 'START_TO_START', 'FINISH_TO_FINISH');
+-- However, if the type already exists, we need to handle duplicate tables gracefully.
+-- The following statements use IF NOT EXISTS where supported.
 
 -- AlterTable
 ALTER TABLE "Note"
-ADD COLUMN "taskId" TEXT,
-ADD COLUMN "projectId" TEXT;
+ADD COLUMN IF NOT EXISTS "taskId" TEXT,
+ADD COLUMN IF NOT EXISTS "projectId" TEXT;
 
 -- CreateTable
 CREATE TABLE "TaskDependency" (

@@ -10,6 +10,7 @@ import { env } from './config/env';
 import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
+import path from 'path';
 
 import authRoutes         from './routes/auth.routes';
 import tasksRoutes        from './routes/tasks.routes';
@@ -22,6 +23,8 @@ import notificationsRoutes from './routes/notifications.routes';
 import settingsRoutes      from './routes/settings.routes';
 import dashboardRoutes    from './routes/dashboard.routes';
 import searchRoutes       from './routes/search.routes';
+import usersRoutes        from './routes/users.routes';
+import uploadsRoutes      from './routes/uploads.routes';
 import projectsController  from './controllers/projects.controller';
 import { errorHandler }   from './middleware/errorHandler';
 import { startScheduler } from './jobs/reminderScheduler';
@@ -33,7 +36,8 @@ app.use(cors({
   origin: env.FRONTEND_URL,
   credentials: true,          // allow cookies (refresh token)
 }));
-app.use(express.json({ limit: '2mb' }));
+app.use('/uploads', express.static(path.resolve(process.cwd(), 'uploads')));
+app.use(express.json({ limit: '12mb' }));
 app.use(cookieParser());
 
 // ─── Health check ─────────────────────────────────────────────────────────────
@@ -51,6 +55,8 @@ app.use('/api/notifications', notificationsRoutes);
 app.use('/api/settings',      settingsRoutes);
 app.use('/api/dashboard',     dashboardRoutes);
 app.use('/api/search',        searchRoutes);
+app.use('/api/users',         usersRoutes);
+app.use('/api/media',         uploadsRoutes);
 app.use('/api/projects',      projectsController);
 
 // ─── 404 catch ────────────────────────────────────────────────────────────────

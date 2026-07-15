@@ -6,6 +6,8 @@ model Project {
   color       String?       @default("#4F46E5")
   startDate   DateTime?
   dueDate     DateTime?
+  attachmentUrl String?
+  voiceNoteUrl String?
   progress    Int           @default(0)
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt

@@ -41,6 +41,8 @@ const createSchema = z.object({
   skipDates: z.array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format')).optional(),
   parentTaskId: z.string().optional(),
   estimatedDuration: z.number().int().positive().nullable().optional(),
+  attachmentUrl: z.string().min(1).max(2048).nullable().optional(),
+  voiceNoteUrl: z.string().min(1).max(2048).nullable().optional(),
   subTasks: z.array(createSubTaskSchema).optional(),
 });
 
@@ -51,7 +53,8 @@ const updateSchema = createSchema.partial().extend({
   recurrenceRule: z.string().max(200).nullable().optional(),
   recurrenceEndDate: z.string().nullable().optional().refine(val => val === null || !val || /^\d{4}-\d{2}-\d{2}$/.test(val), 'Invalid date format'),
   skipDates: z.array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format')).optional(),
-  attachmentUrl: z.string().url().nullable().optional(),
+  attachmentUrl: z.string().min(1).max(2048).nullable().optional(),
+  voiceNoteUrl: z.string().min(1).max(2048).nullable().optional(),
   estimatedDuration: z.number().int().positive().nullable().optional(),
   subTasks: z.array(taskSubTaskSchema).optional(),
 });

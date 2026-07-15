@@ -167,6 +167,7 @@ export interface TaskDTO {
   skipDates: string[]; // YYYY-MM-DD
   parentTaskId: string | null;
   attachmentUrl: string | null;
+  voiceNoteUrl: string | null;
   inProgressAt: string | null;
   completedAt: string | null;
   estimatedDuration: number | null; // minutes
@@ -191,6 +192,8 @@ export interface CreateTaskRequest {
   skipDates?: string[];
   parentTaskId?: string;
   estimatedDuration?: number | null;
+  attachmentUrl?: string | null;
+  voiceNoteUrl?: string | null;
   subTasks?: CreateSubTaskRequest[];
 }
 
@@ -204,6 +207,7 @@ export interface UpdateTaskRequest {
   recurrenceEndDate?: string | null;
   skipDates?: string[];
   attachmentUrl?: string | null;
+  voiceNoteUrl?: string | null;
   estimatedDuration?: number | null;
   subTasks?: TaskSubTaskInput[];
 }
@@ -298,6 +302,8 @@ export interface NoteDTO {
   isJournal: boolean;
   taskId: string | null;
   projectId: string | null;
+  attachmentUrl: string | null;
+  voiceNoteUrl: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -308,6 +314,8 @@ export interface CreateNoteRequest {
   isJournal?: boolean;
   taskId?: string | null;
   projectId?: string | null;
+  attachmentUrl?: string | null;
+  voiceNoteUrl?: string | null;
 }
 
 export interface UpdateNoteRequest {
@@ -316,6 +324,8 @@ export interface UpdateNoteRequest {
   isJournal?: boolean;
   taskId?: string | null;
   projectId?: string | null;
+  attachmentUrl?: string | null;
+  voiceNoteUrl?: string | null;
 }
 
 // ─── Focus Sessions ──────────────────────────────────────────────────────────
@@ -429,6 +439,8 @@ export interface ProjectDTO {
   userId: string;
   startDate: string | null;
   dueDate: string | null;
+  attachmentUrl: string | null;
+  voiceNoteUrl: string | null;
   progress: number; // 0-100
   createdAt: string;
   updatedAt: string;
@@ -443,6 +455,8 @@ export interface CreateProjectRequest {
   color?: string;
   startDate?: string;
   dueDate?: string;
+  attachmentUrl?: string | null;
+  voiceNoteUrl?: string | null;
 }
 
 export interface UpdateProjectRequest {
@@ -452,6 +466,8 @@ export interface UpdateProjectRequest {
   color?: string;
   startDate?: string | null;
   dueDate?: string | null;
+  attachmentUrl?: string | null;
+  voiceNoteUrl?: string | null;
   progress?: number;
 }
 

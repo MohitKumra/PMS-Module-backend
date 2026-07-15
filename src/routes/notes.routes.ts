@@ -14,6 +14,8 @@ const createSchema = z.object({
   isJournal: z.boolean().optional(),
   taskId: z.string().nullable().optional(),
   projectId: z.string().nullable().optional(),
+  attachmentUrl: z.string().max(2048).nullable().optional().transform(v => v === '' ? null : v),
+  voiceNoteUrl: z.string().max(2048).nullable().optional().transform(v => v === '' ? null : v),
 });
 const idParams = z.object({ id: z.string() });
 

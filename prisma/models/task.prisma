@@ -9,6 +9,7 @@ model Task {
   recurrenceRule    String?
   parentTaskId      String?
   attachmentUrl     String?
+  voiceNoteUrl      String?
   createdAt         DateTime     @default(now())
   updatedAt         DateTime     @updatedAt
   recurrenceEndDate DateTime?

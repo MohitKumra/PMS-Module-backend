@@ -3,6 +3,7 @@
 
 import { prisma } from '../lib/prismaClient';
 import { createError } from '../middleware/errorHandler';
+import { deleteStoredFile } from '../lib/fileStorage';
 import type {
   ProjectDTO,
   CreateProjectRequest,
@@ -10,6 +11,12 @@ import type {
   AssignTaskToProjectRequest,
   ListResponse,
 } from '../types';
+
+function normalizeMediaUrl(value: string | null | undefined): string | null {
+  if (value === undefined || value === null) return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
 
 /** Convert Prisma Project to ProjectDTO */
 function toDTO(project: any): ProjectDTO {
@@ -22,6 +29,8 @@ function toDTO(project: any): ProjectDTO {
     userId: project.userId,
     startDate: project.startDate?.toISOString() ?? null,
     dueDate: project.dueDate?.toISOString() ?? null,
+    attachmentUrl: project.attachmentUrl ?? null,
+    voiceNoteUrl: project.voiceNoteUrl ?? null,
     progress: project.progress ?? 0,
     createdAt: project.createdAt.toISOString(),
     updatedAt: project.updatedAt.toISOString(),
@@ -87,6 +96,8 @@ export async function createProject(
       color: req.color ?? '#4F46E5',
       startDate: req.startDate ? new Date(req.startDate) : null,
       dueDate: req.dueDate ? new Date(req.dueDate) : null,
+      attachmentUrl: normalizeMediaUrl(req.attachmentUrl),
+      voiceNoteUrl: normalizeMediaUrl(req.voiceNoteUrl),
     },
     include: {
       _count: { select: { tasks: true } },
@@ -107,6 +118,8 @@ export async function updateProject(
   });
 
   if (!existing) throw createError(404, 'PROJECT_NOT_FOUND', 'Project not found');
+  const previousAttachmentUrl = existing.attachmentUrl;
+  const previousVoiceNoteUrl = existing.voiceNoteUrl;
 
   const updated = await prisma.project.update({
     where: { id: projectId },
@@ -117,6 +130,8 @@ export async function updateProject(
       ...(req.color !== undefined && { color: req.color }),
       ...(req.startDate !== undefined && { startDate: req.startDate ? new Date(req.startDate) : null }),
       ...(req.dueDate !== undefined && { dueDate: req.dueDate ? new Date(req.dueDate) : null }),
+      ...(req.attachmentUrl !== undefined && { attachmentUrl: normalizeMediaUrl(req.attachmentUrl) }),
+      ...(req.voiceNoteUrl !== undefined && { voiceNoteUrl: normalizeMediaUrl(req.voiceNoteUrl) }),
       ...(req.progress !== undefined && { progress: req.progress }),
     },
     include: {
@@ -126,6 +141,13 @@ export async function updateProject(
       },
     },
   });
+
+  if (req.attachmentUrl !== undefined && req.attachmentUrl !== previousAttachmentUrl) {
+    await deleteStoredFile(previousAttachmentUrl);
+  }
+  if (req.voiceNoteUrl !== undefined && req.voiceNoteUrl !== previousVoiceNoteUrl) {
+    await deleteStoredFile(previousVoiceNoteUrl);
+  }
 
   const completedTaskCount = updated.tasks.filter((pt) => pt.task.status === 'DONE').length;
 
@@ -141,6 +163,8 @@ export async function deleteProject(userId: string, projectId: string): Promise<
   if (!existing) throw createError(404, 'PROJECT_NOT_FOUND', 'Project not found');
 
   await prisma.project.delete({ where: { id: projectId } });
+  await deleteStoredFile(existing.attachmentUrl);
+  await deleteStoredFile(existing.voiceNoteUrl);
 }
 
 /** Assign a task to a project */

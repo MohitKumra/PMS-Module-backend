@@ -307,28 +307,40 @@ async function getValidAccessToken(
   },
   persistRefresh?: boolean,
 ): Promise<string> {
+  console.log(`[Google Calendar] Checking access token validity for user ${connection.userId}`);
+  
   const accessToken = decryptSecret(connection.accessToken);
   if (accessToken && connection.expiresAt && connection.expiresAt.getTime() > Date.now() + 60_000) {
+    console.log(`[Google Calendar] Using existing access token (expires in ${Math.round((connection.expiresAt.getTime() - Date.now()) / 60000)} minutes)`);
     return accessToken;
   }
 
+  console.log(`[Google Calendar] Access token expired or missing, refreshing token`);
+  
   const refreshToken = decryptSecret(connection.refreshToken);
   if (!refreshToken) {
+    console.error(`[Google Calendar] Refresh token missing for user ${connection.userId}`);
     throw createError(400, 'GOOGLE_REFRESH_TOKEN_MISSING', 'Google refresh token is missing');
   }
 
-  const refreshed = await refreshGoogleAccessToken(refreshToken);
+  try {
+    const refreshed = await refreshGoogleAccessToken(refreshToken);
+    console.log(`[Google Calendar] Successfully refreshed access token`);
 
-  // Persist the refreshed token immediately so subsequent calls don't re-refresh
-  await prisma.googleCalendarConnection.update({
-    where: { userId: connection.userId },
-    data: {
-      accessToken: encryptSecret(refreshed.access_token),
-      expiresAt: new Date(Date.now() + (refreshed.expires_in ?? 3600) * 1000),
-    },
-  });
+    // Persist the refreshed token immediately so subsequent calls don't re-refresh
+    await prisma.googleCalendarConnection.update({
+      where: { userId: connection.userId },
+      data: {
+        accessToken: encryptSecret(refreshed.access_token),
+        expiresAt: new Date(Date.now() + (refreshed.expires_in ?? 3600) * 1000),
+      },
+    });
 
-  return refreshed.access_token;
+    return refreshed.access_token;
+  } catch (error) {
+    console.error(`[Google Calendar] Failed to refresh access token:`, error);
+    throw error;
+  }
 }
 
 function formatDateInTimeZone(date: Date, timeZone: string): string {
@@ -351,6 +363,11 @@ async function callGoogleCalendarApi(
   accessToken: string,
   body?: Record<string, unknown>,
 ): Promise<{ ok: boolean; status: number; json?: any }> {
+  console.log(`[Google Calendar API] ${method} ${path}`);
+  if (body) {
+    console.log(`[Google Calendar API] Request body:`, JSON.stringify(body, null, 2));
+  }
+  
   const response = await fetch(`https://www.googleapis.com/calendar/v3${path}`, {
     method,
     headers: {
@@ -364,28 +381,69 @@ async function callGoogleCalendarApi(
   const json = text ? (() => {
     try { return JSON.parse(text); } catch { return text; }
   })() : undefined;
+  
+  if (!response.ok) {
+    console.error(`[Google Calendar API] ${method} ${path} failed with status ${response.status}:`, JSON.stringify(json, null, 2));
+    console.error(`[Google Calendar API] Response headers:`, Object.fromEntries(response.headers.entries()));
+  } else {
+    console.log(`[Google Calendar API] ${method} ${path} succeeded (${response.status})`);
+  }
+  
   return { ok: response.ok, status: response.status, json };
 }
 
 export async function syncGoogleCalendarTasks(userId: string): Promise<GoogleCalendarSyncResponse> {
+  console.log(`[Google Calendar] Starting sync for user ${userId}`);
+  
   const user = await prisma.user.findUnique({
     where: { id: userId },
     include: { notificationPreferences: true },
   });
-  if (!user) throw createError(404, 'USER_NOT_FOUND', 'User not found');
+  if (!user) {
+    console.error(`[Google Calendar] User ${userId} not found`);
+    throw createError(404, 'USER_NOT_FOUND', 'User not found');
+  }
 
   const connection = await prisma.googleCalendarConnection.findUnique({ where: { userId } });
   if (!connection || !connection.isActive) {
+    console.error(`[Google Calendar] Connection not active for user ${userId}`);
     throw createError(400, 'GOOGLE_CALENDAR_NOT_CONNECTED', 'Google Calendar is not connected');
   }
+
+  if (!connection.syncTasks) {
+    console.log(`[Google Calendar] Sync disabled for user ${userId}`);
+    return { synced: 0, created: 0, updated: 0, deleted: 0, skipped: 0 };
+  }
+
+  console.log(`[Google Calendar] Connection details:`, {
+    googleEmail: connection.googleEmail,
+    calendarId: connection.calendarId || 'primary',
+    hasAccessToken: Boolean(connection.accessToken),
+    hasRefreshToken: Boolean(connection.refreshToken),
+    expiresAt: connection.expiresAt?.toISOString(),
+  });
 
   const accessToken = await getValidAccessToken(connection);
   const targetCalendarId = connection.calendarId || 'primary';
 
+  console.log(`[Google Calendar] Using calendar ID: ${targetCalendarId}`);
+
   const tasks = await prisma.task.findMany({
     where: { userId, dueDate: { not: null } },
+    include: {
+      subTasks: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] },
+      projectTasks: { 
+        include: { 
+          project: { 
+            select: { id: true, name: true, color: true } 
+          } 
+        } 
+      },
+    },
     orderBy: { dueDate: 'asc' },
   });
+
+  console.log(`[Google Calendar] Found ${tasks.length} tasks with due dates to sync`);
 
   const syncItems = await prisma.googleCalendarSyncItem.findMany({
     where: { userId, localType: 'TASK' },
@@ -405,15 +463,78 @@ export async function syncGoogleCalendarTasks(userId: string): Promise<GoogleCal
 
     const existing = syncByTaskId.get(task.id);
     const date = formatDateInTimeZone(task.dueDate, user.timezone || 'UTC');
+    
+    // Build rich description with useful information
+    const descriptionParts = [];
+    
+    // Add task description if present
+    if (task.description) {
+      descriptionParts.push(task.description);
+      descriptionParts.push(''); // Empty line for spacing
+    }
+    
+    // Add task metadata
+    descriptionParts.push('📋 Task Details:');
+    descriptionParts.push(`Status: ${task.status}`);
+    descriptionParts.push(`Priority: ${task.priority}`);
+    
+    if (task.estimatedDuration) {
+      descriptionParts.push(`Estimated Time: ${task.estimatedDuration} minutes`);
+    }
+    
+    // Add subtasks if present
+    const subTasks = Array.isArray(task.subTasks) ? task.subTasks : [];
+    if (subTasks.length > 0) {
+      descriptionParts.push('');
+      descriptionParts.push('✅ Subtasks:');
+      subTasks.forEach((st: any) => {
+        const checkmark = st.completed ? '✓' : '☐';
+        descriptionParts.push(`${checkmark} ${st.title}`);
+      });
+    }
+    
+    // Add projects if task is linked to any
+    const projectTasks = Array.isArray(task.projectTasks) ? task.projectTasks : [];
+    if (projectTasks.length > 0) {
+      descriptionParts.push('');
+      descriptionParts.push('📁 Projects:');
+      projectTasks.forEach((pt: any) => {
+        descriptionParts.push(`• ${pt.project?.name || 'Unnamed Project'}`);
+      });
+    }
+    
+    // Add timestamps
+    descriptionParts.push('');
+    descriptionParts.push(`Created: ${task.createdAt.toLocaleString()}`);
+    if (task.inProgressAt) {
+      descriptionParts.push(`Started: ${task.inProgressAt.toLocaleString()}`);
+    }
+    
+    // Add direct link to open task in the app
+    const taskUrl = `${env.FRONTEND_URL}/tasks/${task.id}`;
+    descriptionParts.push('');
+    descriptionParts.push('🔗 Open in FlowSpace:');
+    descriptionParts.push(taskUrl);
+    
+    // Status emoji for the title
+    const statusEmoji = task.status === 'DONE' ? '✅' : 
+                       task.status === 'IN_PROGRESS' ? '🔄' : 
+                       task.status === 'CANCELLED' ? '❌' : '📝';
+    
+    // Priority emoji for the title
+    const priorityEmoji = task.priority === 'HIGH' ? '🔴' : 
+                         task.priority === 'MEDIUM' ? '🟠' : '🟢';
+    
     const payload = {
-      summary: task.title,
-      description: [
-        task.description ?? '',
-        `FlowSpace task: ${task.status}`,
-        `Priority: ${task.priority}`,
-      ].filter(Boolean).join('\n\n'),
+      summary: `${statusEmoji} ${task.title} ${priorityEmoji}`,
+      description: descriptionParts.join('\n'),
       start: { date },
       end: { date: formatDateInTimeZone(new Date(task.dueDate.getTime() + 24 * 60 * 60 * 1000), user.timezone || 'UTC') },
+      source: {
+        title: 'FlowSpace Task',
+        url: taskUrl,
+      },
+      colorId: task.priority === 'HIGH' ? '11' : task.priority === 'MEDIUM' ? '6' : '2', // Red, Tangerine (dark orange), Green
     };
 
     if (existing) {
@@ -426,12 +547,21 @@ export async function syncGoogleCalendarTasks(userId: string): Promise<GoogleCal
 
       if (result.ok) {
         updated += 1;
+        console.log(`[Google Calendar] Updated event for task "${task.title}"`);
         continue;
       }
 
       if (result.status !== 404) {
-        throw createError(400, 'GOOGLE_CALENDAR_UPDATE_FAILED', 'Failed to update Google Calendar event');
+        console.error(`[Google Calendar] Failed to update event for task "${task.title}":`, result.json);
+        const errorDetails = result.json?.error?.message || JSON.stringify(result.json);
+        throw createError(
+          400, 
+          'GOOGLE_CALENDAR_UPDATE_FAILED', 
+          `Failed to update Google Calendar event: ${errorDetails} (Status: ${result.status})`
+        );
       }
+      
+      console.log(`[Google Calendar] Event not found (404), will create new event for task "${task.title}"`);
     }
 
     const result = await callGoogleCalendarApi(
@@ -445,8 +575,16 @@ export async function syncGoogleCalendarTasks(userId: string): Promise<GoogleCal
     );
 
     if (!result.ok || !result.json?.id) {
-      throw createError(400, 'GOOGLE_CALENDAR_CREATE_FAILED', 'Failed to create Google Calendar event');
+      console.error(`[Google Calendar] Failed to create event for task "${task.title}":`, result.json);
+      const errorDetails = result.json?.error?.message || JSON.stringify(result.json);
+      throw createError(
+        400, 
+        'GOOGLE_CALENDAR_CREATE_FAILED', 
+        `Failed to create Google Calendar event: ${errorDetails} (Status: ${result.status})`
+      );
     }
+
+    console.log(`[Google Calendar] Created event for task "${task.title}" with ID: ${result.json.id}`);
 
     await prisma.googleCalendarSyncItem.upsert({
       where: {
@@ -496,6 +634,14 @@ export async function syncGoogleCalendarTasks(userId: string): Promise<GoogleCal
       expiresAt: new Date(Date.now() + 55 * 60 * 1000),
       lastSyncedAt: new Date(),
     },
+  });
+
+  console.log(`[Google Calendar] Sync completed for user ${userId}:`, {
+    created,
+    updated,
+    deleted,
+    skipped,
+    total: created + updated + deleted,
   });
 
   if (user.notificationPreferences?.calendarSync) {

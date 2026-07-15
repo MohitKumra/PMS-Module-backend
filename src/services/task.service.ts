@@ -4,6 +4,7 @@
 
 import { prisma } from '../lib/prismaClient';
 import { createError } from '../middleware/errorHandler';
+import { deleteStoredFile } from '../lib/fileStorage';
 import { RRule, RRuleSet, rrulestr } from 'rrule';
 import { updateProjectProgress } from './project.service';
 import { syncGoogleCalendarTasks } from './google.service';
@@ -93,6 +94,7 @@ function toDTO(t: any): TaskDTO {
     skipDates: t.skipDates || [],
     parentTaskId: t.parentTaskId,
     attachmentUrl: t.attachmentUrl,
+    voiceNoteUrl: t.voiceNoteUrl,
     inProgressAt: t.inProgressAt?.toISOString() ?? null,
     completedAt: t.completedAt?.toISOString() ?? null,
     estimatedDuration: t.estimatedDuration ?? null,
@@ -109,9 +111,20 @@ function toDTO(t: any): TaskDTO {
  */
 async function triggerCalendarSync(userId: string): Promise<void> {
   try {
+    // Check if Google Calendar is connected before attempting sync
+    const connection = await prisma.googleCalendarConnection.findUnique({ 
+      where: { userId } 
+    });
+    
+    if (!connection || !connection.isActive || !connection.syncTasks) {
+      return; // Skip sync if not connected or sync disabled
+    }
+    
     await syncGoogleCalendarTasks(userId);
-  } catch {
-    // Sync failures should never break the task operation
+    console.log(`[Google Calendar] Successfully synced tasks for user ${userId}`);
+  } catch (error) {
+    // Log the error but don't block task operations
+    console.error(`[Google Calendar] Sync failed for user ${userId}:`, error);
   }
 }
 
@@ -217,6 +230,8 @@ export async function getTask(userId: string, taskId: string): Promise<TaskDetai
       isJournal: note.isJournal,
       taskId: note.taskId,
       projectId: note.projectId,
+      attachmentUrl: note.attachmentUrl,
+      voiceNoteUrl: note.voiceNoteUrl,
       createdAt: note.createdAt.toISOString(),
       updatedAt: note.updatedAt.toISOString(),
     })),
@@ -247,6 +262,8 @@ export async function createTask(userId: string, data: CreateTaskRequest): Promi
       skipDates: data.skipDates || [],
       parentTaskId: data.parentTaskId ?? null,
       estimatedDuration: data.estimatedDuration ?? null,
+      attachmentUrl: data.attachmentUrl ?? null,
+      voiceNoteUrl: data.voiceNoteUrl ?? null,
       inProgressAt: data.status === 'IN_PROGRESS' ? new Date() : null,
       completedAt: data.status === 'DONE' ? new Date() : null,
       subTasks: data.subTasks && data.subTasks.length > 0 ? {
@@ -272,6 +289,8 @@ export async function createTask(userId: string, data: CreateTaskRequest): Promi
 export async function updateTask(userId: string, taskId: string, data: UpdateTaskRequest): Promise<TaskDTO> {
   const existing = await prisma.task.findFirst({ where: { id: taskId, userId } });
   if (!existing) throw createError(404, 'TASK_NOT_FOUND', 'Task not found');
+  const previousAttachmentUrl = existing.attachmentUrl;
+  const previousVoiceNoteUrl = existing.voiceNoteUrl;
 
   const wasNotDone = existing.status !== 'DONE';
   const isBeingMarkedDone = data.status === 'DONE';
@@ -361,6 +380,7 @@ export async function updateTask(userId: string, taskId: string, data: UpdateTas
         ...(data.recurrenceEndDate !== undefined && { recurrenceEndDate: (data.recurrenceEndDate && data.recurrenceEndDate !== '') ? new Date(data.recurrenceEndDate) : null }),
         ...(data.skipDates !== undefined && { skipDates: data.skipDates }),
         ...(data.attachmentUrl !== undefined && { attachmentUrl: data.attachmentUrl }),
+        ...(data.voiceNoteUrl !== undefined && { voiceNoteUrl: data.voiceNoteUrl }),
         ...(data.estimatedDuration !== undefined && { estimatedDuration: data.estimatedDuration }),
         ...(nextInProgressAt !== undefined && { inProgressAt: nextInProgressAt }),
         ...(nextCompletedAt !== undefined && { completedAt: nextCompletedAt }),
@@ -380,6 +400,12 @@ export async function updateTask(userId: string, taskId: string, data: UpdateTas
   }
   if (data.description !== undefined) {
     await createActivity(task.id, userId, 'DESCRIPTION_CHANGED', 'Updated task details');
+  }
+  if (data.attachmentUrl !== undefined && data.attachmentUrl !== previousAttachmentUrl) {
+    await deleteStoredFile(previousAttachmentUrl);
+  }
+  if (data.voiceNoteUrl !== undefined && data.voiceNoteUrl !== previousVoiceNoteUrl) {
+    await deleteStoredFile(previousVoiceNoteUrl);
   }
 
   // If task is being unmarked (DONE → TODO), delete the previously generated next occurrence
@@ -447,6 +473,7 @@ export async function updateTask(userId: string, taskId: string, data: UpdateTas
             skipDates: task.skipDates,
             parentTaskId: task.parentTaskId ?? task.id,
             attachmentUrl: task.attachmentUrl,
+            voiceNoteUrl: task.voiceNoteUrl,
             subTasks: originalSubTasks.length > 0 ? {
               create: originalSubTasks.map((st) => ({
                 title: st.title,
