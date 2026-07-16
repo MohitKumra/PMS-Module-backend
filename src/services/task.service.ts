@@ -171,9 +171,7 @@ function normalizeSubTaskOrder(subTasks: TaskSubTaskInput[]): TaskSubTaskInput[]
   }));
 }
 
-export async function listTasks(userId: string, filters?: {
-  status?: string; priority?: string; from?: string; to?: string;
-}): Promise<{ data: TaskDTO[]; meta: { total: number } }> {
+export async function listTasks(userId: string, filters?: Record<string, string>): Promise<{ data: TaskDTO[]; meta: { total: number; nextCursor?: string | null } }> {
   const where: Record<string, unknown> = { userId };
   if (filters?.status) where.status = filters.status;
   if (filters?.priority) where.priority = filters.priority;
@@ -182,9 +180,17 @@ export async function listTasks(userId: string, filters?: {
     if (filters.from) (where.dueDate as Record<string, unknown>).gte = new Date(filters.from);
     if (filters.to) (where.dueDate as Record<string, unknown>).lte = new Date(filters.to);
   }
+
+  // Cursor pagination
+  const cursor = filters?.cursor ?? undefined;
+  const takeRaw = filters?.take ? parseInt(filters.take, 10) : 20;
+  const take = Math.min(Math.max(takeRaw, 1), 100); // clamp 1–100
+
   const [tasks, total] = await Promise.all([
     prisma.task.findMany({
       where,
+      take: take + 1, // fetch one extra to detect hasMore
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
       orderBy: [{ dueDate: 'asc' }, { createdAt: 'desc' }],
       include: {
         subTasks: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] },
@@ -193,7 +199,12 @@ export async function listTasks(userId: string, filters?: {
     }),
     prisma.task.count({ where }),
   ]);
-  return { data: tasks.map(toDTO), meta: { total } };
+
+  const hasMore = tasks.length > take;
+  if (hasMore) tasks.pop(); // remove the extra item
+  const nextCursor = hasMore ? tasks[tasks.length - 1].id : null;
+
+  return { data: tasks.map(toDTO), meta: { total, nextCursor } };
 }
 
 export async function getTask(userId: string, taskId: string): Promise<TaskDetailDTO> {

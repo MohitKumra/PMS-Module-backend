@@ -1,6 +1,7 @@
 // backend/src/controllers/notifications.controller.ts
 import { Request, Response, NextFunction } from 'express';
 import * as notifService from '../services/notification.service';
+import * as activityFeedService from '../services/activityFeed.service';
 import { env } from '../config/env';
 
 export async function getVapidKey(req: Request, res: Response, next: NextFunction) {
@@ -48,4 +49,34 @@ export async function sendTestNotification(req: Request, res: Response, next: Ne
     );
     res.json({ success: true, message: 'Test notification sent' });
   } catch (err) { next(err); }
+}
+
+export async function getActivityFeed(req: Request, res: Response, next: NextFunction) {
+  try {
+    const page = parseInt(req.query.page as string) || 1;
+    const pageSize = parseInt(req.query.pageSize as string) || 20;
+    
+    // Validate pagination parameters
+    if (page < 1) {
+      return res.status(400).json({ 
+        error: { 
+          code: 'INVALID_PAGE', 
+          message: 'Page must be greater than 0' 
+        } 
+      });
+    }
+    if (pageSize < 1 || pageSize > 100) {
+      return res.status(400).json({ 
+        error: { 
+          code: 'INVALID_PAGE_SIZE', 
+          message: 'Page size must be between 1 and 100' 
+        } 
+      });
+    }
+
+    const feed = await activityFeedService.getActivityFeed(req.user!.sub, page, pageSize);
+    res.json(feed);
+  } catch (err) { 
+    next(err); 
+  }
 }
