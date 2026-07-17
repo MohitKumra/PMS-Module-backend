@@ -283,6 +283,21 @@ export interface UpdateHabitRequest {
   reminderTime?: string | null;
 }
 
+// ─── Week Overview ────────────────────────────────────────────────────────────
+
+export interface WeekDayDTO {
+  date: string;   // "YYYY-MM-DD"
+  score: number;  // 0-100
+  completed: number;
+  total: number;
+  isFuture: boolean;
+  isToday: boolean;
+}
+
+export interface WeekOverviewDTO {
+  days: WeekDayDTO[];
+}
+
 // ─── Habit Completions ────────────────────────────────────────────────────────
 
 export interface HabitCompletionDTO {

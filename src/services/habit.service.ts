@@ -1,6 +1,6 @@
 import { prisma } from '../lib/prismaClient';
 import { createError } from '../middleware/errorHandler';
-import type { HabitDTO, CreateHabitRequest, UpdateHabitRequest } from '../types';
+import type { HabitDTO, CreateHabitRequest, UpdateHabitRequest, WeekOverviewDTO } from '../types';
 
 function toDateStr(d: Date): string {
   return d.toISOString().split('T')[0];
@@ -188,4 +188,52 @@ export async function toggleCompletion(userId: string, habitId: string): Promise
     include: { completions: { select: { date: true } } },
   });
   return toDTO(updated!);
+}
+
+/**
+ * Returns pre-calculated day scores for the current week (Mon–Sun).
+ * Each day's score is the percentage of habits that existed on that day
+ * and were completed. This is computed server-side using UTC dates so
+ * that historical days are "frozen" and not affected by new habits
+ * created today.
+ */
+export async function getWeekOverview(userId: string): Promise<WeekOverviewDTO> {
+  const habits = await prisma.habit.findMany({
+    where: { userId },
+    include: { completions: { select: { date: true } } },
+    orderBy: { createdAt: 'asc' },
+  });
+
+  const monday = utcMondayOfThisWeek();
+  const today = utcToday();
+
+  const days = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(monday);
+    d.setUTCDate(monday.getUTCDate() + i);
+    const dateStr = toDateStr(d);
+
+    // Only habits that existed on or before this day are eligible
+    const eligibleHabits = habits.filter((h) => {
+      const createdDateStr = toDateStr(h.createdAt);
+      return createdDateStr <= dateStr;
+    });
+
+    const completed = eligibleHabits.filter((h) =>
+      h.completions.some((c) => toDateStr(c.date) === dateStr)
+    ).length;
+
+    const total = eligibleHabits.length;
+    const score = total === 0 ? 0 : Math.round((completed / total) * 100);
+
+    return {
+      date: dateStr,
+      score,
+      completed,
+      total,
+      isFuture: d > today,
+      isToday: toDateStr(d) === toDateStr(today),
+    };
+  });
+
+  return { days };
 }

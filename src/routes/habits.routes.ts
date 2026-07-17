@@ -21,5 +21,6 @@ router.post('/',             validate({ body: createSchema }), ctrl.create);
 router.patch('/:id',         validate({ params: idParams, body: createSchema.partial() }), ctrl.update);
 router.delete('/:id',        validate({ params: idParams }), ctrl.remove);
 router.post('/:id/toggle',   validate({ params: idParams }), ctrl.toggle);
+router.get('/week-overview', ctrl.weekOverview);
 
 export default router;

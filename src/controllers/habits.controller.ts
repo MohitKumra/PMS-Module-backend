@@ -21,3 +21,7 @@ export async function remove(req: Request, res: Response, next: NextFunction) {
 export async function toggle(req: Request, res: Response, next: NextFunction) {
   try { res.json(await habitService.toggleCompletion(req.user!.sub, req.params.id as string)); } catch (err) { next(err); }
 }
+
+export async function weekOverview(req: Request, res: Response, next: NextFunction) {
+  try { res.json(await habitService.getWeekOverview(req.user!.sub)); } catch (err) { next(err); }
+}
