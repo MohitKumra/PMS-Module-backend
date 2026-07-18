@@ -4,6 +4,7 @@
 import { prisma } from '../lib/prismaClient';
 import type { AnalyticsSummaryDTO, EnhancedDashboardDTO } from '../types';
 import { getSummary, getWeeklyProgress, getUpcomingDeadlines } from './analytics.service';
+import { getGamificationProfile } from './gamification.service';
 
 /**
  * Get dashboard summary data for a user.
@@ -17,8 +18,9 @@ export async function getDashboardSummary(userId: string): Promise<AnalyticsSumm
  * Get enhanced dashboard data with projects, messages, and weekly progress
  */
 export async function getEnhancedDashboard(userId: string): Promise<EnhancedDashboardDTO> {
-  const [summary, activeProjects, projectStats, weeklyProgress, upcomingDeadlines] = await Promise.all([
+  const [summary, gamification, activeProjects, projectStats, weeklyProgress, upcomingDeadlines] = await Promise.all([
     getSummary(userId),
+    getGamificationProfile(userId),
     // Get active projects (top 6 by recent activity)
     prisma.project.findMany({
       where: {
@@ -75,6 +77,7 @@ export async function getEnhancedDashboard(userId: string): Promise<EnhancedDash
 
   return {
     ...summary,
+    gamification,
     activeProjects: projectsData,
     projectStats: {
       totalProjects,

@@ -311,7 +311,6 @@ export async function getUpcomingDeadlines(userId: string, days = 7) {
         userId,
         status: { not: 'DONE' },
         dueDate: {
-          gte: today,
           lte: futureDate,
         },
       },
@@ -323,7 +322,6 @@ export async function getUpcomingDeadlines(userId: string, days = 7) {
         userId,
         status: { in: ['PLANNING', 'ACTIVE'] },
         dueDate: {
-          gte: today,
           lte: futureDate,
         },
       },

@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prismaClient';
 import { createError } from '../middleware/errorHandler';
+import { awardHabitCompletion } from './gamification.service';
 import type { HabitDTO, CreateHabitRequest, UpdateHabitRequest, WeekOverviewDTO } from '../types';
 
 function toDateStr(d: Date): string {
@@ -177,16 +178,22 @@ export async function toggleCompletion(userId: string, habitId: string): Promise
     where: { habitId_date: { habitId, date: today } },
   });
 
+  let completionId: string | null = null;
+
   if (existing) {
     await prisma.habitCompletion.delete({ where: { id: existing.id } });
   } else {
-    await prisma.habitCompletion.create({ data: { habitId, date: today } });
+    const completion = await prisma.habitCompletion.create({ data: { habitId, date: today } });
+    completionId = completion.id;
   }
 
   const updated = await prisma.habit.findUnique({
     where: { id: habitId },
     include: { completions: { select: { date: true } } },
   });
+  if (completionId) {
+    await awardHabitCompletion(userId, completionId, habit.title);
+  }
   return toDTO(updated!);
 }
 

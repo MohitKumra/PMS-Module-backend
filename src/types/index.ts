@@ -419,6 +419,40 @@ export interface DailyAnalyticsDTO {
   habitsCompleted: number;
 }
 
+// ─── Gamification ─────────────────────────────────────────────────────────
+
+export interface PointLedgerDTO {
+  id: string;
+  points: number;
+  reason: string;
+  entityType: string;
+  entityId: string;
+  description: string;
+  createdAt: string;
+}
+
+export interface AchievementDTO {
+  id: string;
+  key: string;
+  title: string;
+  description: string;
+  tier: 'bronze' | 'silver' | 'gold' | 'platinum';
+  icon: string;
+  pointsAwarded: number;
+  unlockedAt: string;
+}
+
+export interface GamificationProfileDTO {
+  totalPoints: number;
+  level: number;
+  currentLevelPoints: number;
+  nextLevelPoints: number;
+  progressPercent: number;
+  achievements: AchievementDTO[];
+  recentAchievements: AchievementDTO[];
+  recentPoints: PointLedgerDTO[];
+}
+
 // ─── Notifications ────────────────────────────────────────────────────────────
 
 export type NotificationChannel = 'BROWSER_PUSH' | 'EMAIL' | 'NATIVE_LOCAL';
@@ -541,6 +575,7 @@ export interface ProjectAnalyticsDTO {
 }
 
 export interface EnhancedDashboardDTO extends AnalyticsSummaryDTO {
+  gamification: GamificationProfileDTO;
   activeProjects: ProjectDTO[];
   projectStats: {
     totalProjects: number;

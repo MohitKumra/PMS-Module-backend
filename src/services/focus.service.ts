@@ -5,6 +5,7 @@
 import { prisma } from '../lib/prismaClient';
 import type { FocusSessionDTO, CreateFocusSessionRequest } from '../types';
 import * as notifService from './notification.service';
+import { awardFocusSession } from './gamification.service';
 
 function toDTO(s: {
   id: string; userId: string; durationMin: number; startedAt: Date; completed: boolean;
@@ -38,6 +39,8 @@ export async function logSession(userId: string, data: CreateFocusSessionRequest
   });
 
   if (data.completed) {
+    await awardFocusSession(userId, session.id, session.durationMin);
+
     const user = await prisma.user.findUnique({
       where: { id: userId },
       include: { notificationPreferences: true },

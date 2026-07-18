@@ -8,6 +8,7 @@ import { deleteStoredFile } from '../lib/fileStorage';
 import { RRule, RRuleSet, rrulestr } from 'rrule';
 import { updateProjectProgress } from './project.service';
 import { syncGoogleCalendarTasks } from './google.service';
+import { awardTaskCompletion } from './gamification.service';
 import type {
   TaskDTO,
   TaskDetailDTO,
@@ -405,6 +406,9 @@ export async function updateTask(userId: string, taskId: string, data: UpdateTas
 
   if (data.status !== undefined && data.status !== existing.status) {
     await createActivity(task.id, userId, 'STATUS_CHANGED', `Changed status to ${task.status}`);
+  }
+  if (wasNotDone && isBeingMarkedDone) {
+    await awardTaskCompletion(userId, task.id, task.title);
   }
   if (data.title !== undefined && data.title !== existing.title) {
     await createActivity(task.id, userId, 'TITLE_CHANGED', 'Updated task title');

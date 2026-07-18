@@ -4,6 +4,7 @@
 import { prisma } from '../lib/prismaClient';
 import { createError } from '../middleware/errorHandler';
 import { deleteStoredFile } from '../lib/fileStorage';
+import { awardProjectCompletion } from './gamification.service';
 import type {
   ProjectDTO,
   CreateProjectRequest,
@@ -150,6 +151,9 @@ export async function updateProject(
   }
 
   const completedTaskCount = updated.tasks.filter((pt) => pt.task.status === 'DONE').length;
+  if (existing.status !== 'COMPLETED' && updated.status === 'COMPLETED') {
+    await awardProjectCompletion(userId, updated.id, updated.name);
+  }
 
   return toDTO({ ...updated, completedTaskCount });
 }

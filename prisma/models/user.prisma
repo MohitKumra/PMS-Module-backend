@@ -20,7 +20,9 @@ model User {
   notifications            NotificationLog[]
   notificationPreferences  NotificationPreference?
   passwordResetTokens      PasswordResetToken[]
+  pointLedger              PointLedger[]
   projects                 Project[]
   tasks                    Task[]
   preferences              UserPreference?
+  achievements             UserAchievement[]
 }

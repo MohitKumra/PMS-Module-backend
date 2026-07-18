@@ -21,10 +21,12 @@ import focusRoutes        from './routes/focus.routes';
 import analyticsRoutes    from './routes/analytics.routes';
 import notificationsRoutes from './routes/notifications.routes';
 import settingsRoutes      from './routes/settings.routes';
+import gamificationRoutes  from './routes/gamification.routes';
 import dashboardRoutes    from './routes/dashboard.routes';
 import searchRoutes       from './routes/search.routes';
 import usersRoutes        from './routes/users.routes';
 import uploadsRoutes      from './routes/uploads.routes';
+import schedulerRoutes    from './routes/scheduler.routes';
 import projectsController  from './controllers/projects.controller';
 import { errorHandler }   from './middleware/errorHandler';
 import { startScheduler } from './jobs/reminderScheduler';
@@ -53,10 +55,12 @@ app.use('/api/focus',         focusRoutes);
 app.use('/api/analytics',     analyticsRoutes);
 app.use('/api/notifications', notificationsRoutes);
 app.use('/api/settings',      settingsRoutes);
+app.use('/api/gamification',  gamificationRoutes);
 app.use('/api/dashboard',     dashboardRoutes);
 app.use('/api/search',        searchRoutes);
 app.use('/api/users',         usersRoutes);
 app.use('/api/media',         uploadsRoutes);
+app.use('/api/scheduler',     schedulerRoutes);
 app.use('/api/projects',      projectsController);
 
 // ─── 404 catch ────────────────────────────────────────────────────────────────

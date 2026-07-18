@@ -1,0 +1,30 @@
+model PointLedger {
+  id          String   @id @default(cuid())
+  userId      String
+  points      Int
+  reason      String
+  entityType  String
+  entityId    String
+  description String
+  createdAt   DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, reason, entityType, entityId])
+  @@index([userId, createdAt])
+}
+
+model UserAchievement {
+  id            String   @id @default(cuid())
+  userId        String
+  key           String
+  title         String
+  description   String
+  tier          String
+  icon          String
+  pointsAwarded Int      @default(0)
+  unlockedAt    DateTime @default(now())
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, key])
+  @@index([userId, unlockedAt])
+}
