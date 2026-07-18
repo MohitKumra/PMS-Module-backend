@@ -36,7 +36,13 @@ const app = express();
 // ─── Core middleware ──────────────────────────────────────────────────────────
 app.use(cors({
   origin: env.FRONTEND_URL,
-  credentials: true,          // allow cookies (refresh token)
+  credentials: true,  
+  methods : [
+    'POST',
+    'GET',
+    'PUT',
+    'PATCH'
+  ]        // allow cookies (refresh token)
 }));
 app.use('/uploads', express.static(path.resolve(process.cwd(), 'uploads')));
 app.use(express.json({ limit: '12mb' }));
