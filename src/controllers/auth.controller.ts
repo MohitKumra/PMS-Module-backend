@@ -11,8 +11,11 @@ import { env } from '../config/env';
 
 const REFRESH_COOKIE = 'refreshToken';
 const COOKIE_OPTS = {
-  httpOnly: true, secure: process.env.NODE_ENV === 'production',
-  sameSite: 'none' as const, maxAge: 7 * 24 * 60 * 60 * 1000,
+  httpOnly: true,
+  secure: true,
+  sameSite: 'none' as const,
+  path: '/',
+  maxAge: 7 * 24 * 60 * 60 * 1000,
 };
 
 export async function signup(req: Request, res: Response, next: NextFunction) {
