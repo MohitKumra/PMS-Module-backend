@@ -52,9 +52,16 @@ export async function getSummary(userId: string): Promise<AnalyticsSummaryDTO> {
     if (bestStreak > longestHabitStreak) longestHabitStreak = bestStreak;
   }
 
-  // Count focus minutes from non-break sessions only
+  // Count focus minutes from non-break sessions + time logs
   const focusSessionsOnly = allSessions.filter((s: any) => !s.isBreak);
-  const focusMinutesTotal = focusSessionsOnly.reduce((acc: any, s: any) => acc + s.durationMin, 0);
+  const focusMinutesFromSessions = focusSessionsOnly.reduce((acc: any, s: any) => acc + s.durationMin, 0);
+
+  // Sum time logs for additional focus time
+  const timeLogs = await prisma.focusTimeLog.aggregate({
+    where: { userId },
+    _sum: { durationMin: true },
+  });
+  const focusMinutesTotal = focusMinutesFromSessions + (timeLogs._sum.durationMin ?? 0);
 
   // Get today's completions for habitsCompletedToday
   // Use UTC-based "today" to match how habit.service.ts stores completion dates

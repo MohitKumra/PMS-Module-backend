@@ -1,0 +1,7 @@
+model FocusTimeLog {
+  id          String   @id @default(cuid())
+  userId      String
+  durationMin Int
+  date        DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}

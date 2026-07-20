@@ -11,6 +11,7 @@ model User {
   updatedAt                DateTime                  @updatedAt
   recoveryEmail            String?
   focusSessions            FocusSession[]
+  focusTimeLogs            FocusTimeLog[]
   googleCalendarConnection GoogleCalendarConnection?
   googleCalendarSyncItems  GoogleCalendarSyncItem[]
   habits                   Habit[]

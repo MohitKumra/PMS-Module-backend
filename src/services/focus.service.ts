@@ -3,7 +3,7 @@
 // finishes — the frontend starts the timer locally and POSTs on completion.
 
 import { prisma } from '../lib/prismaClient';
-import type { FocusSessionDTO, CreateFocusSessionRequest } from '../types';
+import type { FocusSessionDTO, CreateFocusSessionRequest, FocusTimeLogDTO, CreateFocusTimeLogRequest } from '../types';
 import * as notifService from './notification.service';
 import { awardFocusSession } from './gamification.service';
 
@@ -15,6 +15,15 @@ function toDTO(s: {
     id: s.id, userId: s.userId, durationMin: s.durationMin,
     startedAt: s.startedAt.toISOString(), completed: s.completed,
     taskId: s.taskId, isBreak: s.isBreak,
+  };
+}
+
+function toTimeLogDTO(l: {
+  id: string; userId: string; durationMin: number; date: Date;
+}): FocusTimeLogDTO {
+  return {
+    id: l.id, userId: l.userId, durationMin: l.durationMin,
+    date: l.date.toISOString(),
   };
 }
 
@@ -57,4 +66,21 @@ export async function logSession(userId: string, data: CreateFocusSessionRequest
   }
 
   return toDTO(session);
+}
+
+export async function logTime(userId: string, data: CreateFocusTimeLogRequest): Promise<FocusTimeLogDTO> {
+  const log = await prisma.focusTimeLog.create({
+    data: { userId, durationMin: data.durationMin },
+  });
+  return toTimeLogDTO(log);
+}
+
+export async function listTimeLogs(userId: string, days = 7): Promise<FocusTimeLogDTO[]> {
+  const since = new Date();
+  since.setDate(since.getDate() - days);
+  const logs = await prisma.focusTimeLog.findMany({
+    where: { userId, date: { gte: since } },
+    orderBy: { date: 'desc' },
+  });
+  return logs.map(toTimeLogDTO);
 }

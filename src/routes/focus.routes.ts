@@ -16,7 +16,13 @@ const logSchema = z.object({
   isBreak: z.boolean().optional(),
 });
 
-router.get('/',   ctrl.list);
-router.post('/',  validate({ body: logSchema }), ctrl.log);
+const timeLogSchema = z.object({
+  durationMin: z.number().int().min(1).max(120),
+});
+
+router.get('/',          ctrl.list);
+router.post('/',         validate({ body: logSchema }), ctrl.log);
+router.post('/time-log', validate({ body: timeLogSchema }), ctrl.logTime);
+router.get('/time-logs', ctrl.listTimeLogs);
 
 export default router;

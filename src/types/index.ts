@@ -363,6 +363,19 @@ export interface CreateFocusSessionRequest {
   isBreak?: boolean;
 }
 
+// ─── Focus Time Logs ─────────────────────────────────────────────────────────
+
+export interface FocusTimeLogDTO {
+  id: string;
+  userId: string;
+  durationMin: number;
+  date: string;
+}
+
+export interface CreateFocusTimeLogRequest {
+  durationMin: number;
+}
+
 // ─── Calendar ────────────────────────────────────────────────────────────────
 
 export type CalendarEventType = 'TASK_DUE' | 'FOCUS_SESSION';
