@@ -41,7 +41,9 @@ app.use(cors({
     'POST',
     'GET',
     'PUT',
-    'PATCH'
+    'PATCH',
+    'DELETE',
+    'OPTIONS'
   ]        // allow cookies (refresh token)
 }));
 app.use('/uploads', express.static(path.resolve(process.cwd(), 'uploads')));
