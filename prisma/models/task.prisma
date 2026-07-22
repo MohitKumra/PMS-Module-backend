@@ -1,31 +1,31 @@
 model Task {
-  id                String       @id @default(cuid())
+  id                String          @id @default(cuid())
   userId            String
   title             String
   description       String?
-  status            TaskStatus   @default(TODO)
-  priority          Priority     @default(MEDIUM)
+  status            TaskStatus      @default(TODO)
+  priority          Priority        @default(MEDIUM)
   dueDate           DateTime?
   recurrenceRule    String?
   parentTaskId      String?
   attachmentUrl     String?
-  voiceNoteUrl      String?
-  createdAt         DateTime     @default(now())
-  updatedAt         DateTime     @updatedAt
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
   recurrenceEndDate DateTime?
   skipDates         String[]
   completedAt       DateTime?
   inProgressAt      DateTime?
-  estimatedDuration Int?         // estimated duration in minutes
+  estimatedDuration Int?
+  voiceNoteUrl      String?
+  notes             Note[]
   projectTasks      ProjectTask?
   subTasks          SubTask[]
-  notes             Note[]
+  user              User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   activity          TaskActivity[]
   timeEntries       TaskTimeEntry[]
-  user              User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([userId, dueDate])
   @@unique([parentTaskId, dueDate])
+  @@index([userId, dueDate])
 }
 
 model SubTask {
@@ -56,16 +56,16 @@ model TaskActivity {
 }
 
 model TaskTimeEntry {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   taskId    String
   userId    String
   minutes   Int
   note      String?
   startedAt DateTime?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  task      Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([taskId])
   @@index([userId])

@@ -6,6 +6,7 @@ import type {
   SettingsDTO,
   ThemePreference,
   LayoutPreference,
+  TaskViewPreference,
 } from '../types';
 import { getGoogleCalendarIntegration } from './google.service';
 
@@ -13,6 +14,7 @@ const DEFAULT_APPEARANCE: AppearanceSettingsDTO = {
   themePreference: 'SYSTEM',
   layoutPreference: 'COMFORTABLE',
   calendarView: 'month',
+  taskView: 'board',
 };
 
 const DEFAULT_NOTIFICATIONS: NotificationPreferenceDTO = {
@@ -59,6 +61,7 @@ export async function getSettings(userId: string): Promise<SettingsDTO> {
       themePreference: (appearance?.themePreference as AppearanceSettingsDTO['themePreference']) ?? DEFAULT_APPEARANCE.themePreference,
       layoutPreference: (appearance?.layoutPreference as LayoutPreference) ?? DEFAULT_APPEARANCE.layoutPreference,
       calendarView: (appearance?.calendarView as AppearanceSettingsDTO['calendarView']) ?? DEFAULT_APPEARANCE.calendarView,
+      taskView: (appearance?.taskView as TaskViewPreference) ?? DEFAULT_APPEARANCE.taskView,
     },
     notifications: {
       taskDue: notifications?.taskDue ?? DEFAULT_NOTIFICATIONS.taskDue,
@@ -90,11 +93,13 @@ export async function updateAppearance(
       themePreference: data.themePreference ?? DEFAULT_APPEARANCE.themePreference,
       layoutPreference: data.layoutPreference ?? DEFAULT_APPEARANCE.layoutPreference,
       calendarView: data.calendarView ?? DEFAULT_APPEARANCE.calendarView,
+      taskView: data.taskView ?? DEFAULT_APPEARANCE.taskView,
     },
     update: {
       ...(data.themePreference ? { themePreference: data.themePreference } : {}),
       ...(data.layoutPreference ? { layoutPreference: data.layoutPreference } : {}),
       ...(data.calendarView ? { calendarView: data.calendarView } : {}),
+      ...(data.taskView ? { taskView: data.taskView } : {}),
     },
   });
 
@@ -102,6 +107,7 @@ export async function updateAppearance(
     themePreference: updated.themePreference as AppearanceSettingsDTO['themePreference'],
     layoutPreference: updated.layoutPreference as LayoutPreference,
     calendarView: updated.calendarView as AppearanceSettingsDTO['calendarView'],
+    taskView: updated.taskView as TaskViewPreference,
   };
 }
 

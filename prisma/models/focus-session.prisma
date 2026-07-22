@@ -6,5 +6,8 @@ model FocusSession {
   completed   Boolean  @default(false)
   isBreak     Boolean  @default(false)
   taskId      String?
+  projectId   String?
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
 }

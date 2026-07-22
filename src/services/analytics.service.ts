@@ -189,12 +189,25 @@ export async function getProjectAnalytics(userId: string): Promise<ProjectAnalyt
 
   const today = utcToday();
 
+  // Aggregate focus minutes per project
+  const focusSessions = await prisma.focusSession.findMany({
+    where: { userId, projectId: { not: null }, isBreak: false, completed: true },
+    select: { projectId: true, durationMin: true },
+  });
+  const focusMinutesByProject = new Map<string, number>();
+  for (const fs of focusSessions) {
+    if (fs.projectId) {
+      focusMinutesByProject.set(fs.projectId, (focusMinutesByProject.get(fs.projectId) ?? 0) + fs.durationMin);
+    }
+  }
+
   return projects.map((project) => {
     const totalTasks = project.tasks.length;
     const completedTasks = project.tasks.filter((pt) => pt.task.status === 'DONE').length;
     const overdueTasks = project.tasks.filter(
       (pt) => pt.task.dueDate && new Date(pt.task.dueDate) < today && pt.task.status !== 'DONE'
     ).length;
+    const focusMinutes = focusMinutesByProject.get(project.id) ?? 0;
 
     let daysRemaining: number | null = null;
     if (project.dueDate) {
@@ -235,6 +248,7 @@ export async function getProjectAnalytics(userId: string): Promise<ProjectAnalyt
       totalTasks,
       completedTasks,
       overdueTasks,
+      focusMinutes,
       daysRemaining,
       weeklyProgress,
     };

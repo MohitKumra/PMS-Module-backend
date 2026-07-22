@@ -13,6 +13,7 @@ const logSchema = z.object({
   startedAt: z.string().datetime({ offset: true }),
   completed: z.boolean(),
   taskId: z.string().nullable().optional(),
+  projectId: z.string().nullable().optional(),
   isBreak: z.boolean().optional(),
 });
 

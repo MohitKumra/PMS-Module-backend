@@ -249,37 +249,57 @@ export async function createTask(userId: string, data: CreateTaskRequest): Promi
     : data.recurrenceRule
     ? startOfToday()
     : null;
+  const projectId = data.projectId?.trim() || null;
 
-  const task = await prisma.task.create({
-    data: {
-      userId,
-      title: data.title,
-      description: data.description ?? null,
-      status: data.status ?? 'TODO',
-      priority: data.priority ?? 'MEDIUM',
-      dueDate,
-      recurrenceRule: data.recurrenceRule ?? null,
-      recurrenceEndDate: (data.recurrenceEndDate && data.recurrenceEndDate !== '') ? new Date(data.recurrenceEndDate) : null,
-      skipDates: data.skipDates || [],
-      parentTaskId: data.parentTaskId ?? null,
-      estimatedDuration: data.estimatedDuration ?? null,
-      attachmentUrl: data.attachmentUrl ?? null,
-      voiceNoteUrl: data.voiceNoteUrl ?? null,
-      inProgressAt: data.status === 'IN_PROGRESS' ? new Date() : null,
-      completedAt: data.status === 'DONE' ? new Date() : null,
-      subTasks: data.subTasks && data.subTasks.length > 0 ? {
-        create: data.subTasks.map((st, index) => ({
-          title: normalizeSubTaskTitle(st.title),
-          order: st.order ?? index,
-        }))
-      } : undefined,
-    },
-    include: {
-      subTasks: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] },
-      projectTasks: { include: { project: true } },
+  const task = await prisma.$transaction(async (tx) => {
+    if (projectId) {
+      const project = await tx.project.findFirst({
+        where: { id: projectId, userId },
+        select: { id: true },
+      });
+      if (!project) throw createError(404, 'PROJECT_NOT_FOUND', 'Project not found');
     }
+
+    return tx.task.create({
+      data: {
+        userId,
+        title: data.title,
+        description: data.description ?? null,
+        status: data.status ?? 'TODO',
+        priority: data.priority ?? 'MEDIUM',
+        dueDate,
+        recurrenceRule: data.recurrenceRule ?? null,
+        recurrenceEndDate: (data.recurrenceEndDate && data.recurrenceEndDate !== '') ? new Date(data.recurrenceEndDate) : null,
+        skipDates: data.skipDates || [],
+        parentTaskId: data.parentTaskId ?? null,
+        estimatedDuration: data.estimatedDuration ?? null,
+        attachmentUrl: data.attachmentUrl ?? null,
+        voiceNoteUrl: data.voiceNoteUrl ?? null,
+        inProgressAt: data.status === 'IN_PROGRESS' ? new Date() : null,
+        completedAt: data.status === 'DONE' ? new Date() : null,
+        subTasks: data.subTasks && data.subTasks.length > 0 ? {
+          create: data.subTasks.map((st, index) => ({
+            title: normalizeSubTaskTitle(st.title),
+            order: st.order ?? index,
+          }))
+        } : undefined,
+        projectTasks: projectId ? {
+          create: {
+            projectId,
+            order: 0,
+          },
+        } : undefined,
+      },
+      include: {
+        subTasks: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] },
+        projectTasks: { include: { project: true } },
+      }
+    });
   });
   await createActivity(task.id, userId, 'CREATED', `Created task "${task.title}"`);
+  if (projectId) {
+    await updateProjectProgress(projectId);
+  }
 
   // Fire-and-forget: sync to Google Calendar if connected
   triggerCalendarSync(userId);

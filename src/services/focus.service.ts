@@ -3,18 +3,19 @@
 // finishes — the frontend starts the timer locally and POSTs on completion.
 
 import { prisma } from '../lib/prismaClient';
+import { createError } from '../middleware/errorHandler';
 import type { FocusSessionDTO, CreateFocusSessionRequest, FocusTimeLogDTO, CreateFocusTimeLogRequest } from '../types';
 import * as notifService from './notification.service';
 import { awardFocusSession } from './gamification.service';
 
 function toDTO(s: {
   id: string; userId: string; durationMin: number; startedAt: Date; completed: boolean;
-  taskId: string | null; isBreak: boolean;
+  taskId: string | null; projectId: string | null; isBreak: boolean;
 }): FocusSessionDTO {
   return {
     id: s.id, userId: s.userId, durationMin: s.durationMin,
     startedAt: s.startedAt.toISOString(), completed: s.completed,
-    taskId: s.taskId, isBreak: s.isBreak,
+    taskId: s.taskId, projectId: s.projectId, isBreak: s.isBreak,
   };
 }
 
@@ -38,11 +39,31 @@ export async function listSessions(userId: string, limit = 100): Promise<{ data:
 }
 
 export async function logSession(userId: string, data: CreateFocusSessionRequest): Promise<FocusSessionDTO> {
+  const taskId = data.taskId?.trim() || null;
+  const projectId = data.projectId?.trim() || null;
+
+  if (taskId) {
+    const task = await prisma.task.findFirst({
+      where: { id: taskId, userId },
+      select: { id: true },
+    });
+    if (!task) throw createError(404, 'TASK_NOT_FOUND', 'Task not found');
+  }
+
+  if (projectId) {
+    const project = await prisma.project.findFirst({
+      where: { id: projectId, userId },
+      select: { id: true },
+    });
+    if (!project) throw createError(404, 'PROJECT_NOT_FOUND', 'Project not found');
+  }
+
   const session = await prisma.focusSession.create({
     data: {
       userId, durationMin: data.durationMin,
       startedAt: new Date(data.startedAt), completed: data.completed,
-      taskId: data.taskId ?? null,
+      taskId,
+      projectId,
       isBreak: data.isBreak ?? false,
     },
   });

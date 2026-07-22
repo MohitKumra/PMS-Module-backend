@@ -16,14 +16,14 @@ model User {
   googleCalendarSyncItems  GoogleCalendarSyncItem[]
   habits                   Habit[]
   notes                    Note[]
-  taskActivities           TaskActivity[]
-  taskTimeEntries          TaskTimeEntry[]
   notifications            NotificationLog[]
   notificationPreferences  NotificationPreference?
   passwordResetTokens      PasswordResetToken[]
   pointLedger              PointLedger[]
   projects                 Project[]
   tasks                    Task[]
-  preferences              UserPreference?
+  taskActivities           TaskActivity[]
+  taskTimeEntries          TaskTimeEntry[]
   achievements             UserAchievement[]
+  preferences              UserPreference?
 }

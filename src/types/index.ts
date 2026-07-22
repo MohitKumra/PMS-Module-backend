@@ -38,6 +38,7 @@ export interface AuthResponse {
 
 export type ThemePreference = 'LIGHT' | 'DARK' | 'SYSTEM';
 export type LayoutPreference = 'COMFORTABLE' | 'COMPACT' | 'EXPANDED';
+export type TaskViewPreference = 'board' | 'list';
 
 export interface NotificationPreferenceDTO {
   taskDue: boolean;
@@ -51,6 +52,7 @@ export interface AppearanceSettingsDTO {
   themePreference: ThemePreference;
   layoutPreference: LayoutPreference;
   calendarView: 'day' | 'week' | 'month' | 'agenda';
+  taskView: TaskViewPreference;
 }
 
 export interface GoogleCalendarIntegrationDTO {
@@ -82,6 +84,7 @@ export interface UpdateAppearanceRequest {
   themePreference?: ThemePreference;
   layoutPreference?: LayoutPreference;
   calendarView?: 'day' | 'week' | 'month' | 'agenda';
+  taskView?: TaskViewPreference;
 }
 
 export interface UpdateNotificationPreferencesRequest extends NotificationPreferenceDTO {}
@@ -187,6 +190,7 @@ export interface CreateTaskRequest {
   status?: TaskStatus;
   priority?: Priority;
   dueDate?: string;
+  projectId?: string | null;
   recurrenceRule?: string;
   recurrenceEndDate?: string;
   skipDates?: string[];
@@ -384,6 +388,7 @@ export interface FocusSessionDTO {
   startedAt: string;
   completed: boolean;
   taskId: string | null;
+  projectId: string | null;
   isBreak: boolean;
 }
 
@@ -392,6 +397,7 @@ export interface CreateFocusSessionRequest {
   startedAt: string;
   completed: boolean;
   taskId?: string | null;
+  projectId?: string | null;
   isBreak?: boolean;
 }
 
@@ -626,6 +632,7 @@ export interface ProjectAnalyticsDTO {
   totalTasks: number;
   completedTasks: number;
   overdueTasks: number;
+  focusMinutes: number;
   daysRemaining: number | null;
   weeklyProgress: Array<{
     week: string;

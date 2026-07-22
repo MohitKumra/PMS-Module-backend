@@ -36,6 +36,7 @@ const createSchema = z.object({
   status: z.enum(['TODO', 'IN_PROGRESS', 'DONE', 'CANCELLED']).optional(),
   priority: z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']).optional(),
   dueDate: z.string().optional().refine(val => !val || /^\d{4}-\d{2}-\d{2}$/.test(val), 'Invalid date format'),
+  projectId: z.string().nullable().optional(),
   recurrenceRule: z.string().max(200).optional(),
   recurrenceEndDate: z.string().optional().refine(val => !val || /^\d{4}-\d{2}-\d{2}$/.test(val), 'Invalid date format'),
   skipDates: z.array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format')).optional(),
