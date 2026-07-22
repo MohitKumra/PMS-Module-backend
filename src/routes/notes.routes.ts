@@ -16,6 +16,10 @@ const createSchema = z.object({
   projectId: z.string().nullable().optional(),
   attachmentUrl: z.string().max(2048).nullable().optional().transform(v => v === '' ? null : v),
   voiceNoteUrl: z.string().max(2048).nullable().optional().transform(v => v === '' ? null : v),
+  mood: z.enum(['great', 'good', 'neutral', 'bad', 'awful']).nullable().optional(),
+  tags: z.array(z.string().max(50)).max(20).optional(),
+  isPinned: z.boolean().optional(),
+  archived: z.boolean().optional(),
 });
 const idParams = z.object({ id: z.string() });
 

@@ -9,6 +9,7 @@ import { RRule, RRuleSet, rrulestr } from 'rrule';
 import { updateProjectProgress } from './project.service';
 import { syncGoogleCalendarTasks } from './google.service';
 import { awardTaskCompletion } from './gamification.service';
+import { toNoteDTO } from './notes.service';
 import type {
   TaskDTO,
   TaskDetailDTO,
@@ -234,19 +235,7 @@ export async function getTask(userId: string, taskId: string): Promise<TaskDetai
       createdAt: item.createdAt.toISOString(),
     })),
     timeEntries: task.timeEntries.map(timeEntryToDTO),
-    linkedNotes: linkedNotes.map((note) => ({
-      id: note.id,
-      userId: note.userId,
-      title: note.title,
-      content: note.content,
-      isJournal: note.isJournal,
-      taskId: note.taskId,
-      projectId: note.projectId,
-      attachmentUrl: note.attachmentUrl,
-      voiceNoteUrl: note.voiceNoteUrl,
-      createdAt: note.createdAt.toISOString(),
-      updatedAt: note.updatedAt.toISOString(),
-    })),
+      linkedNotes: linkedNotes.map(toNoteDTO),
   };
 }
 

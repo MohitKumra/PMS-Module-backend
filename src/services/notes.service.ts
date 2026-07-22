@@ -1,10 +1,12 @@
 // backend/src/services/notes.service.ts
 // Notes CRUD — supports both regular notes and journal entries (isJournal flag).
+// Enhanced with: pagination, search, date-range, sort, tags, mood, pinning, archive.
 
 import { prisma } from '../lib/prismaClient';
 import { createError } from '../middleware/errorHandler';
 import { deleteStoredFile } from '../lib/fileStorage';
-import type { NoteDTO, CreateNoteRequest, UpdateNoteRequest } from '../types';
+import type { NoteDTO, CreateNoteRequest, UpdateNoteRequest, NoteListFilters } from '../types';
+import { Prisma } from '@prisma/client';
 
 function normalizeMediaUrl(value: string | null | undefined): string | null {
   if (value === undefined || value === null) return null;
@@ -12,42 +14,119 @@ function normalizeMediaUrl(value: string | null | undefined): string | null {
   return trimmed ? trimmed : null;
 }
 
-function toDTO(n: {
-  id: string; userId: string; title: string | null; content: string;
-  isJournal: boolean; taskId: string | null; projectId: string | null; createdAt: Date; updatedAt: Date;
-  attachmentUrl: string | null; voiceNoteUrl: string | null;
-}): NoteDTO {
+/** Convert raw Prisma Note row to API DTO. */
+export function toNoteDTO(n: any): NoteDTO {
   return {
-    id: n.id, userId: n.userId, title: n.title, content: n.content,
+    id: n.id,
+    userId: n.userId,
+    title: n.title,
+    content: n.content,
     isJournal: n.isJournal,
     taskId: n.taskId,
     projectId: n.projectId,
     attachmentUrl: n.attachmentUrl,
     voiceNoteUrl: n.voiceNoteUrl,
-    createdAt: n.createdAt.toISOString(), updatedAt: n.updatedAt.toISOString(),
+    isPinned: n.isPinned ?? false,
+    mood: n.mood ?? null,
+    tags: n.tags ?? [],
+    archived: n.archived ?? false,
+    createdAt: n.createdAt instanceof Date ? n.createdAt.toISOString() : n.createdAt,
+    updatedAt: n.updatedAt instanceof Date ? n.updatedAt.toISOString() : n.updatedAt,
   };
 }
 
-export async function listNotes(userId: string, filters?: {
-  isJournal?: boolean;
-  taskId?: string;
-  projectId?: string;
-}): Promise<{ data: NoteDTO[]; meta: { total: number } }> {
-  const where: Record<string, unknown> = { userId };
-  if (filters?.isJournal !== undefined) where.isJournal = filters.isJournal;
-  if (filters?.taskId) where.taskId = filters.taskId;
-  if (filters?.projectId) where.projectId = filters.projectId;
+export async function listNotes(
+  userId: string,
+  filters?: NoteListFilters
+): Promise<{ data: NoteDTO[]; meta: { total: number; page: number; totalPages: number } }> {
+  const where: Prisma.NoteWhereInput = { userId };
+
+  // Note type filter
+  if (filters?.isJournal !== undefined) {
+    where.isJournal = filters.isJournal;
+  }
+  if (filters?.taskId) {
+    where.taskId = filters.taskId;
+  }
+  if (filters?.projectId) {
+    where.projectId = filters.projectId;
+  }
+
+  // Search across title + content
+  if (filters?.search) {
+    where.OR = [
+      { title: { contains: filters.search, mode: 'insensitive' } },
+      { content: { contains: filters.search, mode: 'insensitive' } },
+    ];
+  }
+
+  // Tag filter (match any)
+  if (filters?.tags && filters.tags.length > 0) {
+    where.tags = { hasSome: filters.tags };
+  }
+
+  // Mood filter
+  if (filters?.mood) {
+    where.mood = filters.mood;
+  }
+
+  // Date range filter
+  const dateField = filters?.sortField === 'createdAt' ? 'createdAt' : 'updatedAt';
+  if (filters?.dateFrom) {
+    where[dateField] = { ...(where[dateField] as object || {}), gte: new Date(filters.dateFrom) };
+  }
+  if (filters?.dateTo) {
+    where[dateField] = { ...(where[dateField] as object || {}), lte: new Date(filters.dateTo) };
+  }
+
+  // Archive filter — default: exclude archived
+  if (filters?.archived === true) {
+    where.archived = true;
+  } else if (filters?.archived !== undefined) {
+    where.archived = false;
+  } else {
+    where.archived = false; // default: hide archived
+  }
+
+  // Pinned filter
+  if (filters?.isPinned !== undefined) {
+    where.isPinned = filters.isPinned;
+  }
+
+  // Sort
+  const sortField = filters?.sortField || 'updatedAt';
+  const sortOrder = filters?.sortOrder || 'desc';
+  const orderBy: Prisma.NoteOrderByWithRelationInput = { [sortField]: sortOrder };
+
+  // Pagination
+  const page = Math.max(filters?.page || 1, 1);
+  const limit = Math.min(Math.max(filters?.limit || 20, 1), 100);
+  const skip = (page - 1) * limit;
+
   const [notes, total] = await Promise.all([
-    prisma.note.findMany({ where, orderBy: { updatedAt: 'desc' } }),
+    prisma.note.findMany({
+      where,
+      orderBy,
+      skip,
+      take: limit,
+    }),
     prisma.note.count({ where }),
   ]);
-  return { data: notes.map(toDTO), meta: { total } };
+
+  return {
+    data: notes.map(toNoteDTO),
+    meta: {
+      total,
+      page,
+      totalPages: Math.ceil(total / limit),
+    },
+  };
 }
 
 export async function getNote(userId: string, noteId: string): Promise<NoteDTO> {
   const note = await prisma.note.findFirst({ where: { id: noteId, userId } });
   if (!note) throw createError(404, 'NOTE_NOT_FOUND', 'Note not found');
-  return toDTO(note);
+  return toNoteDTO(note);
 }
 
 export async function createNote(userId: string, data: CreateNoteRequest): Promise<NoteDTO> {
@@ -62,16 +141,18 @@ export async function createNote(userId: string, data: CreateNoteRequest): Promi
   const note = await prisma.note.create({
     data: {
       userId,
-    title: data.title ?? null,
-    content: data.content,
-    isJournal: data.isJournal ?? false,
-    taskId: data.taskId ?? null,
-    projectId: data.projectId ?? null,
-    attachmentUrl: normalizeMediaUrl(data.attachmentUrl),
-    voiceNoteUrl: normalizeMediaUrl(data.voiceNoteUrl),
-  },
+      title: data.title ?? null,
+      content: data.content,
+      isJournal: data.isJournal ?? false,
+      taskId: data.taskId ?? null,
+      projectId: data.projectId ?? null,
+      attachmentUrl: normalizeMediaUrl(data.attachmentUrl),
+      voiceNoteUrl: normalizeMediaUrl(data.voiceNoteUrl),
+      mood: data.mood ?? null,
+      tags: data.tags ?? [],
+    },
   });
-  return toDTO(note);
+  return toNoteDTO(note);
 }
 
 export async function updateNote(userId: string, noteId: string, data: UpdateNoteRequest): Promise<NoteDTO> {
@@ -87,16 +168,21 @@ export async function updateNote(userId: string, noteId: string, data: UpdateNot
   }
   const previousAttachmentUrl = existing.attachmentUrl;
   const previousVoiceNoteUrl = existing.voiceNoteUrl;
+
   const note = await prisma.note.update({
     where: { id: noteId },
     data: {
-      ...(data.title !== undefined && { title: data.title }),
+      ...(data.title !== undefined && { title: data.title ?? null }),
       ...(data.content !== undefined && { content: data.content }),
       ...(data.isJournal !== undefined && { isJournal: data.isJournal }),
       ...(data.taskId !== undefined && { taskId: data.taskId }),
       ...(data.projectId !== undefined && { projectId: data.projectId }),
       ...(data.attachmentUrl !== undefined && { attachmentUrl: normalizeMediaUrl(data.attachmentUrl) }),
       ...(data.voiceNoteUrl !== undefined && { voiceNoteUrl: normalizeMediaUrl(data.voiceNoteUrl) }),
+      ...(data.isPinned !== undefined && { isPinned: data.isPinned }),
+      ...(data.mood !== undefined && { mood: data.mood }),
+      ...(data.tags !== undefined && { tags: data.tags }),
+      ...(data.archived !== undefined && { archived: data.archived }),
     },
   });
   if (data.attachmentUrl !== undefined && data.attachmentUrl !== previousAttachmentUrl) {
@@ -105,7 +191,7 @@ export async function updateNote(userId: string, noteId: string, data: UpdateNot
   if (data.voiceNoteUrl !== undefined && data.voiceNoteUrl !== previousVoiceNoteUrl) {
     await deleteStoredFile(previousVoiceNoteUrl);
   }
-  return toDTO(note);
+  return toNoteDTO(note);
 }
 
 export async function deleteNote(userId: string, noteId: string): Promise<void> {
