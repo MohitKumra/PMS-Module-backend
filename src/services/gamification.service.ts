@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prismaClient';
 import type {
   AchievementDTO,
+  AchievementWithStatusDTO,
   GamificationProfileDTO,
   PointLedgerDTO,
 } from '../types';
@@ -25,6 +26,7 @@ type AchievementDefinition = {
   icon: string;
   pointsAwarded: number;
   isUnlocked: (stats: UserStats) => boolean;
+  progress: (stats: UserStats) => { current: number; target: number };
 };
 
 type UserStats = {
@@ -40,6 +42,7 @@ type UserStats = {
 const LEVEL_POINTS = 500;
 
 const ACHIEVEMENTS: AchievementDefinition[] = [
+  // ─── Tasks ──────────────────────────────────────────────────────────────
   {
     key: 'first_task_done',
     title: 'First Win',
@@ -48,6 +51,7 @@ const ACHIEVEMENTS: AchievementDefinition[] = [
     icon: 'check-circle',
     pointsAwarded: 50,
     isUnlocked: (stats) => stats.tasksCompleted >= 1,
+    progress: (stats) => ({ current: stats.tasksCompleted, target: 1 }),
   },
   {
     key: 'task_crusher_25',
@@ -57,6 +61,7 @@ const ACHIEVEMENTS: AchievementDefinition[] = [
     icon: 'list-checks',
     pointsAwarded: 150,
     isUnlocked: (stats) => stats.tasksCompleted >= 25,
+    progress: (stats) => ({ current: stats.tasksCompleted, target: 25 }),
   },
   {
     key: 'task_legend_100',
@@ -66,7 +71,20 @@ const ACHIEVEMENTS: AchievementDefinition[] = [
     icon: 'trophy',
     pointsAwarded: 400,
     isUnlocked: (stats) => stats.tasksCompleted >= 100,
+    progress: (stats) => ({ current: stats.tasksCompleted, target: 100 }),
   },
+  {
+    key: 'task_master_500',
+    title: 'Task Master',
+    description: 'Complete 500 tasks.',
+    tier: 'platinum',
+    icon: 'crown',
+    pointsAwarded: 600,
+    isUnlocked: (stats) => stats.tasksCompleted >= 500,
+    progress: (stats) => ({ current: stats.tasksCompleted, target: 500 }),
+  },
+
+  // ─── Habits ─────────────────────────────────────────────────────────────
   {
     key: 'habit_spark',
     title: 'Habit Spark',
@@ -75,6 +93,7 @@ const ACHIEVEMENTS: AchievementDefinition[] = [
     icon: 'flame',
     pointsAwarded: 50,
     isUnlocked: (stats) => stats.habitsCompleted >= 1,
+    progress: (stats) => ({ current: stats.habitsCompleted, target: 1 }),
   },
   {
     key: 'seven_day_streak',
@@ -84,6 +103,7 @@ const ACHIEVEMENTS: AchievementDefinition[] = [
     icon: 'calendar-check',
     pointsAwarded: 150,
     isUnlocked: (stats) => stats.bestHabitStreak >= 7,
+    progress: (stats) => ({ current: stats.bestHabitStreak, target: 7 }),
   },
   {
     key: 'thirty_day_streak',
@@ -93,7 +113,40 @@ const ACHIEVEMENTS: AchievementDefinition[] = [
     icon: 'badge-check',
     pointsAwarded: 350,
     isUnlocked: (stats) => stats.bestHabitStreak >= 30,
+    progress: (stats) => ({ current: stats.bestHabitStreak, target: 30 }),
   },
+  {
+    key: 'streak_50',
+    title: 'Half Century',
+    description: 'Build a 50 day habit streak.',
+    tier: 'silver',
+    icon: 'medal',
+    pointsAwarded: 250,
+    isUnlocked: (stats) => stats.bestHabitStreak >= 50,
+    progress: (stats) => ({ current: stats.bestHabitStreak, target: 50 }),
+  },
+  {
+    key: 'century_streak',
+    title: 'Century Streak',
+    description: 'Build a 100 day habit streak.',
+    tier: 'platinum',
+    icon: 'star',
+    pointsAwarded: 800,
+    isUnlocked: (stats) => stats.bestHabitStreak >= 100,
+    progress: (stats) => ({ current: stats.bestHabitStreak, target: 100 }),
+  },
+  {
+    key: 'habit_master_100',
+    title: 'Habit Master',
+    description: 'Complete 100 habits total.',
+    tier: 'gold',
+    icon: 'award',
+    pointsAwarded: 300,
+    isUnlocked: (stats) => stats.habitsCompleted >= 100,
+    progress: (stats) => ({ current: stats.habitsCompleted, target: 100 }),
+  },
+
+  // ─── Focus ──────────────────────────────────────────────────────────────
   {
     key: 'focus_rookie',
     title: 'Focus Rookie',
@@ -102,6 +155,7 @@ const ACHIEVEMENTS: AchievementDefinition[] = [
     icon: 'timer',
     pointsAwarded: 50,
     isUnlocked: (stats) => stats.focusSessionsCompleted >= 1,
+    progress: (stats) => ({ current: stats.focusSessionsCompleted, target: 1 }),
   },
   {
     key: 'deep_work_hour',
@@ -111,7 +165,20 @@ const ACHIEVEMENTS: AchievementDefinition[] = [
     icon: 'brain',
     pointsAwarded: 125,
     isUnlocked: (stats) => stats.focusMinutes >= 60,
+    progress: (stats) => ({ current: stats.focusMinutes, target: 60 }),
   },
+  {
+    key: 'focus_marathon',
+    title: 'Focus Marathon',
+    description: 'Log 300 minutes of focused work.',
+    tier: 'silver',
+    icon: 'zap',
+    pointsAwarded: 200,
+    isUnlocked: (stats) => stats.focusMinutes >= 300,
+    progress: (stats) => ({ current: stats.focusMinutes, target: 300 }),
+  },
+
+  // ─── Projects ───────────────────────────────────────────────────────────
   {
     key: 'project_shipper',
     title: 'Project Shipper',
@@ -120,7 +187,20 @@ const ACHIEVEMENTS: AchievementDefinition[] = [
     icon: 'rocket',
     pointsAwarded: 250,
     isUnlocked: (stats) => stats.projectsCompleted >= 1,
+    progress: (stats) => ({ current: stats.projectsCompleted, target: 1 }),
   },
+  {
+    key: 'project_legend_10',
+    title: 'Project Legend',
+    description: 'Complete 10 projects.',
+    tier: 'platinum',
+    icon: 'target',
+    pointsAwarded: 500,
+    isUnlocked: (stats) => stats.projectsCompleted >= 10,
+    progress: (stats) => ({ current: stats.projectsCompleted, target: 10 }),
+  },
+
+  // ─── Level ──────────────────────────────────────────────────────────────
   {
     key: 'level_five',
     title: 'Level 5 Operator',
@@ -129,6 +209,7 @@ const ACHIEVEMENTS: AchievementDefinition[] = [
     icon: 'sparkles',
     pointsAwarded: 500,
     isUnlocked: (stats) => getLevel(stats.totalPoints).level >= 5,
+    progress: (stats) => ({ current: getLevel(stats.totalPoints).level, target: 5 }),
   },
 ];
 
@@ -373,4 +454,32 @@ export async function getGamificationProfile(userId: string): Promise<Gamificati
     recentAchievements: achievements.slice(0, 5).map(toAchievementDTO),
     recentPoints: recentPoints.map(toPointDTO),
   };
+}
+
+export async function getAchievementsWithStatus(userId: string): Promise<AchievementWithStatusDTO[]> {
+  const stats = await getStats(userId);
+  const unlockedAchievements = await prisma.userAchievement.findMany({
+    where: { userId },
+  });
+  const unlockedMap = new Map(unlockedAchievements.map((a) => [a.key, a]));
+
+  return ACHIEVEMENTS.map((achievement) => {
+    const unlocked = unlockedMap.get(achievement.key);
+    const prog = achievement.progress(stats);
+    const progress = prog.target > 0 ? Math.min(100, Math.round((prog.current / prog.target) * 100)) : 0;
+
+    return {
+      key: achievement.key,
+      title: achievement.title,
+      description: achievement.description,
+      tier: achievement.tier,
+      icon: achievement.icon,
+      pointsAwarded: achievement.pointsAwarded,
+      isUnlocked: !!unlocked,
+      unlockedAt: unlocked?.unlockedAt.toISOString() ?? null,
+      progress,
+      progressCurrent: prog.current,
+      progressTarget: prog.target,
+    };
+  });
 }
