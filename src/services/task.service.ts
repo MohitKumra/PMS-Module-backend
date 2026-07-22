@@ -192,7 +192,7 @@ export async function listTasks(userId: string, filters?: Record<string, string>
       where,
       take: take + 1, // fetch one extra to detect hasMore
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-      orderBy: [{ dueDate: 'asc' }, { createdAt: 'desc' }],
+      orderBy: [{ dueDate: 'asc' }, { id: 'asc' }],
       include: {
         subTasks: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] },
         projectTasks: { include: { project: true } },
@@ -423,82 +423,24 @@ export async function updateTask(userId: string, taskId: string, data: UpdateTas
     await deleteStoredFile(previousVoiceNoteUrl);
   }
 
-  // If task is being unmarked (DONE → TODO), delete the previously generated next occurrence
+  // If task is being unmarked (DONE → TODO), delete ALL spawned occurrences
+  // regardless of their status (TODO or DONE) — unchecking the parent means
+  // the whole chain beyond this point should be rolled back.
   if (!wasNotDone && existing.status === 'DONE' && data.status === 'TODO' && existing.recurrenceRule) {
     const rootId = existing.parentTaskId ?? taskId;
-    // Find any future occurrence that was generated from this task and delete it
-    const futureOccurrence = await prisma.task.findFirst({
+    const spawnedOccurrences = await prisma.task.findMany({
       where: {
         parentTaskId: rootId,
-        status: 'TODO',
         recurrenceRule: { not: null },
-        id: { not: taskId }, // Not the current task itself
+        id: { not: taskId },
       },
-      orderBy: { createdAt: 'desc' },
     });
-    if (futureOccurrence) {
-      // Delete subtasks first (foreign key constraint)
-      await prisma.subTask.deleteMany({ where: { taskId: futureOccurrence.id } });
-      await prisma.task.delete({ where: { id: futureOccurrence.id } });
+    for (const occ of spawnedOccurrences) {
+      await prisma.subTask.deleteMany({ where: { taskId: occ.id } });
+      await prisma.task.delete({ where: { id: occ.id } });
     }
-  }
-
-  // If task is being marked as done and it's a recurring task, create next occurrence
-  if (wasNotDone && isBeingMarkedDone && task.recurrenceRule) {
-    const nextOccurrenceDate = getNextOccurrence(
-      task.dueDate,
-      task.recurrenceRule,
-      task.recurrenceEndDate,
-      task.skipDates
-    );
-
-    if (nextOccurrenceDate) {
-      // Idempotency guard: check if a future occurrence already exists
-      const rootId = task.parentTaskId ?? task.id;
-      const existingOccurrence = await prisma.task.findFirst({
-        where: {
-          parentTaskId: rootId,
-          dueDate: nextOccurrenceDate,
-          status: 'TODO',
-          id: { not: task.id },
-        },
-      });
-
-      if (existingOccurrence) {
-        // Next occurrence already exists — skip creation to prevent duplicates
-        console.log(`Skipping duplicate occurrence creation for task ${task.id}, occurrence ${nextOccurrenceDate.toISOString()}`);
-      } else {
-        // Get subtasks from original task to copy
-        const originalSubTasks = await prisma.subTask.findMany({
-          where: { taskId: task.id },
-          orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
-        });
-
-        // Create new task for next occurrence
-        await prisma.task.create({
-          data: {
-            userId,
-            title: task.title,
-            description: task.description,
-            priority: task.priority,
-            status: 'TODO',
-            dueDate: nextOccurrenceDate,
-            recurrenceRule: task.recurrenceRule,
-            recurrenceEndDate: task.recurrenceEndDate,
-            skipDates: task.skipDates,
-            parentTaskId: task.parentTaskId ?? task.id,
-            attachmentUrl: task.attachmentUrl,
-            voiceNoteUrl: task.voiceNoteUrl,
-            subTasks: originalSubTasks.length > 0 ? {
-              create: originalSubTasks.map((st) => ({
-                title: st.title,
-                order: st.order,
-                completed: false
-              }))
-            } : undefined
-          }
-        });
-      }
+    if (spawnedOccurrences.length > 0) {
+      console.log(`Deleted ${spawnedOccurrences.length} spawned occurrence(s) for unmarked task ${taskId}`);
     }
   }
 

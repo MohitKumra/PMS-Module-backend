@@ -5,6 +5,7 @@
 import cron from 'node-cron';
 import { prisma } from '../lib/prismaClient';
 import * as notifService from '../services/notification.service';
+import { rrulestr } from 'rrule';
 
 /**
  * Checks for tasks that are due soon (in the next 15 minutes) and
@@ -201,6 +202,127 @@ async function checkHabitReminders() {
   }
 }
 
+/**
+ * Calculates the next occurrence date for a recurring task.
+ */
+function getNextOccurrence(
+  currentDueDate: Date | null,
+  recurrenceRule: string | null,
+  recurrenceEndDate: Date | null,
+  skipDates: string[]
+): Date | null {
+  if (!currentDueDate || !recurrenceRule) return null;
+  try {
+    const rule = rrulestr(recurrenceRule, { dtstart: currentDueDate });
+    const occurrences = rule.between(
+      new Date(currentDueDate.getTime() + 1),
+      recurrenceEndDate || new Date(currentDueDate.getTime() + 365 * 24 * 60 * 60 * 1000),
+      true,
+      (date) => {
+        const dateStr = date.toISOString().split('T')[0];
+        return !skipDates.includes(dateStr);
+      }
+    );
+    return occurrences.length > 0 ? occurrences[0] : null;
+  } catch (e) {
+    console.error('Error calculating next occurrence:', e);
+    return null;
+  }
+}
+
+/**
+ * Creates the next occurrence for tasks that were recently marked DONE
+ * and have a recurrence rule but no future occurrence yet.
+ * Runs as part of the scheduler to avoid race conditions from concurrent requests.
+ */
+async function createNextOccurrences() {
+  try {
+    // Find all DONE recurring tasks that don't have a future occurrence
+    const recentDoneTasks = await prisma.task.findMany({
+      where: {
+        status: 'DONE',
+        recurrenceRule: { not: null },
+      },
+      select: {
+        id: true,
+        userId: true,
+        title: true,
+        description: true,
+        priority: true,
+        dueDate: true,
+        recurrenceRule: true,
+        recurrenceEndDate: true,
+        skipDates: true,
+        parentTaskId: true,
+        attachmentUrl: true,
+        voiceNoteUrl: true,
+        subTasks: { select: { title: true, order: true } },
+      },
+    });
+
+    for (const task of recentDoneTasks) {
+      const rootId = task.parentTaskId ?? task.id;
+
+      // Check if a future occurrence already exists
+      const existingOccurrence = await prisma.task.findFirst({
+        where: {
+          parentTaskId: rootId,
+          status: 'TODO',
+          recurrenceRule: { not: null },
+          id: { not: task.id },
+        },
+      });
+
+      if (existingOccurrence) continue; // Already has a future occurrence
+
+      const nextDate = getNextOccurrence(
+        task.dueDate,
+        task.recurrenceRule,
+        task.recurrenceEndDate,
+        task.skipDates
+      );
+
+      if (!nextDate) continue;
+
+      try {
+        await prisma.task.create({
+          data: {
+            userId: task.userId,
+            title: task.title,
+            description: task.description,
+            priority: task.priority,
+            status: 'TODO',
+            dueDate: nextDate,
+            recurrenceRule: task.recurrenceRule,
+            recurrenceEndDate: task.recurrenceEndDate,
+            skipDates: task.skipDates,
+            parentTaskId: rootId,
+            attachmentUrl: task.attachmentUrl,
+            voiceNoteUrl: task.voiceNoteUrl,
+            subTasks: task.subTasks.length > 0 ? {
+              create: task.subTasks.map((st) => ({
+                title: st.title,
+                order: st.order,
+                completed: false,
+              })),
+            } : undefined,
+          },
+        });
+        console.log(`[Recurrence] Created next occurrence for task ${task.id} on ${nextDate.toISOString()}`);
+      } catch (err: any) {
+        // P2002 = unique constraint violation — another process already created it
+        if (err?.code === 'P2002') {
+          console.log(`[Recurrence] Duplicate skipped for task ${task.id}`);
+        } else {
+          console.error(`[Recurrence] Failed to create occurrence for task ${task.id}:`, err);
+        }
+      }
+    }
+  } catch (err) {
+    console.error('❌  Error creating next occurrences:', err);
+  }
+}
+
 /** Starts the node-cron scheduler to run reminders every minute. */
 export function startScheduler() {
   console.info('🕒  Reminder Scheduler initialized (runs every minute).');
@@ -210,5 +332,6 @@ export function startScheduler() {
     await checkTaskReminders();
     await checkProjectDeadlines();
     await checkHabitReminders();
+    await createNextOccurrences();
   });
 }

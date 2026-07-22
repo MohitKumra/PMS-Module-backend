@@ -25,6 +25,7 @@ model Task {
   user              User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, dueDate])
+  @@unique([parentTaskId, dueDate])
 }
 
 model SubTask {

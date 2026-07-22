@@ -3,6 +3,45 @@ import { prisma } from '../lib/prismaClient';
 import { createError } from '../middleware/errorHandler';
 import { deleteStoredFile, storeBase64File } from '../lib/fileStorage';
 
+export async function updateProfile(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { name } = req.body ?? {};
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      throw createError(400, 'INVALID_NAME', 'Name is required');
+    }
+
+    const updated = await prisma.user.update({
+      where: { id: req.user!.sub },
+      data: { name: name.trim() },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        avatarUrl: true,
+        recoveryEmail: true,
+        timezone: true,
+        passwordHash: true,
+        googleId: true,
+        createdAt: true,
+      },
+    });
+
+    res.json({
+      id: updated.id,
+      email: updated.email,
+      name: updated.name,
+      avatarUrl: updated.avatarUrl,
+      recoveryEmail: updated.recoveryEmail,
+      timezone: updated.timezone,
+      hasPassword: Boolean(updated.passwordHash),
+      hasGoogle: Boolean(updated.googleId),
+      createdAt: updated.createdAt.toISOString(),
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function updateAvatar(req: Request, res: Response, next: NextFunction) {
   try {
     const { fileName, mimeType, base64Data } = req.body ?? {};
