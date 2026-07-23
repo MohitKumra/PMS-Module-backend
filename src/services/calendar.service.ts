@@ -49,29 +49,24 @@ function mapTaskEvent(task: {
   };
 }
 
-function mapFocusEvent(session: {
-  id: string;
-  startedAt: Date;
-  durationMin: number;
-  completed: boolean;
-  isBreak: boolean;
-}): CalendarEventDTO {
+function mapFocusEvent(session: any): CalendarEventDTO {
   const startAt = session.startedAt;
   const endAt = addMinutes(startAt, session.durationMin);
   const isBreakSession = session.isBreak;
+  const isCompleted = (session.status ?? 'IN_PROGRESS') === 'COMPLETED';
   return {
     id: `focus-${session.id}`,
     type: 'FOCUS_SESSION',
     title: isBreakSession
-      ? (session.completed ? 'Break' : 'Incomplete break')
-      : (session.completed ? 'Focus session' : 'Incomplete focus session'),
+      ? (isCompleted ? 'Break' : 'Incomplete break')
+      : (isCompleted ? 'Focus session' : 'Incomplete focus session'),
     startAt: toIsoDate(startAt),
     endAt: toIsoDate(endAt),
     allDay: false,
     taskId: null,
     priority: null,
     status: null,
-    sourceLabel: isBreakSession ? 'Break' : (session.completed ? 'Pomodoro' : 'Focus draft'),
+    sourceLabel: isBreakSession ? 'Break' : (isCompleted ? 'Pomodoro' : 'Focus draft'),
     metadata: {
       durationMin: session.durationMin,
     },

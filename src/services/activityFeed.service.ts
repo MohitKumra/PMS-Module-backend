@@ -100,7 +100,7 @@ export async function getActivityFeed(
     prisma.focusSession.findMany({
       where: {
         userId,
-        completed: true,
+        status: 'COMPLETED',
         startedAt: { gte: sevenDaysAgo },
       },
       select: {

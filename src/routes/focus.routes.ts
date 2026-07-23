@@ -8,22 +8,33 @@ import { validate } from '../middleware/validate';
 const router = Router();
 router.use(authenticate);
 
-const logSchema = z.object({
-  durationMin: z.number().int().min(1).max(120),
-  startedAt: z.string().datetime({ offset: true }),
-  completed: z.boolean(),
+// ─── Schemas ─────────────────────────────────────────────────────────────────
+
+const createSchema = z.object({
+  durationMin: z.number().int().min(1).max(480), // up to 8h session
   taskId: z.string().nullable().optional(),
   projectId: z.string().nullable().optional(),
   isBreak: z.boolean().optional(),
 });
 
-const timeLogSchema = z.object({
-  durationMin: z.number().int().min(1).max(120),
+const updateSchema = z.object({
+  elapsedMin: z.number().int().min(0).max(480),
+  status: z.enum(['IN_PROGRESS', 'COMPLETED', 'CANCELLED']).optional(),
 });
 
-router.get('/',          ctrl.list);
-router.post('/',         validate({ body: logSchema }), ctrl.log);
-router.post('/time-log', validate({ body: timeLogSchema }), ctrl.logTime);
-router.get('/time-logs', ctrl.listTimeLogs);
+const timeLogSchema = z.object({
+  durationMin: z.number().int().min(1).max(480),
+});
+
+// ─── Routes ──────────────────────────────────────────────────────────────────
+
+router.get('/',              ctrl.list);
+router.post('/',             validate({ body: createSchema }), ctrl.create);
+router.patch('/:id',         validate({ body: updateSchema }), ctrl.update);
+router.post('/:id/complete', ctrl.complete);
+router.post('/:id/cancel',   ctrl.cancel);
+router.get('/active',        ctrl.getActive);
+router.post('/time-log',     validate({ body: timeLogSchema }), ctrl.logTime);
+router.get('/time-logs',     ctrl.listTimeLogs);
 
 export default router;

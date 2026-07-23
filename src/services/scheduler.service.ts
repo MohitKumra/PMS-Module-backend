@@ -61,12 +61,12 @@ export async function getCapacityForDate(userId: string, date: Date): Promise<Ca
       startedAt: { gte: dayStart, lte: dayEnd },
       isBreak: false,
     },
-    select: { durationMin: true, completed: true },
+    select: { durationMin: true, status: true },
   });
 
   // Only count completed sessions as "booked"
   const bookedMinutes = focusSessions
-    .filter((s) => s.completed)
+    .filter((s) => s.status === 'COMPLETED')
     .reduce((sum, s) => sum + s.durationMin, 0);
 
   return {
@@ -167,7 +167,7 @@ export async function applySchedule(userId: string, date: Date, blocks: Schedule
         taskId: block.taskId,
         durationMin: block.estimatedDuration,
         startedAt: block.scheduledStart,
-        completed: false,
+        status: 'IN_PROGRESS',
         isBreak: false,
       },
     });

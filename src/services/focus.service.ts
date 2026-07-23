@@ -1,21 +1,30 @@
 // backend/src/services/focus.service.ts
-// Logs completed focus (Pomodoro) sessions. Sessions are created when the timer
-// finishes — the frontend starts the timer locally and POSTs on completion.
+// Manages the full lifecycle of focus sessions:
+//   create (start) → update (pause/autosave) → complete (timer finished) → cancel
+// XP is only awarded on complete, never on pause/autosave/cancel.
 
 import { prisma } from '../lib/prismaClient';
-import { createError } from '../middleware/errorHandler';
-import type { FocusSessionDTO, CreateFocusSessionRequest, FocusTimeLogDTO, CreateFocusTimeLogRequest } from '../types';
+import type {
+  FocusSessionDTO,
+  FocusSessionStatus,
+  CreateFocusSessionRequest,
+  UpdateFocusSessionRequest,
+  FocusTimeLogDTO,
+  CreateFocusTimeLogRequest,
+} from '../types';
 import * as notifService from './notification.service';
 import { awardFocusSession } from './gamification.service';
 
-function toDTO(s: {
-  id: string; userId: string; durationMin: number; startedAt: Date; completed: boolean;
-  taskId: string | null; projectId: string | null; isBreak: boolean;
-}): FocusSessionDTO {
+// ─── DTO helpers ─────────────────────────────────────────────────────────────
+
+function toDTO(s: any): FocusSessionDTO {
   return {
     id: s.id, userId: s.userId, durationMin: s.durationMin,
-    startedAt: s.startedAt.toISOString(), completed: s.completed,
-    taskId: s.taskId, projectId: s.projectId, isBreak: s.isBreak,
+    elapsedMin: s.elapsedMin ?? 0,
+    startedAt: s.startedAt.toISOString(),
+    status: (s.status ?? 'IN_PROGRESS') as FocusSessionStatus,
+    completedAt: s.completedAt?.toISOString() ?? null,
+    taskId: s.taskId, projectId: s.projectId, isBreak: s.isBreak ?? false,
   };
 }
 
@@ -28,6 +37,8 @@ function toTimeLogDTO(l: {
   };
 }
 
+// ─── List helpers (backward compat) ──────────────────────────────────────────
+
 export async function listSessions(userId: string, limit = 100): Promise<{ data: FocusSessionDTO[]; meta: { total: number } }> {
   const [sessions, total] = await Promise.all([
     prisma.focusSession.findMany({
@@ -38,16 +49,20 @@ export async function listSessions(userId: string, limit = 100): Promise<{ data:
   return { data: sessions.map(toDTO), meta: { total } };
 }
 
-export async function logSession(userId: string, data: CreateFocusSessionRequest): Promise<FocusSessionDTO> {
-  const taskId = data.taskId?.trim() || null;
-  const projectId = data.projectId?.trim() || null;
+// ─── Create (start timer) ────────────────────────────────────────────────────
+// Called when the user starts a brand-new timer. Creates a session with
+// status=IN_PROGRESS. No XP awarded.
+
+export async function createSession(userId: string, data: CreateFocusSessionRequest): Promise<FocusSessionDTO> {
+  let taskId = data.taskId?.trim() || null;
+  let projectId = data.projectId?.trim() || null;
 
   if (taskId) {
     const task = await prisma.task.findFirst({
       where: { id: taskId, userId },
       select: { id: true },
     });
-    if (!task) throw createError(404, 'TASK_NOT_FOUND', 'Task not found');
+    if (!task) taskId = null;
   }
 
   if (projectId) {
@@ -55,39 +70,137 @@ export async function logSession(userId: string, data: CreateFocusSessionRequest
       where: { id: projectId, userId },
       select: { id: true },
     });
-    if (!project) throw createError(404, 'PROJECT_NOT_FOUND', 'Project not found');
+    if (!project) projectId = null;
   }
 
   const session = await prisma.focusSession.create({
     data: {
-      userId, durationMin: data.durationMin,
-      startedAt: new Date(data.startedAt), completed: data.completed,
+      userId,
+      durationMin: data.durationMin,
+      elapsedMin: 0,
+      startedAt: new Date(),
+      status: 'IN_PROGRESS',
       taskId,
       projectId,
       isBreak: data.isBreak ?? false,
     },
   });
 
-  if (data.completed) {
-    await awardFocusSession(userId, session.id, session.durationMin);
-
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      include: { notificationPreferences: true },
-    });
-
-    if (user?.notificationPreferences?.focusSessionComplete) {
-      await notifService.sendNotification(
-        userId,
-        `Focus session complete: ${data.durationMin} min`,
-        'Your focus block finished successfully.',
-        ['BROWSER_PUSH', 'EMAIL'],
-      );
-    }
-  }
-
   return toDTO(session);
 }
+
+// ─── Update (pause / autosave / resume) ──────────────────────────────────────
+// Called on pause, autosave (every 20–30s), and resume to persist elapsed time.
+// No XP awarded.
+
+export async function updateSession(
+  userId: string,
+  sessionId: string,
+  data: UpdateFocusSessionRequest,
+): Promise<FocusSessionDTO> {
+  const session = await prisma.focusSession.findFirst({
+    where: { id: sessionId, userId, status: 'IN_PROGRESS' },
+  });
+
+  if (!session) {
+    throw new Error('Session not found or not in progress');
+  }
+
+  const updated = await prisma.focusSession.update({
+    where: { id: sessionId },
+    data: {
+      elapsedMin: data.elapsedMin,
+      ...(data.status ? { status: data.status } : {}),
+    },
+  });
+
+  return toDTO(updated);
+}
+
+// ─── Complete (timer finished) ───────────────────────────────────────────────
+// Called when the timer reaches 0. Awards XP and counts in stats.
+
+export async function completeSession(
+  userId: string,
+  sessionId: string,
+): Promise<FocusSessionDTO> {
+  const session = await prisma.focusSession.findFirst({
+    where: { id: sessionId, userId, status: 'IN_PROGRESS' },
+  });
+
+  if (!session) {
+    throw new Error('Session not found or not in progress');
+  }
+
+  const now = new Date();
+  const updated = await prisma.focusSession.update({
+    where: { id: sessionId },
+    data: {
+      status: 'COMPLETED',
+      completedAt: now,
+      elapsedMin: session.durationMin, // full duration on completion
+    },
+  });
+
+  // Award XP — only for completed sessions
+  await awardFocusSession(userId, session.id, updated.durationMin);
+
+  // Send notification if user has it enabled
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    include: { notificationPreferences: true },
+  });
+
+  if (user?.notificationPreferences?.focusSessionComplete) {
+    await notifService.sendNotification(
+      userId,
+      `Focus session complete: ${updated.durationMin} min`,
+      'Your focus block finished successfully.',
+      ['BROWSER_PUSH', 'EMAIL'],
+    );
+  }
+
+  return toDTO(updated);
+}
+
+// ─── Cancel ──────────────────────────────────────────────────────────────────
+// Called when the user cancels a session (e.g., exit without completing).
+// No XP awarded, not counted in stats.
+
+export async function cancelSession(
+  userId: string,
+  sessionId: string,
+): Promise<FocusSessionDTO> {
+  const session = await prisma.focusSession.findFirst({
+    where: { id: sessionId, userId, status: 'IN_PROGRESS' },
+  });
+
+  if (!session) {
+    throw new Error('Session not found or not in progress');
+  }
+
+  const updated = await prisma.focusSession.update({
+    where: { id: sessionId },
+    data: { status: 'CANCELLED' },
+  });
+
+  return toDTO(updated);
+}
+
+// ─── Get active session (for refresh recovery) ───────────────────────────────
+// Returns the latest IN_PROGRESS session for the user, if any.
+// The frontend uses this to recover timer state on page refresh.
+
+export async function getActiveSession(userId: string): Promise<FocusSessionDTO | null> {
+  const session = await prisma.focusSession.findFirst({
+    where: { userId, status: 'IN_PROGRESS' },
+    orderBy: { startedAt: 'desc' },
+  });
+
+  return session ? toDTO(session) : null;
+}
+
+// ─── Legacy time log support ─────────────────────────────────────────────────
 
 export async function logTime(userId: string, data: CreateFocusTimeLogRequest): Promise<FocusTimeLogDTO> {
   const log = await prisma.focusTimeLog.create({

@@ -32,12 +32,12 @@ export async function getSummary(userId: string): Promise<AnalyticsSummaryDTO> {
   const [tasksTotal, tasksCompleted, allSessions, notes] = await Promise.all([
     prisma.task.count({ where: { userId } }),
     prisma.task.count({ where: { userId, status: 'DONE' } }),
-    prisma.focusSession.findMany({ where: { userId } }),
+    prisma.focusSession.findMany({ where: { userId, status: 'COMPLETED' } }),
     prisma.note.findMany({ where: { userId } }),
   ]);
 
   // Count completed sessions separately for focusSessionsTotal
-  const sessions = allSessions.filter((s) => s.completed);
+  const sessions = allSessions.filter((s) => s.status === 'COMPLETED');
 
   // Calculate streaks using UTC dates for consistency
   let longestHabitStreak = 0;
@@ -191,7 +191,7 @@ export async function getProjectAnalytics(userId: string): Promise<ProjectAnalyt
 
   // Aggregate focus minutes per project
   const focusSessions = await prisma.focusSession.findMany({
-    where: { userId, projectId: { not: null }, isBreak: false, completed: true },
+    where: { userId, projectId: { not: null }, isBreak: false, status: 'COMPLETED' },
     select: { projectId: true, durationMin: true },
   });
   const focusMinutesByProject = new Map<string, number>();

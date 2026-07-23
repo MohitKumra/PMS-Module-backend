@@ -285,7 +285,7 @@ async function getStats(userId: string, tx: GamificationTx = prisma): Promise<Us
       tx.task.count({ where: { userId, status: 'DONE' } }),
       tx.habitCompletion.count({ where: { habit: { userId } } }),
       tx.focusSession.aggregate({
-        where: { userId, completed: true, isBreak: false },
+        where: { userId, status: 'COMPLETED', isBreak: false },
         _count: true,
         _sum: { durationMin: true },
       }),
