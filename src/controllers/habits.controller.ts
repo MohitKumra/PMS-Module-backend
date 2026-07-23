@@ -25,3 +25,8 @@ export async function toggle(req: Request, res: Response, next: NextFunction) {
 export async function weekOverview(req: Request, res: Response, next: NextFunction) {
   try { res.json(await habitService.getWeekOverview(req.user!.sub)); } catch (err) { next(err); }
 }
+
+/** GET /habits/streak-status — habits whose streak broke recently */
+export async function streakStatus(req: Request, res: Response, next: NextFunction) {
+  try { res.json(await habitService.getBrokenStreaks(req.user!.sub)); } catch (err) { next(err); }
+}

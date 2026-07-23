@@ -1,23 +1,12 @@
 import { prisma } from '../lib/prismaClient';
 import { createError } from '../middleware/errorHandler';
 import { awardHabitCompletion } from './gamification.service';
-import type { HabitDTO, CreateHabitRequest, UpdateHabitRequest, WeekOverviewDTO } from '../types';
+import type { HabitDTO, CreateHabitRequest, UpdateHabitRequest, WeekOverviewDTO, HabitStreakBreakDTO } from '../types';
 
 function toDateStr(d: Date): string {
   return d.toISOString().split('T')[0];
 }
 
-function todayStr(): string {
-  return toDateStr(new Date());
-}
-
-/**
- * UTC midnight for "today". Use this (never `new Date(); d.setHours(0,0,0,0)`)
- * anywhere a completion date is created or queried — that local-time version
- * is what caused completedToday to disagree with the streak/heatmap/week
- * data on the same card: writes and reads have to agree on the same
- * calendar day regardless of server timezone.
- */
 function utcToday(): Date {
   const now = new Date();
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
@@ -27,96 +16,160 @@ function daysBetween(a: string, b: string): number {
   return (new Date(`${b}T00:00:00.000Z`).getTime() - new Date(`${a}T00:00:00.000Z`).getTime()) / 86400000;
 }
 
-function calcStreak(dates: string[]): number {
+function getDayOfWeek(dateStr: string): number {
+  const d = new Date(`${dateStr}T00:00:00.000Z`);
+  return (d.getUTCDay() + 6) % 7;
+}
+
+function parseSkipDays(raw: string | null): number[] {
+  if (!raw) return [];
+  try { return JSON.parse(raw); } catch { return []; }
+}
+
+function calcStreak(dates: string[], skipDays: number[]): number {
   if (dates.length === 0) return 0;
   const sorted = [...new Set(dates)].sort().reverse();
   const today = utcToday();
-  const yesterday = new Date(today); yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+  const yesterday = new Date(today);
+  yesterday.setUTCDate(yesterday.getUTCDate() - 1);
 
   let cursor = new Date(`${sorted[0]}T00:00:00.000Z`);
-  if (cursor < yesterday) return 0;
+  const yesterdayStr = toDateStr(yesterday);
+  if (cursor < yesterday && !skipDays.includes(getDayOfWeek(yesterdayStr))) return 0;
 
   let streak = 1;
   for (let i = 1; i < sorted.length; i++) {
     const prev = new Date(`${sorted[i]}T00:00:00.000Z`);
     const diff = (cursor.getTime() - prev.getTime()) / 86400000;
-    if (diff === 1) { streak++; cursor = prev; }
-    else break;
+    if (diff === 1) {
+      streak++;
+      cursor = prev;
+    } else {
+      let gapFilledBySkips = true;
+      let checkDate = new Date(prev);
+      checkDate.setUTCDate(checkDate.getUTCDate() + 1);
+      while (checkDate < cursor) {
+        const checkStr = toDateStr(checkDate);
+        if (!skipDays.includes(getDayOfWeek(checkStr))) {
+          gapFilledBySkips = false;
+          break;
+        }
+        checkDate.setUTCDate(checkDate.getUTCDate() + 1);
+      }
+      if (gapFilledBySkips) { streak++; cursor = prev; }
+      else break;
+    }
   }
   return streak;
 }
 
-function calcBestStreak(dates: string[]): number {
+function calcBestStreak(dates: string[], skipDays: number[]): number {
   if (dates.length === 0) return 0;
   const sorted = [...new Set(dates)].sort();
   let best = 1, current = 1;
   for (let i = 1; i < sorted.length; i++) {
-    if (daysBetween(sorted[i - 1], sorted[i]) === 1) {
-      current++; best = Math.max(best, current);
-    } else current = 1;
+    const diff = daysBetween(sorted[i - 1], sorted[i]);
+    if (diff === 1) { current++; best = Math.max(best, current); }
+    else {
+      let gapIsSkip = true;
+      const start = new Date(`${sorted[i - 1]}T00:00:00.000Z`);
+      const end = new Date(`${sorted[i]}T00:00:00.000Z`);
+      let checkDate = new Date(start);
+      checkDate.setUTCDate(checkDate.getUTCDate() + 1);
+      while (checkDate < end) {
+        const checkStr = toDateStr(checkDate);
+        if (!skipDays.includes(getDayOfWeek(checkStr))) { gapIsSkip = false; break; }
+        checkDate.setUTCDate(checkDate.getUTCDate() + 1);
+      }
+      if (gapIsSkip) { current++; best = Math.max(best, current); }
+      else current = 1;
+    }
   }
   return best;
 }
 
-/** Monday index of the current UTC calendar week, as a UTC Date. */
 function utcMondayOfThisWeek(): Date {
   const today = utcToday();
-  const dow = today.getUTCDay(); // 0=Sun..6=Sat
-  const offset = (dow + 6) % 7; // days since Monday
+  const dow = today.getUTCDay();
+  const offset = (dow + 6) % 7;
   const monday = new Date(today);
   monday.setUTCDate(monday.getUTCDate() - offset);
   return monday;
 }
 
-function calcWeekPattern(dateSet: Set<string>): boolean[] {
+function calcWeekPattern(dateSet: Set<string>, skipSet: Set<string>): boolean[] {
   const monday = utcMondayOfThisWeek();
   return Array.from({ length: 7 }, (_, i) => {
     const d = new Date(monday);
     d.setUTCDate(monday.getUTCDate() + i);
-    return dateSet.has(toDateStr(d));
+    const dateStr = toDateStr(d);
+    if (skipSet.has(dateStr)) return true;
+    return dateSet.has(dateStr);
   });
 }
 
-function calcHeatmap(dateSet: Set<string>, weeks = 12): boolean[] {
-  const cells = weeks * 7;
-  const today = utcToday();
-  const start = new Date(today);
-  start.setUTCDate(start.getUTCDate() - (cells - 1));
-  return Array.from({ length: cells }, (_, i) => {
-    const d = new Date(start);
-    d.setUTCDate(start.getUTCDate() + i);
-    return dateSet.has(toDateStr(d));
-  });
+function calcStreakSafeDays(skipDaysRaw: string): Set<string> {
+  const skipDayIndices = parseSkipDays(skipDaysRaw);
+  if (skipDayIndices.length === 0) return new Set();
+  const safe = new Set<string>();
+  const now = utcToday();
+  const checkDate = new Date(now);
+  checkDate.setUTCDate(checkDate.getUTCDate() - 60);
+  while (checkDate <= now) {
+    const dow = getDayOfWeek(toDateStr(checkDate));
+    if (skipDayIndices.includes(dow)) safe.add(toDateStr(checkDate));
+    checkDate.setUTCDate(checkDate.getUTCDate() + 1);
+  }
+  return safe;
 }
 
-async function toDTO(h: {
-  id: string; userId: string; title: string; targetPerWeek: number;
-  reminderTime: string | null; createdAt: Date;
+interface HabitRow {
+  id: string;
+  userId: string;
+  title: string;
+  targetPerWeek: number;
+  reminderTime: string | null;
+  createdAt: Date;
   completions: { date: Date }[];
+}
+
+async function toDTO(h: HabitRow & {
+  reminderMessage: string | null;
+  durationDays: number | null;
+  skipDays: string;
+  streakBrokenAt: Date | null;
+  isActive: boolean;
 }): Promise<HabitDTO> {
   const dateStrings = h.completions.map((c) => toDateStr(c.date));
   const dateSet = new Set(dateStrings);
-  const today = todayStr();
+  const skipDayIndices = parseSkipDays(h.skipDays);
+  const today = toDateStr(utcToday());
+  const safeDaysSet = calcStreakSafeDays(h.skipDays);
 
   const monday = utcMondayOfThisWeek();
-  const lastMonday = new Date(monday); lastMonday.setUTCDate(lastMonday.getUTCDate() - 7);
+  const lastMonday = new Date(monday);
+  lastMonday.setUTCDate(lastMonday.getUTCDate() - 7);
 
   const completionsThisWeek = h.completions.filter((c) => c.date >= monday).length;
-  const completionsLastWeek = h.completions.filter(
-    (c) => c.date >= lastMonday && c.date < monday
-  ).length;
+  const completionsLastWeek = h.completions.filter((c) => c.date >= lastMonday && c.date < monday).length;
 
   return {
     id: h.id, userId: h.userId, title: h.title,
     targetPerWeek: h.targetPerWeek, reminderTime: h.reminderTime,
+    reminderMessage: h.reminderMessage,
+    durationDays: h.durationDays,
+    skipDays: skipDayIndices,
+    streakBrokenAt: h.streakBrokenAt?.toISOString() ?? null,
+    isActive: h.isActive,
     createdAt: h.createdAt.toISOString(),
-    currentStreak: calcStreak(dateStrings),
-    bestStreak: calcBestStreak(dateStrings),
-    completedToday: dateSet.has(today),
+    currentStreak: calcStreak(dateStrings, skipDayIndices),
+    bestStreak: calcBestStreak(dateStrings, skipDayIndices),
+    completedToday: dateSet.has(today) || safeDaysSet.has(today),
     completionsThisWeek,
     completionsLastWeek,
-    weekPattern: calcWeekPattern(dateSet),
-    completionDates: dateStrings, // NEW — full history, 'YYYY-MM-DD' UTC strings
+    weekPattern: calcWeekPattern(dateSet, safeDaysSet),
+    completionDates: dateStrings,
+    streakSafeDays: Array.from(safeDaysSet),
   };
 }
 
@@ -128,7 +181,10 @@ export async function listHabits(userId: string): Promise<{
     include: { completions: { select: { date: true } } },
     orderBy: { createdAt: 'asc' },
   });
-  const data = await Promise.all(habits.map(toDTO));
+
+  const data = await Promise.all(
+    habits.map((h) => toDTO(h as any))
+  );
 
   const thisWeekTotal = data.reduce((sum, h) => sum + h.completionsThisWeek, 0);
   const lastWeekTotal = data.reduce((sum, h) => sum + h.completionsLastWeek, 0);
@@ -141,26 +197,46 @@ export async function listHabits(userId: string): Promise<{
 }
 
 export async function createHabit(userId: string, data: CreateHabitRequest): Promise<HabitDTO> {
+  const skipDays = data.skipDays ? JSON.stringify(data.skipDays) : '[]';
+  const skipDayIndices = parseSkipDays(skipDays);
+  const targetPerWeek = 7 - skipDayIndices.length; // auto-compute from skip days
   const habit = await prisma.habit.create({
-    data: { userId, title: data.title, targetPerWeek: data.targetPerWeek ?? 7, reminderTime: data.reminderTime ?? null },
+    data: {
+      userId,
+      title: data.title,
+      targetPerWeek,
+      reminderTime: data.reminderTime ?? null,
+      reminderMessage: data.reminderMessage ?? null,
+      durationDays: data.durationDays ?? null,
+      skipDays,
+    } as any,
     include: { completions: { select: { date: true } } },
   });
-  return toDTO(habit);
+  return toDTO(habit as any);
 }
 
 export async function updateHabit(userId: string, habitId: string, data: UpdateHabitRequest): Promise<HabitDTO> {
   const existing = await prisma.habit.findFirst({ where: { id: habitId, userId } });
   if (!existing) throw createError(404, 'HABIT_NOT_FOUND', 'Habit not found');
+
+  const updateData: Record<string, any> = {};
+  if (data.title !== undefined) updateData.title = data.title;
+  if (data.reminderTime !== undefined) updateData.reminderTime = data.reminderTime;
+  if (data.reminderMessage !== undefined) updateData.reminderMessage = data.reminderMessage;
+  if (data.durationDays !== undefined) updateData.durationDays = data.durationDays;
+  if (data.skipDays !== undefined) {
+    updateData.skipDays = JSON.stringify(data.skipDays);
+    // Recompute targetPerWeek from new skip days
+    const skipDayIndices = parseSkipDays(updateData.skipDays);
+    updateData.targetPerWeek = 7 - skipDayIndices.length;
+  }
+
   const habit = await prisma.habit.update({
     where: { id: habitId },
-    data: {
-      ...(data.title !== undefined && { title: data.title }),
-      ...(data.targetPerWeek !== undefined && { targetPerWeek: data.targetPerWeek }),
-      ...(data.reminderTime !== undefined && { reminderTime: data.reminderTime }),
-    },
+    data: updateData as any,
     include: { completions: { select: { date: true } } },
   });
-  return toDTO(habit);
+  return toDTO(habit as any);
 }
 
 export async function deleteHabit(userId: string, habitId: string): Promise<void> {
@@ -170,15 +246,23 @@ export async function deleteHabit(userId: string, habitId: string): Promise<void
 }
 
 export async function toggleCompletion(userId: string, habitId: string): Promise<HabitDTO> {
-  const habit = await prisma.habit.findFirst({ where: { id: habitId, userId } });
+  const habit = await prisma.habit.findFirst({
+    where: { id: habitId, userId },
+    include: { completions: { select: { date: true, id: true } } },
+  }) as any;
   if (!habit) throw createError(404, 'HABIT_NOT_FOUND', 'Habit not found');
 
-  const today = utcToday(); // <-- the actual fix: same "today" definition as reads
+  const today = utcToday();
   const existing = await prisma.habitCompletion.findUnique({
     where: { habitId_date: { habitId, date: today } },
   });
 
   let completionId: string | null = null;
+  const wasCompleted = !!existing;
+  const oldStreak = calcStreak(
+    habit.completions.map((c: any) => toDateStr(c.date)),
+    parseSkipDays(habit.skipDays)
+  );
 
   if (existing) {
     await prisma.habitCompletion.delete({ where: { id: existing.id } });
@@ -190,20 +274,63 @@ export async function toggleCompletion(userId: string, habitId: string): Promise
   const updated = await prisma.habit.findUnique({
     where: { id: habitId },
     include: { completions: { select: { date: true } } },
-  });
+  }) as any;
+  if (!updated) throw createError(404, 'HABIT_NOT_FOUND', 'Habit not found');
+
+  const newStreak = calcStreak(
+    updated.completions.map((c: any) => toDateStr(c.date)),
+    parseSkipDays(habit.skipDays)
+  );
+  if (wasCompleted && newStreak < oldStreak && newStreak === 0) {
+    await prisma.habit.update({
+      where: { id: habitId },
+      data: { streakBrokenAt: today } as any,
+    });
+  }
+
+  const durationDays = habit.durationDays;
+  if (durationDays !== null && updated.completions.length >= durationDays) {
+    await prisma.habit.update({
+      where: { id: habitId },
+      data: { isActive: false } as any,
+    });
+  }
+
+  const finalHabit = await prisma.habit.findUnique({
+    where: { id: habitId },
+    include: { completions: { select: { date: true } } },
+  }) as any;
+  if (!finalHabit) throw createError(404, 'HABIT_NOT_FOUND', 'Habit not found');
+
   if (completionId) {
     await awardHabitCompletion(userId, completionId, habit.title);
   }
-  return toDTO(updated!);
+  return toDTO(finalHabit);
 }
 
-/**
- * Returns pre-calculated day scores for the current week (Mon–Sun).
- * Each day's score is the percentage of habits that existed on that day
- * and were completed. This is computed server-side using UTC dates so
- * that historical days are "frozen" and not affected by new habits
- * created today.
- */
+export async function getBrokenStreaks(userId: string): Promise<HabitStreakBreakDTO[]> {
+  const yesterday = new Date(utcToday());
+  yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+
+  const habits = await prisma.habit.findMany({
+    where: {
+      userId,
+      streakBrokenAt: { gte: yesterday } as any,
+      isActive: true,
+    } as any,
+    include: { completions: { select: { date: true } } },
+  }) as any[];
+
+  return habits.map((h: any) => ({
+    habitId: h.id,
+    title: h.title,
+    previousStreak: calcStreak(
+      h.completions.map((c: any) => toDateStr(c.date)),
+      parseSkipDays(h.skipDays)
+    ),
+  }));
+}
+
 export async function getWeekOverview(userId: string): Promise<WeekOverviewDTO> {
   const habits = await prisma.habit.findMany({
     where: { userId },
@@ -219,15 +346,14 @@ export async function getWeekOverview(userId: string): Promise<WeekOverviewDTO> 
     d.setUTCDate(monday.getUTCDate() + i);
     const dateStr = toDateStr(d);
 
-    // Only habits that existed on or before this day are eligible
-    const eligibleHabits = habits.filter((h) => {
-      const createdDateStr = toDateStr(h.createdAt);
-      return createdDateStr <= dateStr;
-    });
-
-    const completed = eligibleHabits.filter((h) =>
-      h.completions.some((c) => toDateStr(c.date) === dateStr)
-    ).length;
+    const eligibleHabits = habits.filter((h) => toDateStr(h.createdAt) <= dateStr);
+    const completed = eligibleHabits.filter((h) => {
+      const hAny = h as any;
+      const skipDayIndices = parseSkipDays(hAny.skipDays);
+      const dow = getDayOfWeek(dateStr);
+      if (skipDayIndices.includes(dow)) return true;
+      return h.completions.some((c) => toDateStr(c.date) === dateStr);
+    }).length;
 
     const total = eligibleHabits.length;
     const score = total === 0 ? 0 : Math.round((completed / total) * 100);

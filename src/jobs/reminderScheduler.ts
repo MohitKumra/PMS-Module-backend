@@ -55,8 +55,18 @@ async function checkTaskReminders() {
           ? `"${task.description}" is due soon.`
           : `Your task is due in less than 15 minutes.`;
 
-        // Send push + email
-        await notifService.sendNotification(task.userId, title, body, ['BROWSER_PUSH', 'EMAIL']);
+        // Send push + email with playful template
+        await notifService.sendNotification(task.userId, title, body, ['BROWSER_PUSH', 'EMAIL'], {
+          templateName: 'task-due-playful',
+          templateVars: {
+            task: {
+              title: task.title,
+              description: task.description,
+              dueDate: task.dueDate?.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) ?? 'Today',
+              priority: task.priority,
+            },
+          },
+        });
       }
     }
   } catch (err) {
@@ -111,6 +121,16 @@ async function checkProjectDeadlines() {
             ? `"${project.description}" is due within 24 hours.`
             : 'Your project is due within 24 hours.',
           ['BROWSER_PUSH', 'EMAIL'],
+          {
+            templateName: 'project-deadline-playful',
+            templateVars: {
+              project: {
+                name: project.name,
+                description: project.description,
+                dueDate: project.dueDate?.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) ?? 'Today',
+              },
+            },
+          },
         );
       }
     }
@@ -143,6 +163,20 @@ async function checkHabitReminders() {
     for (const habit of habitsWithReminders) {
       if (!habit.reminderTime) continue;
 
+      // Skip reminder if today is one of the habit's skip days
+      try {
+        const skipDayStr = (habit as any).skipDays || '[]';
+        let skipIndices: number[] = [];
+        try { skipIndices = JSON.parse(skipDayStr); } catch {}
+        if (skipIndices.length > 0) {
+          const nowUTC = new Date();
+          const dow = (nowUTC.getUTCDay() + 6) % 7; // 0=Mon..6=Sun
+          if (skipIndices.includes(dow)) {
+            continue; // Skip reminder on intentionally skipped days
+          }
+        }
+      } catch (e) {}
+
       // Calculate current "HH:mm" in user timezone
       try {
         const formatter = new Intl.DateTimeFormat('en-US', {
@@ -169,7 +203,10 @@ async function checkHabitReminders() {
           });
 
           if (!alreadyCompletedToday) {
-            if (!habit.user.notificationPreferences?.habitReminder) {
+            // Respect user preference — default to enabled if preference row is null
+            const prefs = habit.user.notificationPreferences;
+            const shouldNotify = prefs === null || prefs.habitReminder === true;
+            if (!shouldNotify) {
               continue;
             }
             // Check if notified in the last 10 minutes to avoid double-runs
@@ -183,12 +220,26 @@ async function checkHabitReminders() {
             });
 
             if (!alreadyNotified) {
+              // Use reminderMessage as the title if set, otherwise fallback to habit title
+              const reminderTitle = (habit as any).reminderMessage
+                ? (habit as any).reminderMessage
+                : `Habit Reminder: ${habit.title}`;
               console.info(`⏰  Habit Reminder triggered for User ${habit.userId}: "${habit.title}"`);
               await notifService.sendNotification(
                 habit.userId,
-                `Habit Reminder: ${habit.title}`,
+                reminderTitle,
                 `Don't forget to check off your habit "${habit.title}" today!`,
-                ['BROWSER_PUSH', 'EMAIL']
+                ['BROWSER_PUSH', 'EMAIL'],
+                {
+                  templateName: 'habit-reminder-playful',
+                  templateVars: {
+                    reminderTitle,
+                    habit: {
+                      title: habit.title,
+                      reminderTime: habit.reminderTime,
+                    },
+                  },
+                }
               );
             }
           }

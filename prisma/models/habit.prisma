@@ -4,12 +4,28 @@ model Habit {
   title         String
   targetPerWeek Int               @default(7)
   reminderTime  String?
+  reminderMessage String?         // email subject / notification title
+  durationDays  Int?              // null = forever; auto-deactivates when reached
+  skipDays      String            @default("[]") // JSON array of day indices 0-6 (0=Mon..6=Sun)
+  streakBrokenAt DateTime?        // when streak was last broken (for popup)
+  isActive      Boolean           @default(true)
   createdAt     DateTime          @default(now())
   user          User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   completions   HabitCompletion[]
+  skipLogs      HabitSkipLog[]
 }
 
 model HabitCompletion {
+  id        String   @id @default(cuid())
+  habitId   String
+  date      DateTime @db.Date
+  createdAt DateTime @default(now())
+  habit     Habit    @relation(fields: [habitId], references: [id], onDelete: Cascade)
+
+  @@unique([habitId, date])
+}
+
+model HabitSkipLog {
   id        String   @id @default(cuid())
   habitId   String
   date      DateTime @db.Date

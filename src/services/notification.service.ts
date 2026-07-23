@@ -4,7 +4,7 @@
 
 import { prisma } from '../lib/prismaClient';
 import { sendPush, PushSubscription } from '../lib/pushSender';
-import { sendMail } from '../lib/mailer';
+import { sendMail, renderHabitReminder, renderTaskDue, renderProjectDeadline } from '../lib/mailer';
 import { createError } from '../middleware/errorHandler';
 import type { NotificationChannel } from '../types';
 
@@ -31,12 +31,20 @@ export async function unregisterPushSubscription(userId: string): Promise<void> 
   });
 }
 
+export interface EmailTemplateVars {
+  /** Which template file to use (without .html) — e.g. 'habit-reminder-playful' */
+  templateName: 'habit-reminder-playful' | 'task-due-playful' | 'project-deadline-playful';
+  /** Variables passed to the template renderer */
+  templateVars: Record<string, any>;
+}
+
 /** Logs and delivers a notification across the requested channels. */
 export async function sendNotification(
   userId: string,
   title: string,
   body: string,
-  channels: NotificationChannel[]
+  channels: NotificationChannel[],
+  emailTemplate?: EmailTemplateVars
 ): Promise<void> {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) {
@@ -61,34 +69,57 @@ export async function sendNotification(
   for (const channel of channels) {
     try {
       if (channel === 'EMAIL') {
+        let html: string;
+        if (emailTemplate) {
+          // Render the custom playful template
+          switch (emailTemplate.templateName) {
+            case 'habit-reminder-playful':
+              html = renderHabitReminder(emailTemplate.templateVars as any);
+              break;
+            case 'task-due-playful':
+              html = renderTaskDue(emailTemplate.templateVars as any);
+              break;
+            case 'project-deadline-playful':
+              html = renderProjectDeadline(emailTemplate.templateVars as any);
+              break;
+            default:
+              html = renderFallbackHtml(title, body);
+          }
+        } else {
+          html = renderFallbackHtml(title, body);
+        }
+
         await sendMail({
           to: user.email,
           subject: title,
-          html: `
-            <div style="font-family:sans-serif;max-width:480px;margin:auto;padding:24px;background:#1a1a23;color:#e8e8f0;border-radius:12px;border:1px solid #2e2e3e">
-              <h2 style="color:#7c6ef5;margin-top:0">${title}</h2>
-              <p style="font-size:16px;line-height:1.5">${body}</p>
-              <hr style="border:0;border-top:1px solid #2e2e3e;margin:20px 0" />
-              <p style="font-size:12px;color:#888899">Sent from FlowSpace Productivity Dashboard</p>
-            </div>
-          `,
+          html,
         });
       } else if (channel === 'BROWSER_PUSH' && user.pushSubscription) {
         const sub = JSON.parse(user.pushSubscription) as PushSubscription;
         const success = await sendPush(sub, { title, body });
         if (!success) {
-          // If sending fails because subscription is invalid/expired, remove it
           console.warn(`⚠️  Web Push delivery failed for User ${userId}. Clearing invalid subscription.`);
           await unregisterPushSubscription(userId);
         }
       } else if (channel === 'NATIVE_LOCAL') {
-        // Native local notification is handled on frontend client platform layer
         console.info(`📱  Native Local notification logged for user ${userId}: ${title} - ${body}`);
       }
     } catch (err) {
       console.error(`❌  Failed to deliver notification on channel ${channel} to User ${userId}:`, err);
     }
   }
+}
+
+/** Fallback HTML template when no playful template is specified */
+function renderFallbackHtml(title: string, body: string): string {
+  return `
+    <div style="font-family:sans-serif;max-width:480px;margin:auto;padding:24px;background:#1a1a23;color:#e8e8f0;border-radius:12px;border:1px solid #2e2e3e">
+      <h2 style="color:#7c6ef5;margin-top:0">${title}</h2>
+      <p style="font-size:16px;line-height:1.5">${body}</p>
+      <hr style="border:0;border-top:1px solid #2e2e3e;margin:20px 0" />
+      <p style="font-size:12px;color:#888899">Sent from FlowSpace Productivity Dashboard</p>
+    </div>
+  `;
 }
 
 /** Lists the notification logs for a user. */

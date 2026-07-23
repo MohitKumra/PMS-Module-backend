@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>T-minus 24 hours</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+  body { margin:0; padding:0; background:#F2EFFB; font-family:'Nunito',-apple-system,sans-serif; -webkit-text-size-adjust:100%; }
+  .container { max-width:600px; margin:0 auto; }
+  h1,.fredoka { font-family:'Fredoka',sans-serif; }
+  @media only screen and (max-width:600px){
+    .pad { padding-left:24px !important; padding-right:24px !important; }
+    .charSvg { width:150px !important; height:150px !important; }
+  }
+</style>
+</head>
+<body>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F2EFFB;">
+<tr><td align="center" style="padding:32px 16px;">
+<table role="presentation" class="container" width="600" cellpadding="0" cellspacing="0" style="width:600px; max-width:600px;">
+
+  <!-- Banner -->
+  <tr>
+    <td style="border-radius:28px 28px 0 0; overflow:hidden;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:linear-gradient(135deg,#8A7CF0 0%,#6C5CE7 55%,#4C3FCB 100%);">
+        <tr>
+          <td align="center" style="padding:38px 20px 0 20px; position:relative;">
+
+            <!-- stars scattered -->
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="position:absolute; top:0; left:0;">
+              <tr><td style="padding:20px 0 0 46px;">
+                <svg width="16" height="16" viewBox="0 0 16 16"><path d="M8 0 L9.5 6.5 L16 8 L9.5 9.5 L8 16 L6.5 9.5 L0 8 L6.5 6.5 Z" fill="#FFE699"/></svg>
+              </td></tr>
+            </table>
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="position:absolute; top:0; right:0;">
+              <tr><td style="padding:50px 46px 0 0;">
+                <svg width="10" height="10" viewBox="0 0 16 16"><path d="M8 0 L9.5 6.5 L16 8 L9.5 9.5 L8 16 L6.5 9.5 L0 8 L6.5 6.5 Z" fill="#FFE699"/></svg>
+              </td></tr>
+            </table>
+
+            <!-- Mascot: rocket -->
+            <svg class="charSvg" width="170" height="170" viewBox="0 0 200 220" xmlns="http://www.w3.org/2000/svg" style="display:block; margin:0 auto;">
+              <!-- flame -->
+              <path d="M100 175 C85 190 85 210 100 220 C115 210 115 190 100 175 Z" fill="#FFC94D"/>
+              <path d="M100 178 C92 190 92 202 100 210 C108 202 108 190 100 178 Z" fill="#FF8C63"/>
+              <!-- fins -->
+              <path d="M70 150 L40 190 L75 175 Z" fill="#4C3FCB"/>
+              <path d="M130 150 L160 190 L125 175 Z" fill="#4C3FCB"/>
+              <!-- body -->
+              <path d="M100 20 C135 55 140 120 128 165 L72 165 C60 120 65 55 100 20 Z" fill="#F4F1FF"/>
+              <path d="M100 20 C118 40 126 65 128 90 L72 90 C74 65 82 40 100 20 Z" fill="#8A7CF0"/>
+              <!-- window -->
+              <circle cx="100" cy="105" r="22" fill="#6C5CE7"/>
+              <circle cx="100" cy="105" r="14" fill="#F4F1FF"/>
+              <!-- face in window -->
+              <circle cx="94" cy="103" r="2.5" fill="#4C3FCB"/>
+              <circle cx="106" cy="103" r="2.5" fill="#4C3FCB"/>
+              <path d="M94 110 Q100 114 106 110" stroke="#4C3FCB" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+            </svg>
+
+            <p class="fredoka" style="margin:12px 0 0 0; font-size:13px; font-weight:600; letter-spacing:1px; color:#E4DEFF; text-transform:uppercase;">Project &middot; T&minus;24 hours</p>
+          </td>
+        </tr>
+        <tr>
+          <td style="line-height:0; font-size:0;">
+            <svg viewBox="0 0 600 40" width="100%" height="40" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M0,20 C100,45 200,0 300,15 C400,30 500,0 600,20 L600,40 L0,40 Z" fill="#FFFFFF"/>
+            </svg>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+
+  <!-- Card body -->
+  <tr>
+    <td style="background:#FFFFFF; border-radius:0 0 28px 28px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+        <tr>
+          <td class="pad" style="padding:8px 40px 0 40px;" align="center">
+            <h1 class="fredoka" style="margin:0; font-size:26px; line-height:1.3; color:#2B2B2B; font-weight:600; text-align:center;">
+              {{project.name}}
+            </h1>
+            <p style="margin:12px 0 0 0; font-size:15px; line-height:1.6; color:#7A7A7A; text-align:center;">
+              {{#if project.description}}&ldquo;{{project.description}}&rdquo; launches in the next 24 hours.{{else}}Launch window closes in the next 24 hours.{{/if}}
+            </p>
+          </td>
+        </tr>
+
+        <tr>
+          <td class="pad" style="padding:24px 40px 0 40px;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F1EEFF; border-radius:14px;">
+              <tr><td style="padding:16px 20px; text-align:center;">
+                <div class="fredoka" style="font-size:11px; color:#6C5CE7; text-transform:uppercase; letter-spacing:0.5px;">Deadline</div>
+                <div style="font-size:15px; font-weight:800; color:#2B2B2B; margin-top:2px;">{{project.dueDate}}</div>
+              </td></tr>
+            </table>
+          </td>
+        </tr>
+
+        <tr>
+          <td align="center" style="padding:28px 40px 0 40px;">
+            <table role="presentation" cellpadding="0" cellspacing="0">
+              <tr>
+                <td style="border-radius:100px; background:linear-gradient(135deg,#8A7CF0,#4C3FCB);">
+                  <a href="{{app.projectUrl}}" class="fredoka" style="display:inline-block; padding:14px 34px; font-size:15px; font-weight:600; color:#FFFFFF;">Blast off &rarr;</a>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+
+        <tr>
+          <td class="pad" style="padding:30px 40px 32px 40px;" align="center">
+            <p style="margin:0; font-size:12px; line-height:1.6; color:#B7B0AA; text-align:center;">
+              Sent because project deadline alerts are on. <a href="{{app.preferencesUrl}}" style="color:#6C5CE7; text-decoration:underline;">Manage notifications</a>
+            </p>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+
+</table>
+</td></tr>
+</table>
+</body>
+</html>

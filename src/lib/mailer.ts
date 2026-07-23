@@ -4,6 +4,8 @@
 // when SMTP_HOST is not set — emails are logged as preview URLs to the console.
 
 import nodemailer from 'nodemailer';
+import * as fs from 'fs';
+import * as path from 'path';
 import { env } from '../config/env';
 
 let _transporter: nodemailer.Transporter | null = null;
@@ -11,8 +13,6 @@ let _transporter: nodemailer.Transporter | null = null;
 function sanitizeSmtpSecret(value?: string | null): string | undefined {
   const trimmed = value?.trim();
   if (!trimmed) return undefined;
-  // Gmail app passwords are often copied with spaces for readability.
-  // Nodemailer/SMTP auth expects the raw secret string, so strip whitespace.
   return trimmed.replace(/\s+/g, '');
 }
 
@@ -26,14 +26,11 @@ async function getTransporter(): Promise<nodemailer.Transporter> {
       auth: { user: env.SMTP_USER?.trim(), pass: sanitizeSmtpSecret(env.SMTP_PASS) },
     });
   } else if (env.SMTP_USER && env.SMTP_PASS) {
-    // Gmail convenience path: allow a direct Gmail app-password setup without
-    // requiring a separate SMTP_HOST entry.
     _transporter = nodemailer.createTransport({
       service: 'gmail',
       auth: { user: env.SMTP_USER.trim(), pass: sanitizeSmtpSecret(env.SMTP_PASS) },
     });
   } else {
-    // Dev fallback: Ethereal test account (emails viewable at ethereal.email)
     const testAccount = await nodemailer.createTestAccount();
     _transporter = nodemailer.createTransport({
       host: env.SMTP_HOST || 'smtp.ethereal.email',
@@ -66,7 +63,100 @@ export async function sendMail(opts: MailOptions): Promise<void> {
   }
 }
 
-// ─── Template helpers ─────────────────────────────────────────────────────────
+// ─── App URL helpers ───────────────────────────────────────────
+
+function getAppUrls() {
+  const base = env.FRONTEND_URL;
+  return {
+    app: {
+      habitUrl: `${base}/habits`,
+      taskUrl: `${base}/tasks`,
+      projectUrl: `${base}/projects`,
+      preferencesUrl: `${base}/settings`,
+    },
+  };
+}
+
+// ─── Template engine ───────────────────────────────────────────
+
+const TEMPLATE_DIR = path.join(__dirname, '..', 'email-template');
+const templateCache = new Map<string, string>();
+
+function loadTemplate(name: string): string {
+  if (templateCache.has(name)) return templateCache.get(name)!;
+  const filePath = path.join(TEMPLATE_DIR, `${name}.html`);
+  const content = fs.readFileSync(filePath, 'utf-8');
+  templateCache.set(name, content);
+  return content;
+}
+
+function renderTemplate(templateName: string, variables: Record<string, any>): string {
+  let html = loadTemplate(templateName);
+  const appUrls = getAppUrls();
+  const ctx = { ...variables, ...appUrls };
+
+  // Handle {{#if var}}...{{/if}} conditionals
+  html = html.replace(/\{\{#if\s+([\w.]+)\}\}(.*?)\{\{\/if\}\}/gs, (_, key, content) => {
+    const value = resolveNested(ctx, key.trim());
+    if (value && value !== 'false' && value !== '') {
+      return resolveVariables(content, ctx);
+    }
+    return '';
+  });
+
+  html = resolveVariables(html, ctx);
+  return html;
+}
+
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '\x26amp;')
+    .replace(/</g, '\x26lt;')
+    .replace(/>/g, '\x26gt;')
+    .replace(/"/g, '\x26quot;');
+}
+
+function resolveVariables(template: string, ctx: Record<string, any>): string {
+  // Unescaped {{{var}}} for URLs etc.
+  template = template.replace(/\{\{\{([\w.]+)\}\}\}/g, (_, key) => {
+    const value = resolveNested(ctx, key.trim());
+    return value != null ? String(value) : '';
+  });
+  // Escaped {{var}}
+  template = template.replace(/\{\{([\w.]+)\}\}/g, (_, key) => {
+    const value = resolveNested(ctx, key.trim());
+    if (value == null) return '';
+    return escapeHtml(String(value));
+  });
+  return template;
+}
+
+function resolveNested(obj: Record<string, any>, path: string): any {
+  return path.split('.').reduce((acc, part) => (acc != null ? acc[part] : undefined), obj as any);
+}
+
+// ─── Template API ──────────────────────────────────────────────
+
+export function renderHabitReminder(vars: {
+  reminderTitle: string;
+  habit: { title: string; reminderTime: string };
+}): string {
+  return renderTemplate('habit-reminder-playful', vars);
+}
+
+export function renderTaskDue(vars: {
+  task: { title: string; description?: string | null; dueDate: string; priority: string };
+}): string {
+  return renderTemplate('task-due-playful', vars);
+}
+
+export function renderProjectDeadline(vars: {
+  project: { name: string; description?: string | null; dueDate: string };
+}): string {
+  return renderTemplate('project-deadline-playful', vars);
+}
+
+// ─── Legacy helper functions ────────────────────────────────────
 
 export function passwordResetEmail(resetUrl: string): string {
   return `
