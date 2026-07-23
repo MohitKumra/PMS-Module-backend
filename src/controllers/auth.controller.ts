@@ -68,6 +68,13 @@ export async function forgotPassword(req: Request, res: Response, next: NextFunc
   } catch (err) { next(err); }
 }
 
+export async function forgotPasswordByRecoveryEmail(req: Request, res: Response, next: NextFunction) {
+  try {
+    await authService.requestPasswordResetByRecoveryEmail(req.body.recoveryEmail);
+    res.json({ success: true, message: 'If that recovery email exists, a reset link has been sent.' });
+  } catch (err) { next(err); }
+}
+
 export async function resetPassword(req: Request, res: Response, next: NextFunction) {
   try {
     await authService.resetPassword(req.body.token, req.body.password);
@@ -113,7 +120,10 @@ export async function googleCallback(req: Request, res: Response, next: NextFunc
 
     const result = await googleService.handleGoogleAuthCallback(code, state, currentUserId);
     res.cookie(REFRESH_COOKIE, result.refreshToken, COOKIE_OPTS);
-    res.redirect(result.redirectTo);
+    // Pass tokens via URL fragment for mobile browsers where cross-origin cookies may be blocked.
+    // Fragment (#) is used instead of query params (?) because fragments are never sent to servers
+    // (no Referer header leak, no server logs), and we clear it from the URL immediately on the frontend.
+    res.redirect(`${result.redirectTo}#accessToken=${result.accessToken}&refreshToken=${result.refreshToken}`);
   } catch (err) { next(err); }
 }
 

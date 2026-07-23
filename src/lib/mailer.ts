@@ -84,3 +84,24 @@ export function passwordResetEmail(resetUrl: string): string {
     </div>
   `;
 }
+
+export function recoveryByEmailEmail(resetUrl: string, primaryEmail: string): string {
+  return `
+    <div style="font-family:sans-serif;max-width:480px;margin:auto;padding:24px">
+      <h2 style="color:#7c6ef5">Account recovery</h2>
+      <p>You requested to recover your Finamite account.</p>
+      <p style="font-size:14px;color:#555">
+        Your account is registered under: <strong>${primaryEmail}</strong>
+      </p>
+      <p>Click the button below to reset your password. This link expires in 1 hour.</p>
+      <a href="${resetUrl}"
+         style="display:inline-block;margin-top:16px;padding:12px 24px;
+                background:#7c6ef5;color:#fff;border-radius:8px;text-decoration:none">
+        Reset Password
+      </a>
+      <p style="margin-top:24px;color:#888;font-size:13px">
+        If you didn't request this, you can safely ignore this email.
+      </p>
+    </div>
+  `;
+}

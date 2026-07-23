@@ -33,6 +33,7 @@ router.post('/login',          validate({ body: loginSchema }),  ctrl.login);
 router.post('/refresh',        ctrl.refresh);
 router.post('/logout',         ctrl.logout);
 router.post('/forgot-password',validate({ body: forgotSchema }), ctrl.forgotPassword);
+router.post('/forgot-password/recovery', validate({ body: z.object({ recoveryEmail: z.string().email() }) }), ctrl.forgotPasswordByRecoveryEmail);
 router.post('/reset-password', validate({ body: resetSchema }),  ctrl.resetPassword);
 router.get('/me',              authenticate, ctrl.getMe);
 router.get('/google/start',    ctrl.googleStart);

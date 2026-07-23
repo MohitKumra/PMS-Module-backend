@@ -6,7 +6,7 @@ import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { prisma } from '../lib/prismaClient';
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from '../lib/jwt';
-import { sendMail, passwordResetEmail } from '../lib/mailer';
+import { sendMail, passwordResetEmail, recoveryByEmailEmail } from '../lib/mailer';
 import { createError } from '../middleware/errorHandler';
 import { env } from '../config/env';
 import type { AuthResponse, UserDTO } from '../types';
@@ -146,8 +146,9 @@ export async function refreshTokens(
 
 export async function requestPasswordReset(email: string): Promise<void> {
   const user = await prisma.user.findUnique({ where: { email } });
-  // Always return success to prevent user enumeration attacks.
-  if (!user) return;
+  if (!user) {
+    throw createError(404, 'EMAIL_NOT_FOUND', 'No account found with that email address');
+  }
 
   const token = crypto.randomBytes(32).toString('hex');
   await prisma.passwordResetToken.create({
@@ -161,6 +162,31 @@ export async function requestPasswordReset(email: string): Promise<void> {
   const resetUrl = `${env.FRONTEND_URL}/reset-password?token=${token}`;
   const deliveryEmail = (await getRecoveryTargetEmail(user.id)) ?? email;
   await sendMail({ to: deliveryEmail, subject: 'Reset your password', html: passwordResetEmail(resetUrl) });
+}
+
+export async function requestPasswordResetByRecoveryEmail(recoveryEmail: string): Promise<void> {
+  const user = await prisma.user.findFirst({ where: { recoveryEmail } });
+  if (!user) {
+    throw createError(404, 'RECOVERY_EMAIL_NOT_FOUND', 'No account found with that recovery email');
+  }
+
+  const token = crypto.randomBytes(32).toString('hex');
+  await prisma.passwordResetToken.create({
+    data: {
+      userId: user.id,
+      tokenHash: hashResetToken(token),
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+    },
+  });
+
+  const resetUrl = `${env.FRONTEND_URL}/reset-password?token=${token}`;
+  const deliveryEmail = user.recoveryEmail ?? user.email;
+  // Send the reset link to the recovery email and show the user their primary email
+  await sendMail({
+    to: deliveryEmail,
+    subject: 'Recover your Finamite account',
+    html: recoveryByEmailEmail(resetUrl, user.email!),
+  });
 }
 
 export async function resetPassword(token: string, newPassword: string): Promise<void> {
