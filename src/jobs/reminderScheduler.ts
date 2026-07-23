@@ -151,7 +151,13 @@ async function checkHabitReminders() {
       where: {
         reminderTime: { not: null },
       },
-      include: {
+      select: {
+        id: true,
+        userId: true,
+        title: true,
+        targetPerWeek: true,
+        reminderTime: true,
+        createdAt: true,
         user: {
           include: {
             notificationPreferences: true,
