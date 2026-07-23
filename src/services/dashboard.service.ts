@@ -110,7 +110,8 @@ export async function getHabitsToCompleteToday(userId: string): Promise<number> 
 
   const habits = await prisma.habit.findMany({
     where: { userId },
-    include: {
+    select: {
+      id: true,
       completions: {
         where: {
           date: {

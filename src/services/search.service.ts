@@ -36,6 +36,12 @@ export async function search(userId: string, query: string): Promise<SearchResul
         userId,
         title: { contains: lowerQuery, mode: 'insensitive' },
       },
+      select: {
+        id: true,
+        title: true,
+        createdAt: true,
+        targetPerWeek: true,
+      },
       take: 10,
     }),
     prisma.note.findMany({

@@ -22,7 +22,8 @@ export async function getSummary(userId: string): Promise<AnalyticsSummaryDTO> {
   // Get all habits with their completions for streak calculations
   const habits = await prisma.habit.findMany({
     where: { userId },
-    include: {
+    select: {
+      id: true,
       completions: {
         select: { date: true },
       },

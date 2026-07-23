@@ -178,7 +178,20 @@ export async function listHabits(userId: string): Promise<{
 }> {
   const habits = await prisma.habit.findMany({
     where: { userId },
-    include: { completions: { select: { date: true } } },
+    select: {
+      id: true,
+      userId: true,
+      title: true,
+      targetPerWeek: true,
+      reminderTime: true,
+      createdAt: true,
+      completions: { select: { date: true } },
+      reminderMessage: true,
+      durationDays: true,
+      skipDays: true,
+      streakBrokenAt: true,
+      isActive: true,
+    },
     orderBy: { createdAt: 'asc' },
   });
 
@@ -216,7 +229,10 @@ export async function createHabit(userId: string, data: CreateHabitRequest): Pro
 }
 
 export async function updateHabit(userId: string, habitId: string, data: UpdateHabitRequest): Promise<HabitDTO> {
-  const existing = await prisma.habit.findFirst({ where: { id: habitId, userId } });
+  const existing = await prisma.habit.findFirst({ 
+    where: { id: habitId, userId }, 
+    select: { id: true } 
+  });
   if (!existing) throw createError(404, 'HABIT_NOT_FOUND', 'Habit not found');
 
   const updateData: Record<string, any> = {};
@@ -234,13 +250,29 @@ export async function updateHabit(userId: string, habitId: string, data: UpdateH
   const habit = await prisma.habit.update({
     where: { id: habitId },
     data: updateData as any,
-    include: { completions: { select: { date: true } } },
+    select: {
+      id: true,
+      userId: true,
+      title: true,
+      targetPerWeek: true,
+      reminderTime: true,
+      createdAt: true,
+      completions: { select: { date: true } },
+      reminderMessage: true,
+      durationDays: true,
+      skipDays: true,
+      streakBrokenAt: true,
+      isActive: true,
+    },
   });
   return toDTO(habit as any);
 }
 
 export async function deleteHabit(userId: string, habitId: string): Promise<void> {
-  const existing = await prisma.habit.findFirst({ where: { id: habitId, userId } });
+  const existing = await prisma.habit.findFirst({ 
+    where: { id: habitId, userId }, 
+    select: { id: true } 
+  });
   if (!existing) throw createError(404, 'HABIT_NOT_FOUND', 'Habit not found');
   await prisma.habit.delete({ where: { id: habitId } });
 }
@@ -248,7 +280,11 @@ export async function deleteHabit(userId: string, habitId: string): Promise<void
 export async function toggleCompletion(userId: string, habitId: string): Promise<HabitDTO> {
   const habit = await prisma.habit.findFirst({
     where: { id: habitId, userId },
-    include: { completions: { select: { date: true, id: true } } },
+    select: {
+      id: true,
+      skipDays: true,
+      completions: { select: { date: true, id: true } },
+    },
   }) as any;
   if (!habit) throw createError(404, 'HABIT_NOT_FOUND', 'Habit not found');
 
@@ -273,7 +309,11 @@ export async function toggleCompletion(userId: string, habitId: string): Promise
 
   const updated = await prisma.habit.findUnique({
     where: { id: habitId },
-    include: { completions: { select: { date: true } } },
+    select: {
+      id: true,
+      skipDays: true,
+      completions: { select: { date: true } },
+    },
   }) as any;
   if (!updated) throw createError(404, 'HABIT_NOT_FOUND', 'Habit not found');
 
@@ -298,7 +338,20 @@ export async function toggleCompletion(userId: string, habitId: string): Promise
 
   const finalHabit = await prisma.habit.findUnique({
     where: { id: habitId },
-    include: { completions: { select: { date: true } } },
+    select: {
+      id: true,
+      userId: true,
+      title: true,
+      targetPerWeek: true,
+      reminderTime: true,
+      createdAt: true,
+      completions: { select: { date: true } },
+      reminderMessage: true,
+      durationDays: true,
+      skipDays: true,
+      streakBrokenAt: true,
+      isActive: true,
+    },
   }) as any;
   if (!finalHabit) throw createError(404, 'HABIT_NOT_FOUND', 'Habit not found');
 
@@ -315,10 +368,13 @@ export async function getBrokenStreaks(userId: string): Promise<HabitStreakBreak
   const habits = await prisma.habit.findMany({
     where: {
       userId,
-      streakBrokenAt: { gte: yesterday } as any,
-      isActive: true,
     } as any,
-    include: { completions: { select: { date: true } } },
+    select: {
+      id: true,
+      title: true,
+      skipDays: true,
+      completions: { select: { date: true } },
+    },
   }) as any[];
 
   return habits.map((h: any) => ({
@@ -334,7 +390,13 @@ export async function getBrokenStreaks(userId: string): Promise<HabitStreakBreak
 export async function getWeekOverview(userId: string): Promise<WeekOverviewDTO> {
   const habits = await prisma.habit.findMany({
     where: { userId },
-    include: { completions: { select: { date: true } } },
+    select: {
+      id: true,
+      title: true,
+      createdAt: true,
+      skipDays: true,
+      completions: { select: { date: true } },
+    },
     orderBy: { createdAt: 'asc' },
   });
 
