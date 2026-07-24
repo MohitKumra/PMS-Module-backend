@@ -4,6 +4,14 @@ import { getFileById } from '../lib/fileStorage';
 const router = Router();
 
 /**
+ * Strip codecs/parameters from Content-Type (e.g. "audio/webm;codecs=opus" -> "audio/webm")
+ * Some browsers reject audio with codecs params in the Content-Type header.
+ */
+function cleanMimeType(mimeType: string): string {
+  return mimeType.split(';')[0].trim();
+}
+
+/**
  * GET /api/media/file/:id/:filename
  * GET /api/media/file/:id
  * Serves an uploaded file from the database with correct headers.
@@ -17,13 +25,16 @@ async function serveFile(req: any, res: any) {
     const file = await getFileById(id);
 
     if (!file) {
+      console.error('[MediaFile] File not found in DB:', id);
       res.status(404).json({ error: { code: 'FILE_NOT_FOUND', message: 'File not found' } });
       return;
     }
 
     const fileBuffer = file.data;
     const fileSize = fileBuffer.length;
-    const mimeType = file.mimeType;
+    const mimeType = cleanMimeType(file.mimeType);
+
+    console.log(`[MediaFile] Serving file ${id}: ${file.fileName} (${mimeType}, ${fileSize} bytes)`);
 
     // Handle Range requests (for audio seeking)
     const range = req.headers.range;
