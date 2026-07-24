@@ -47,20 +47,32 @@ app.use(cors({
   ]        // allow cookies (refresh token)
 }));
 
-// Middleware to set correct Content-Type for audio files (especially webm/opus)
+// Middleware to set correct Content-Type and media headers for audio files
 app.use('/uploads', (req, res, next) => {
   const filePath = req.path.toLowerCase();
+  
+  // Set correct Content-Type based on extension
+  let contentType: string | undefined;
   if (filePath.endsWith('.webm')) {
-    res.setHeader('Content-Type', 'audio/webm');
-  } else if (filePath.endsWith('.mp4')) {
-    res.setHeader('Content-Type', 'audio/mp4');
+    contentType = 'audio/webm';
+  } else if (filePath.endsWith('.mp4') || filePath.endsWith('.m4a')) {
+    contentType = 'audio/mp4';
   } else if (filePath.endsWith('.ogg')) {
-    res.setHeader('Content-Type', 'audio/ogg');
+    contentType = 'audio/ogg';
   } else if (filePath.endsWith('.mp3')) {
-    res.setHeader('Content-Type', 'audio/mpeg');
+    contentType = 'audio/mpeg';
   } else if (filePath.endsWith('.wav')) {
-    res.setHeader('Content-Type', 'audio/wav');
+    contentType = 'audio/wav';
   }
+  
+  if (contentType) {
+    res.setHeader('Content-Type', contentType);
+    // Critical headers for audio playback
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('Cache-Control', 'public, max-age=31536000');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
+  
   next();
 });
 app.use('/uploads', express.static(path.resolve(process.cwd(), 'uploads')));
