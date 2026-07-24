@@ -1,0 +1,13 @@
+model UploadedFile {
+  id        String   @id @default(cuid())
+  userId    String
+  fileName  String
+  mimeType  String
+  size      Int
+  data      Bytes
+  folder    String   @default("attachments")
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([folder])
+}
