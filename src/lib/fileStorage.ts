@@ -22,9 +22,8 @@ export interface StoredFile {
 }
 
 function sanitizeBase64(input: string): string {
-  return input.replace(/^data:[^;]+;base64,/, '').replace(/\s+/g, '');
+  return input.replace(/^data:[^,]*;base64,/, '').replace(/\s+/g, '');
 }
-
 function safeExt(fileName: string, mimeType: string): string {
   // Audio MP4 should always use .m4a extension — browsers reject .mp4 for audio
   if (mimeType === 'audio/mp4' || mimeType === 'audio/x-m4a') {
