@@ -46,6 +46,23 @@ app.use(cors({
     'OPTIONS'
   ]        // allow cookies (refresh token)
 }));
+
+// Middleware to set correct Content-Type for audio files (especially webm/opus)
+app.use('/uploads', (req, res, next) => {
+  const filePath = req.path.toLowerCase();
+  if (filePath.endsWith('.webm')) {
+    res.setHeader('Content-Type', 'audio/webm');
+  } else if (filePath.endsWith('.mp4')) {
+    res.setHeader('Content-Type', 'audio/mp4');
+  } else if (filePath.endsWith('.ogg')) {
+    res.setHeader('Content-Type', 'audio/ogg');
+  } else if (filePath.endsWith('.mp3')) {
+    res.setHeader('Content-Type', 'audio/mpeg');
+  } else if (filePath.endsWith('.wav')) {
+    res.setHeader('Content-Type', 'audio/wav');
+  }
+  next();
+});
 app.use('/uploads', express.static(path.resolve(process.cwd(), 'uploads')));
 app.use(express.json({ limit: '12mb' }));
 app.use(cookieParser());
