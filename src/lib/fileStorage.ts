@@ -38,7 +38,7 @@ function safeExt(fileName: string, mimeType: string): string {
     case 'audio/ogg':       return '.ogg';
     case 'audio/mpeg':      return '.mp3';
     case 'audio/mp4':
-    case 'audio/x-m4a':     return '.mp4';
+    case 'audio/x-m4a':     return '.m4a';
     case 'application/pdf': return '.pdf';
     default:                return '';
   }
