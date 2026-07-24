@@ -26,6 +26,11 @@ function sanitizeBase64(input: string): string {
 }
 
 function safeExt(fileName: string, mimeType: string): string {
+  // Audio MP4 should always use .m4a extension — browsers reject .mp4 for audio
+  if (mimeType === 'audio/mp4' || mimeType === 'audio/x-m4a') {
+    return '.m4a';
+  }
+
   const ext = fileName.split('.').pop()?.toLowerCase();
   if (ext && ext.length <= 10) return '.' + ext;
 
@@ -37,8 +42,6 @@ function safeExt(fileName: string, mimeType: string): string {
     case 'audio/webm':      return '.webm';
     case 'audio/ogg':       return '.ogg';
     case 'audio/mpeg':      return '.mp3';
-    case 'audio/mp4':
-    case 'audio/x-m4a':     return '.m4a';
     case 'application/pdf': return '.pdf';
     default:                return '';
   }
