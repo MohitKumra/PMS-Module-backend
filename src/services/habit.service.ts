@@ -1,6 +1,6 @@
 import { prisma } from '../lib/prismaClient';
 import { createError } from '../middleware/errorHandler';
-import { awardHabitCompletion } from './gamification.service';
+import { awardHabitCompletion, revokeHabitCompletion } from './gamification.service';
 import type { HabitDTO, CreateHabitRequest, UpdateHabitRequest, WeekOverviewDTO, HabitStreakBreakDTO } from '../types';
 
 function toDateStr(d: Date): string {
@@ -357,6 +357,8 @@ export async function toggleCompletion(userId: string, habitId: string): Promise
 
   if (completionId) {
     await awardHabitCompletion(userId, completionId, habit.title);
+  } else if (wasCompleted && existing) {
+    await revokeHabitCompletion(userId, existing.id, habit.title);
   }
   return toDTO(finalHabit);
 }

@@ -337,51 +337,102 @@ function calcBestStreak(dates: string[]): number {
 async function evaluateAchievements(userId: string, tx: GamificationTx = prisma) {
   const stats = await getStats(userId, tx);
   const unlocked: Awaited<ReturnType<GamificationTx['userAchievement']['create']>>[] = [];
+  const revoked: string[] = [];
+
+  const alreadyUnlocked = await tx.userAchievement.findMany({ where: { userId } });
+  const unlockedMap = new Map(alreadyUnlocked.map((a) => [a.key, a]));
 
   for (const achievement of ACHIEVEMENTS) {
-    if (!achievement.isUnlocked(stats)) continue;
+    const isNowUnlocked = achievement.isUnlocked(stats);
+    const wasUnlocked = unlockedMap.has(achievement.key);
 
-    try {
-      const created = await tx.userAchievement.create({
-        data: {
-          userId,
-          key: achievement.key,
-          title: achievement.title,
-          description: achievement.description,
-          tier: achievement.tier,
-          icon: achievement.icon,
-          pointsAwarded: achievement.pointsAwarded,
-        },
-      });
-      unlocked.push(created);
-
-      if (achievement.pointsAwarded > 0) {
-        await createPointLedger(tx, {
-          userId,
-          points: achievement.pointsAwarded,
-          reason: 'ACHIEVEMENT_UNLOCKED',
-          entityType: 'achievement',
-          entityId: achievement.key,
-          description: `Unlocked ${achievement.title}`,
+    if (isNowUnlocked && !wasUnlocked) {
+      // Newly unlocked — award points
+      try {
+        const created = await tx.userAchievement.create({
+          data: {
+            userId,
+            key: achievement.key,
+            title: achievement.title,
+            description: achievement.description,
+            tier: achievement.tier,
+            icon: achievement.icon,
+            pointsAwarded: achievement.pointsAwarded,
+          },
         });
+        unlocked.push(created);
+
+        if (achievement.pointsAwarded > 0) {
+          await createPointLedger(tx, {
+            userId,
+            points: achievement.pointsAwarded,
+            reason: 'ACHIEVEMENT_UNLOCKED',
+            entityType: 'achievement',
+            entityId: achievement.key,
+            description: `Unlocked ${achievement.title}`,
+          });
+        }
+      } catch (error) {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+          continue;
+        }
+        throw error;
       }
-    } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-        continue;
+    } else if (!isNowUnlocked && wasUnlocked) {
+      // Achievement no longer met — revoke it and deduct points
+      try {
+        await tx.userAchievement.delete({
+          where: { id: unlockedMap.get(achievement.key)!.id },
+        });
+        revoked.push(achievement.key);
+
+        if (achievement.pointsAwarded > 0) {
+          await createPointLedger(tx, {
+            userId,
+            points: -achievement.pointsAwarded,
+            reason: 'ACHIEVEMENT_REVOKED',
+            entityType: 'achievement',
+            entityId: achievement.key,
+            description: `Achievement revoked: ${achievement.title}`,
+          });
+        }
+      } catch (error) {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+          continue; // already deleted
+        }
+        throw error;
       }
-      throw error;
     }
   }
 
-  return unlocked.map(toAchievementDTO);
+  return { unlocked: unlocked.map(toAchievementDTO), revoked };
 }
 
 export async function awardPoints(input: AwardInput, tx: GamificationTx = prisma) {
   const created = await createPointLedger(tx, input);
-  const unlockedAchievements = created ? await evaluateAchievements(input.userId, tx) : [];
+  const result = created ? await evaluateAchievements(input.userId, tx) : { unlocked: [], revoked: [] };
   return {
     pointsAwarded: created?.points ?? 0,
-    unlockedAchievements,
+    unlockedAchievements: result.unlocked,
+    revokedAchievements: result.revoked,
+  };
+}
+
+/**
+ * Deducts XP by creating a negative point ledger entry.
+ * This is the reverse operation for awarding points.
+ * Triggers achievement re-evaluation so revoked achievements are cleaned up too.
+ */
+export async function deductPoints(input: AwardInput, tx: GamificationTx = prisma) {
+  const deduction = await createPointLedger(tx, {
+    ...input,
+    points: -Math.abs(input.points), // ensure negative
+  });
+  const result = deduction ? await evaluateAchievements(input.userId, tx) : { unlocked: [], revoked: [] };
+  return {
+    pointsDeducted: deduction?.points ?? 0,
+    unlockedAchievements: result.unlocked,
+    revokedAchievements: result.revoked,
   };
 }
 
@@ -396,6 +447,28 @@ export async function awardTaskCompletion(userId: string, taskId: string, title:
   });
 }
 
+export async function revokeTaskCompletion(userId: string, taskId: string, title: string) {
+  return deductPoints({
+    userId,
+    points: 25,
+    reason: 'TASK_UNCOMPLETED',
+    entityType: 'task',
+    entityId: taskId,
+    description: `Uncompleted task: ${title}`,
+  });
+}
+
+export async function deleteTaskPoints(userId: string, taskId: string, title: string) {
+  return deductPoints({
+    userId,
+    points: 25,
+    reason: 'TASK_DELETED',
+    entityType: 'task',
+    entityId: taskId,
+    description: `Deleted completed task: ${title}`,
+  });
+}
+
 export async function awardHabitCompletion(userId: string, completionId: string, title: string) {
   return awardPoints({
     userId,
@@ -407,8 +480,19 @@ export async function awardHabitCompletion(userId: string, completionId: string,
   });
 }
 
+export async function revokeHabitCompletion(userId: string, completionId: string, title: string) {
+  return deductPoints({
+    userId,
+    points: 15,
+    reason: 'HABIT_UNCOMPLETED',
+    entityType: 'habitCompletion',
+    entityId: completionId,
+    description: `Uncompleted habit: ${title}`,
+  });
+}
+
 export async function awardFocusSession(userId: string, sessionId: string, minutes: number) {
-  if (minutes <= 0) return { pointsAwarded: 0, unlockedAchievements: [] };
+  if (minutes <= 0) return { pointsAwarded: 0, unlockedAchievements: [], revokedAchievements: [] };
   return awardPoints({
     userId,
     points: Math.max(10, Math.round(minutes)),
@@ -427,6 +511,28 @@ export async function awardProjectCompletion(userId: string, projectId: string, 
     entityType: 'project',
     entityId: projectId,
     description: `Completed project: ${name}`,
+  });
+}
+
+export async function revokeProjectCompletion(userId: string, projectId: string, name: string) {
+  return deductPoints({
+    userId,
+    points: 100,
+    reason: 'PROJECT_UNCOMPLETED',
+    entityType: 'project',
+    entityId: projectId,
+    description: `Uncompleted project: ${name}`,
+  });
+}
+
+export async function deleteProjectPoints(userId: string, projectId: string, name: string) {
+  return deductPoints({
+    userId,
+    points: 100,
+    reason: 'PROJECT_DELETED',
+    entityType: 'project',
+    entityId: projectId,
+    description: `Deleted completed project: ${name}`,
   });
 }
 

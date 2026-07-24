@@ -4,7 +4,7 @@
 import { prisma } from '../lib/prismaClient';
 import { createError } from '../middleware/errorHandler';
 import { deleteStoredFile } from '../lib/fileStorage';
-import { awardProjectCompletion } from './gamification.service';
+import { awardProjectCompletion, revokeProjectCompletion, deleteProjectPoints } from './gamification.service';
 import type {
   ProjectDTO,
   CreateProjectRequest,
@@ -153,6 +153,8 @@ export async function updateProject(
   const completedTaskCount = updated.tasks.filter((pt) => pt.task.status === 'DONE').length;
   if (existing.status !== 'COMPLETED' && updated.status === 'COMPLETED') {
     await awardProjectCompletion(userId, updated.id, updated.name);
+  } else if (existing.status === 'COMPLETED' && updated.status !== 'COMPLETED') {
+    await revokeProjectCompletion(userId, updated.id, updated.name);
   }
 
   return toDTO({ ...updated, completedTaskCount });
@@ -165,6 +167,11 @@ export async function deleteProject(userId: string, projectId: string): Promise<
   });
 
   if (!existing) throw createError(404, 'PROJECT_NOT_FOUND', 'Project not found');
+
+  // If project was completed, deduct the XP before deleting
+  if (existing.status === 'COMPLETED') {
+    await deleteProjectPoints(userId, existing.id, existing.name);
+  }
 
   await prisma.project.delete({ where: { id: projectId } });
   await deleteStoredFile(existing.attachmentUrl);

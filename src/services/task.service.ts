@@ -8,7 +8,7 @@ import { deleteStoredFile } from '../lib/fileStorage';
 import { RRule, RRuleSet, rrulestr } from 'rrule';
 import { updateProjectProgress } from './project.service';
 import { syncGoogleCalendarTasks } from './google.service';
-import { awardTaskCompletion } from './gamification.service';
+import { awardTaskCompletion, revokeTaskCompletion, deleteTaskPoints } from './gamification.service';
 import { toNoteDTO } from './notes.service';
 import type {
   TaskDTO,
@@ -418,6 +418,8 @@ export async function updateTask(userId: string, taskId: string, data: UpdateTas
   }
   if (wasNotDone && isBeingMarkedDone) {
     await awardTaskCompletion(userId, task.id, task.title);
+  } else if (!wasNotDone && existing.status === 'DONE' && data.status && data.status !== 'DONE') {
+    await revokeTaskCompletion(userId, task.id, task.title);
   }
   if (data.title !== undefined && data.title !== existing.title) {
     await createActivity(task.id, userId, 'TITLE_CHANGED', 'Updated task title');
@@ -468,6 +470,12 @@ export async function deleteTask(userId: string, taskId: string): Promise<void> 
   const existing = await prisma.task.findFirst({ where: { id: taskId, userId } });
   if (!existing) throw createError(404, 'TASK_NOT_FOUND', 'Task not found');
   const projectTask = await prisma.projectTask.findUnique({ where: { taskId } });
+  
+  // If task was completed, deduct the XP before deleting
+  if (existing.status === 'DONE') {
+    await deleteTaskPoints(userId, existing.id, existing.title);
+  }
+  
   await prisma.task.delete({ where: { id: taskId } });
   if (projectTask) {
     await updateProjectProgress(projectTask.projectId);
