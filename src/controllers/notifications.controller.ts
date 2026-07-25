@@ -54,7 +54,7 @@ export async function sendTestNotification(req: Request, res: Response, next: Ne
 export async function getActivityFeed(req: Request, res: Response, next: NextFunction) {
   try {
     const page = parseInt(req.query.page as string) || 1;
-    const pageSize = parseInt(req.query.pageSize as string) || 20;
+    const pageSize = parseInt(req.query.pageSize as string) || 15;
     
     // Validate pagination parameters
     if (page < 1) {

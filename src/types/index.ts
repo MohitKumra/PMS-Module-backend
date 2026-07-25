@@ -592,6 +592,8 @@ export interface ActivityFeedResponse {
     pageSize: number;
     hasMore: boolean;
     nextCursor?: string;
+    totalActionable: number;
+    totalActivity: number;
   };
 }
 

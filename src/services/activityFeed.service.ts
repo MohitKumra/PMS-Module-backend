@@ -19,7 +19,7 @@ import type {
 export async function getActivityFeed(
   userId: string,
   page: number = 1,
-  pageSize: number = 20
+  pageSize: number = 15
 ): Promise<ActivityFeedResponse> {
   const offset = (page - 1) * pageSize;
   const now = new Date();
@@ -403,6 +403,12 @@ export async function getActivityFeed(
 
   // Apply pagination
   const total = notifications.length;
+  const totalActionable = notifications.reduce(
+    (acc, n) => (n.isActionable ? acc + 1 : acc),
+    0
+  );
+  const totalActivity = total - totalActionable;
+
   const paginatedData = notifications.slice(offset, offset + pageSize);
   const hasMore = offset + pageSize < total;
   
@@ -419,6 +425,8 @@ export async function getActivityFeed(
       pageSize,
       hasMore,
       nextCursor,
+      totalActionable,
+      totalActivity,
     },
   };
 }
