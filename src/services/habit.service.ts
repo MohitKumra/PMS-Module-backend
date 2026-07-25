@@ -289,6 +289,31 @@ export async function toggleCompletion(userId: string, habitId: string): Promise
   if (!habit) throw createError(404, 'HABIT_NOT_FOUND', 'Habit not found');
 
   const today = utcToday();
+  const todayStr = toDateStr(today);
+  const skipDayIndices = parseSkipDays(habit.skipDays);
+  const todayDow = getDayOfWeek(todayStr);
+
+  // If today is a skip day, return the habit as-is — no toggle allowed
+  if (skipDayIndices.includes(todayDow)) {
+    const current = await prisma.habit.findUnique({
+      where: { id: habitId },
+      select: {
+        id: true,
+        userId: true,
+        title: true,
+        targetPerWeek: true,
+        reminderTime: true,
+        createdAt: true,
+        completions: { select: { date: true } },
+        reminderMessage: true,
+        durationDays: true,
+        skipDays: true,
+        streakBrokenAt: true,
+        isActive: true,
+      },
+    }) as any;
+    return toDTO(current);
+  }
   const existing = await prisma.habitCompletion.findUnique({
     where: { habitId_date: { habitId, date: today } },
   });
