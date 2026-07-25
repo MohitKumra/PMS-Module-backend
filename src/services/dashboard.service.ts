@@ -5,6 +5,7 @@ import { prisma } from '../lib/prismaClient';
 import type { AnalyticsSummaryDTO, EnhancedDashboardDTO } from '../types';
 import { getSummary, getWeeklyProgress, getUpcomingDeadlines } from './analytics.service';
 import { getGamificationProfile } from './gamification.service';
+import { generateInsights } from './insight.service';
 
 /**
  * Get dashboard summary data for a user.
@@ -18,7 +19,7 @@ export async function getDashboardSummary(userId: string): Promise<AnalyticsSumm
  * Get enhanced dashboard data with projects, messages, and weekly progress
  */
 export async function getEnhancedDashboard(userId: string): Promise<EnhancedDashboardDTO> {
-  const [summary, gamification, activeProjects, projectStats, weeklyProgress, upcomingDeadlines] = await Promise.all([
+  const [summary, gamification, activeProjects, projectStats, weeklyProgress, upcomingDeadlines, insights] = await Promise.all([
     getSummary(userId),
     getGamificationProfile(userId),
     // Get active projects (top 6 by recent activity)
@@ -46,6 +47,8 @@ export async function getEnhancedDashboard(userId: string): Promise<EnhancedDash
     getWeeklyProgress(userId, 8), // Last 8 weeks
     // Get upcoming deadlines
     getUpcomingDeadlines(userId, 7), // Next 7 days
+    // Get smart insights
+    generateInsights(userId),
   ]);
 
   // Transform active projects
@@ -86,6 +89,7 @@ export async function getEnhancedDashboard(userId: string): Promise<EnhancedDash
     },
     weeklyProgress,
     upcomingDeadlines,
+    insights,
   };
 }
 
