@@ -5,6 +5,7 @@
 import cron from 'node-cron';
 import { prisma } from '../lib/prismaClient';
 import * as notifService from '../services/notification.service';
+import { synchronizeRecurringTasks } from '../services/task.service';
 import { rrulestr } from 'rrule';
 
 /**
@@ -260,7 +261,8 @@ async function checkHabitReminders() {
 }
 
 /**
- * Calculates the next occurrence date for a recurring task.
+ * Legacy recurrence helper retained only for the unused scheduler generator
+ * below. Runtime recurrence generation now lives in task.service.ts.
  */
 function getNextOccurrence(
   currentDueDate: Date | null,
@@ -382,6 +384,9 @@ async function createNextOccurrences() {
 
 /** Starts the node-cron scheduler to run reminders every minute. */
 export function startScheduler() {
+  synchronizeRecurringTasks().catch((err) => {
+    console.error('Error synchronizing recurring tasks on startup:', err);
+  });
   console.info('🕒  Reminder Scheduler initialized (runs every minute).');
 
   // Cron pattern: run every minute
@@ -389,6 +394,5 @@ export function startScheduler() {
     await checkTaskReminders();
     await checkProjectDeadlines();
     await checkHabitReminders();
-    await createNextOccurrences();
   });
 }

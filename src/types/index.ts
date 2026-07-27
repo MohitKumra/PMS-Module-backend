@@ -271,6 +271,7 @@ export interface HabitDTO {
   weekPattern: boolean[]; // Mon..Sun
   completionDates: string[];
   streakSafeDays: string[];     // dates that were intentionally skipped
+  totalXp: number;              // total XP earned from this habit (15 per completion)
 }
 
 export interface CreateHabitRequest {
@@ -293,6 +294,7 @@ export interface HabitStreakBreakDTO {
   habitId: string;
   title: string;
   previousStreak: number;
+  xpLost: number;
 }
 
 export interface UpdateHabitRequest {

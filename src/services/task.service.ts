@@ -5,7 +5,7 @@
 import { prisma } from '../lib/prismaClient';
 import { createError } from '../middleware/errorHandler';
 import { deleteStoredFile } from '../lib/fileStorage';
-import { RRule, RRuleSet, rrulestr } from 'rrule';
+import { rrulestr } from 'rrule';
 import { updateProjectProgress } from './project.service';
 import { syncGoogleCalendarTasks } from './google.service';
 import { awardTaskCompletion, revokeTaskCompletion, deleteTaskPoints } from './gamification.service';
@@ -35,40 +35,118 @@ function startOfToday(): Date {
   return d;
 }
 
+const ACTIVE_RECURRING_STATUSES = ['TODO', 'IN_PROGRESS'] as const;
+
+function dateKeyInTimeZone(date: Date, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+  const year = parts.find((part) => part.type === 'year')?.value ?? '0000';
+  const month = parts.find((part) => part.type === 'month')?.value ?? '01';
+  const day = parts.find((part) => part.type === 'day')?.value ?? '01';
+  return `${year}-${month}-${day}`;
+}
+
+function isFutureScheduledDate(scheduledDate: Date | null, timeZone: string): boolean {
+  if (!scheduledDate) return false;
+  return dateKeyInTimeZone(scheduledDate, timeZone) > dateKeyInTimeZone(new Date(), timeZone);
+}
+
 /**
- * Calculates the next occurrence date for a recurring task
+ * Calculates the next scheduled date from the completed occurrence's scheduled
+ * date, never from wall-clock time. This keeps recurrence deterministic even
+ * when the user completes a task late.
  */
 function getNextOccurrence(
-  currentDueDate: Date | null,
+  scheduledDate: Date | null,
   recurrenceRule: string | null,
   recurrenceEndDate: Date | null,
   skipDates: string[]
 ): Date | null {
-  if (!currentDueDate || !recurrenceRule) return null;
+  if (!scheduledDate || !recurrenceRule) return null;
 
   try {
-    const rule = rrulestr(recurrenceRule, { dtstart: currentDueDate });
+    const rule = rrulestr(recurrenceRule, { dtstart: scheduledDate });
+    let next = rule.after(scheduledDate, false);
 
-    // Get all occurrences after current due date
-    const occurrences = rule.between(
-      new Date(currentDueDate.getTime() + 1), // Start after current date
-      recurrenceEndDate || new Date(currentDueDate.getTime() + 365 * 24 * 60 * 60 * 1000), // 1 year max if no end
-      true,
-      (date, i) => {
-        // Skip dates in skipDates array (YYYY-MM-DD)
-        const dateStr = date.toISOString().split('T')[0];
-        return !skipDates.includes(dateStr);
-      }
-    );
-
-    if (occurrences.length > 0) {
-      return occurrences[0];
+    while (next) {
+      if (recurrenceEndDate && next > recurrenceEndDate) return null;
+      const dateStr = next.toISOString().split('T')[0];
+      if (!skipDates.includes(dateStr)) return next;
+      next = rule.after(next, false);
     }
+
     return null;
   } catch (e) {
     console.error('Error calculating next occurrence:', e);
     return null;
   }
+}
+
+async function createNextRecurringOccurrence(
+  tx: any,
+  task: any,
+  rootId: string,
+): Promise<void> {
+  const existingActiveOccurrence = await tx.task.findFirst({
+    where: {
+      userId: task.userId,
+      OR: [{ id: rootId }, { parentTaskId: rootId }],
+      status: { in: [...ACTIVE_RECURRING_STATUSES] },
+    },
+  });
+  if (existingActiveOccurrence) return;
+
+  const nextDate = getNextOccurrence(
+    task.dueDate,
+    task.recurrenceRule,
+    task.recurrenceEndDate,
+    task.skipDates || [],
+  );
+  if (!nextDate) return;
+
+  const existingSameDate = await tx.task.findFirst({
+    where: {
+      userId: task.userId,
+      parentTaskId: rootId,
+      dueDate: nextDate,
+    },
+  });
+  if (existingSameDate) return;
+
+  await tx.task.create({
+    data: {
+      userId: task.userId,
+      title: task.title,
+      description: task.description,
+      priority: task.priority,
+      status: 'TODO',
+      dueDate: nextDate,
+      recurrenceRule: task.recurrenceRule,
+      recurrenceEndDate: task.recurrenceEndDate,
+      skipDates: task.skipDates || [],
+      parentTaskId: rootId,
+      attachmentUrl: task.attachmentUrl,
+      voiceNoteUrl: task.voiceNoteUrl,
+      estimatedDuration: task.estimatedDuration,
+      subTasks: task.subTasks?.length > 0 ? {
+        create: task.subTasks.map((st: any) => ({
+          title: st.title,
+          order: st.order,
+          completed: false,
+        })),
+      } : undefined,
+      projectTasks: task.projectTasks ? {
+        create: {
+          projectId: task.projectTasks.projectId,
+          order: task.projectTasks.order,
+        },
+      } : undefined,
+    },
+  });
 }
 
 /** Converts Prisma Task row to TaskDTO. */
@@ -308,13 +386,25 @@ export async function createTask(userId: string, data: CreateTaskRequest): Promi
 }
 
 export async function updateTask(userId: string, taskId: string, data: UpdateTaskRequest): Promise<TaskDTO> {
-  const existing = await prisma.task.findFirst({ where: { id: taskId, userId } });
+  const existing = await prisma.task.findFirst({
+    where: { id: taskId, userId },
+    include: {
+      user: { select: { timezone: true } },
+      subTasks: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] },
+      projectTasks: true,
+    },
+  });
   if (!existing) throw createError(404, 'TASK_NOT_FOUND', 'Task not found');
   const previousAttachmentUrl = existing.attachmentUrl;
   const previousVoiceNoteUrl = existing.voiceNoteUrl;
 
   const wasNotDone = existing.status !== 'DONE';
   const isBeingMarkedDone = data.status === 'DONE';
+  const isRecurringCompletion = wasNotDone && isBeingMarkedDone && !!existing.recurrenceRule;
+
+  if (isRecurringCompletion && isFutureScheduledDate(existing.dueDate, existing.user.timezone || 'UTC')) {
+    throw createError(400, 'RECURRING_OCCURRENCE_NOT_DUE', 'Future recurring tasks cannot be completed before their scheduled date');
+  }
 
   let nextInProgressAt: Date | null | undefined = undefined;
   let nextCompletedAt: Date | null | undefined = undefined;
@@ -389,7 +479,7 @@ export async function updateTask(userId: string, taskId: string, data: UpdateTas
       }
     }
 
-    return tx.task.update({
+    const updatedTask = await tx.task.update({
       where: { id: taskId },
       data: {
         ...(data.title !== undefined && { title: data.title }),
@@ -411,6 +501,12 @@ export async function updateTask(userId: string, taskId: string, data: UpdateTas
         projectTasks: { include: { project: true } },
       },
     });
+
+    if (isRecurringCompletion) {
+      await createNextRecurringOccurrence(tx, updatedTask, existing.parentTaskId ?? existing.id);
+    }
+
+    return updatedTask;
   });
 
   if (data.status !== undefined && data.status !== existing.status) {
@@ -483,6 +579,59 @@ export async function deleteTask(userId: string, taskId: string): Promise<void> 
 
   // Fire-and-forget: sync to Google Calendar if connected
   triggerCalendarSync(userId);
+}
+
+export async function synchronizeRecurringTasks(userId?: string): Promise<void> {
+  const recurringRoots = await prisma.task.findMany({
+    where: {
+      ...(userId ? { userId } : {}),
+      recurrenceRule: { not: null },
+      parentTaskId: null,
+    },
+    include: {
+      subTasks: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] },
+      projectTasks: true,
+    },
+  });
+
+  for (const root of recurringRoots) {
+    try {
+      await prisma.$transaction(async (tx) => {
+        const rootId = root.id;
+        const activeOccurrence = await tx.task.findFirst({
+          where: {
+            userId: root.userId,
+            OR: [{ id: rootId }, { parentTaskId: rootId }],
+            status: { in: [...ACTIVE_RECURRING_STATUSES] },
+          },
+        });
+        if (activeOccurrence) return;
+
+        const latestOccurrence = await tx.task.findFirst({
+          where: {
+            userId: root.userId,
+            OR: [{ id: rootId }, { parentTaskId: rootId }],
+            dueDate: { not: null },
+          },
+          orderBy: [{ dueDate: 'desc' }, { createdAt: 'desc' }],
+        });
+        if (!latestOccurrence?.dueDate) return;
+
+        await createNextRecurringOccurrence(
+          tx,
+          {
+            ...root,
+            dueDate: latestOccurrence.dueDate,
+          },
+          rootId,
+        );
+      });
+    } catch (err: any) {
+      if (err?.code !== 'P2002') {
+        console.error(`[Recurrence] Failed to synchronize recurring task ${root.id}:`, err);
+      }
+    }
+  }
 }
 
 // Subtask CRUD

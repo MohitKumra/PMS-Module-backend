@@ -1,6 +1,6 @@
 import { prisma } from '../lib/prismaClient';
 import { createError } from '../middleware/errorHandler';
-import { awardHabitCompletion, revokeHabitCompletion } from './gamification.service';
+import { awardHabitCompletion, revokeHabitCompletion, deductPoints } from './gamification.service';
 import type { HabitDTO, CreateHabitRequest, UpdateHabitRequest, WeekOverviewDTO, HabitStreakBreakDTO } from '../types';
 
 function toDateStr(d: Date): string {
@@ -170,6 +170,7 @@ async function toDTO(h: HabitRow & {
     weekPattern: calcWeekPattern(dateSet, safeDaysSet),
     completionDates: dateStrings,
     streakSafeDays: Array.from(safeDaysSet),
+    totalXp: dateStrings.length * 15, // 15 XP per completion
   };
 }
 
@@ -271,9 +272,23 @@ export async function updateHabit(userId: string, habitId: string, data: UpdateH
 export async function deleteHabit(userId: string, habitId: string): Promise<void> {
   const existing = await prisma.habit.findFirst({ 
     where: { id: habitId, userId }, 
-    select: { id: true } 
-  });
+    select: { id: true, title: true, completions: { select: { id: true } } } 
+  }) as any;
   if (!existing) throw createError(404, 'HABIT_NOT_FOUND', 'Habit not found');
+
+  // Deduct all XP earned from this habit before deleting
+  const completionCount = existing.completions?.length ?? 0;
+  if (completionCount > 0) {
+    await deductPoints({
+      userId,
+      points: completionCount * 15,
+      reason: 'HABIT_DELETED',
+      entityType: 'habit',
+      entityId: habitId,
+      description: `Deleted habit: ${existing.title} (${completionCount} completions)`,
+    });
+  }
+
   await prisma.habit.delete({ where: { id: habitId } });
 }
 
@@ -351,6 +366,15 @@ export async function toggleCompletion(userId: string, habitId: string): Promise
       where: { id: habitId },
       data: { streakBrokenAt: today } as any,
     });
+    // Deduct XP for the broken streak (15 per day lost)
+    await deductPoints({
+      userId,
+      points: oldStreak * 15,
+      reason: 'STREAK_BROKEN',
+      entityType: 'habit',
+      entityId: habitId,
+      description: `Streak broken for habit: ${habit.title} (lost ${oldStreak}-day streak)`,
+    });
   }
 
   const durationDays = habit.durationDays;
@@ -404,14 +428,18 @@ export async function getBrokenStreaks(userId: string): Promise<HabitStreakBreak
     },
   }) as any[];
 
-  return habits.map((h: any) => ({
-    habitId: h.id,
-    title: h.title,
-    previousStreak: calcStreak(
+  return habits.map((h: any) => {
+    const previousStreak = calcStreak(
       h.completions.map((c: any) => toDateStr(c.date)),
       parseSkipDays(h.skipDays)
-    ),
-  }));
+    );
+    return {
+      habitId: h.id,
+      title: h.title,
+      previousStreak,
+      xpLost: previousStreak * 15,
+    };
+  });
 }
 
 export async function getWeekOverview(userId: string): Promise<WeekOverviewDTO> {
