@@ -13,6 +13,7 @@ model Project {
   attachmentUrl String?
   voiceNoteUrl  String?
   notes         Note[]
+  media         ProjectMedia[]
   user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   tasks         ProjectTask[]
 

@@ -81,3 +81,18 @@ export async function createTimeEntry(req: Request, res: Response, next: NextFun
     res.status(201).json(entry);
   } catch (err) { next(err); }
 }
+
+export async function addMedia(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { url, type, fileName, mimeType, size } = req.body;
+    await taskService.addTaskMedia(req.user!.sub, req.params.taskId as string, url, type, fileName, mimeType, size);
+    res.status(201).json({ message: 'Media added' });
+  } catch (err) { next(err); }
+}
+
+export async function removeMedia(req: Request, res: Response, next: NextFunction) {
+  try {
+    await taskService.removeTaskMedia(req.user!.sub, req.params.taskId as string, req.params.mediaId as string);
+    res.status(204).send();
+  } catch (err) { next(err); }
+}

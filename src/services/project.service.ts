@@ -21,6 +21,7 @@ function normalizeMediaUrl(value: string | null | undefined): string | null {
 
 /** Convert Prisma Project to ProjectDTO */
 function toDTO(project: any): ProjectDTO {
+  const mediaItems = project.media ?? [];
   return {
     id: project.id,
     name: project.name,
@@ -32,6 +33,28 @@ function toDTO(project: any): ProjectDTO {
     dueDate: project.dueDate?.toISOString() ?? null,
     attachmentUrl: project.attachmentUrl ?? null,
     voiceNoteUrl: project.voiceNoteUrl ?? null,
+    attachments: mediaItems
+      .filter((m: any) => m.type === 'attachment')
+      .map((m: any) => ({
+        id: m.id,
+        url: m.url,
+        type: m.type as 'attachment',
+        fileName: m.fileName,
+        mimeType: m.mimeType,
+        size: m.size,
+        createdAt: m.createdAt.toISOString(),
+      })),
+    voiceNotes: mediaItems
+      .filter((m: any) => m.type === 'voice_note')
+      .map((m: any) => ({
+        id: m.id,
+        url: m.url,
+        type: m.type as 'voice_note',
+        fileName: m.fileName,
+        mimeType: m.mimeType,
+        size: m.size,
+        createdAt: m.createdAt.toISOString(),
+      })),
     progress: project.progress ?? 0,
     createdAt: project.createdAt.toISOString(),
     updatedAt: project.updatedAt.toISOString(),
@@ -49,12 +72,13 @@ export async function listProjects(userId: string): Promise<ListResponse<Project
       tasks: {
         include: { task: true },
       },
+      media: true,
     },
     orderBy: { updatedAt: 'desc' },
   });
 
-  const projectsWithCounts = projects.map((p) => {
-    const completedTaskCount = p.tasks.filter((pt) => pt.task.status === 'DONE').length;
+  const projectsWithCounts = projects.map((p: any) => {
+    const completedTaskCount = p.tasks.filter((pt: any) => pt.task.status === 'DONE').length;
     return { ...p, completedTaskCount };
   });
 
@@ -73,12 +97,13 @@ export async function getProject(userId: string, projectId: string): Promise<Pro
       tasks: {
         include: { task: true },
       },
+      media: true,
     },
   });
 
   if (!project) throw createError(404, 'PROJECT_NOT_FOUND', 'Project not found');
 
-  const completedTaskCount = project.tasks.filter((pt) => pt.task.status === 'DONE').length;
+  const completedTaskCount = (project as any).tasks.filter((pt: any) => pt.task.status === 'DONE').length;
 
   return toDTO({ ...project, completedTaskCount });
 }
@@ -173,6 +198,12 @@ export async function deleteProject(userId: string, projectId: string): Promise<
     await deleteProjectPoints(userId, existing.id, existing.name);
   }
 
+  // Clean up stored files for all associated media records
+  const mediaItems = await prisma.projectMedia.findMany({ where: { projectId } });
+  for (const media of mediaItems) {
+    await deleteStoredFile(media.url);
+  }
+
   await prisma.project.delete({ where: { id: projectId } });
   await deleteStoredFile(existing.attachmentUrl);
   await deleteStoredFile(existing.voiceNoteUrl);
@@ -251,6 +282,71 @@ export async function getProjectTasks(userId: string, projectId: string) {
     order: pt.order,
     projectTaskId: pt.id,
   }));
+}
+
+/** Add a media item to a project */
+export async function addProjectMedia(
+  userId: string,
+  projectId: string,
+  url: string,
+  type: 'attachment' | 'voice_note',
+  fileName?: string,
+  mimeType?: string,
+  size?: number,
+): Promise<void> {
+  const project = await prisma.project.findFirst({
+    where: { id: projectId, userId },
+  });
+  if (!project) throw createError(404, 'PROJECT_NOT_FOUND', 'Project not found');
+
+  await prisma.projectMedia.create({
+    data: {
+      projectId,
+      url,
+      type,
+      fileName: fileName ?? null,
+      mimeType: mimeType ?? null,
+      size: size ?? null,
+    },
+  });
+}
+
+/** Remove a media item from a project */
+export async function removeProjectMedia(
+  userId: string,
+  projectId: string,
+  mediaId: string,
+): Promise<void> {
+  const project = await prisma.project.findFirst({
+    where: { id: projectId, userId },
+  });
+  if (!project) throw createError(404, 'PROJECT_NOT_FOUND', 'Project not found');
+
+  // Handle legacy sentinel IDs for attachmentUrl / voiceNoteUrl
+  if (mediaId === 'legacy-attachment') {
+    await deleteStoredFile(project.attachmentUrl);
+    await prisma.project.update({
+      where: { id: projectId },
+      data: { attachmentUrl: null },
+    });
+    return;
+  }
+  if (mediaId === 'legacy-voice') {
+    await deleteStoredFile(project.voiceNoteUrl);
+    await prisma.project.update({
+      where: { id: projectId },
+      data: { voiceNoteUrl: null },
+    });
+    return;
+  }
+
+  const media = await prisma.projectMedia.findFirst({
+    where: { id: mediaId, projectId },
+  });
+  if (!media) throw createError(404, 'MEDIA_NOT_FOUND', 'Media item not found');
+
+  await prisma.projectMedia.delete({ where: { id: mediaId } });
+  await deleteStoredFile(media.url);
 }
 
 /** Auto-calculate and update project progress based on task completion */

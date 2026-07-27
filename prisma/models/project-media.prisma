@@ -1,0 +1,14 @@
+model ProjectMedia {
+  id        String   @id @default(cuid())
+  projectId String
+  url       String
+  type      String   // "attachment" | "voice_note"
+  fileName  String?
+  mimeType  String?
+  size      Int?
+  createdAt DateTime @default(now())
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([projectId, type])
+}

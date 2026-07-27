@@ -3,6 +3,7 @@ import { Router } from 'express';
 import { authenticate } from '../middleware/authenticate';
 import * as projectService from '../services/project.service';
 import type { CreateProjectRequest, UpdateProjectRequest, AssignTaskToProjectRequest } from '../types';
+import { deleteStoredFile } from '../lib/fileStorage';
 
 const router = Router();
 
@@ -94,6 +95,29 @@ router.delete('/:id/tasks/:taskId', async (req, res, next) => {
   try {
     const userId = req.user!.sub;
     await projectService.removeTaskFromProject(userId, req.params.id, req.params.taskId);
+    res.status(204).send();
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /api/projects/:id/media — Add a media item to a project
+router.post('/:id/media', async (req, res, next) => {
+  try {
+    const userId = req.user!.sub;
+    const { url, type, fileName, mimeType, size } = req.body;
+    await projectService.addProjectMedia(userId, req.params.id, url, type, fileName, mimeType, size);
+    res.status(201).json({ message: 'Media added' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// DELETE /api/projects/:id/media/:mediaId — Remove a media item
+router.delete('/:id/media/:mediaId', async (req, res, next) => {
+  try {
+    const userId = req.user!.sub;
+    await projectService.removeProjectMedia(userId, req.params.id, req.params.mediaId);
     res.status(204).send();
   } catch (error) {
     next(error);

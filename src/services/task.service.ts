@@ -295,6 +295,7 @@ export async function getTask(userId: string, taskId: string): Promise<TaskDetai
       projectTasks: { include: { project: true } },
       activity: { orderBy: { createdAt: 'desc' } },
       timeEntries: { orderBy: { createdAt: 'desc' } },
+      media: true,
     }
   });
   if (!task) throw createError(404, 'TASK_NOT_FOUND', 'Task not found');
@@ -302,6 +303,7 @@ export async function getTask(userId: string, taskId: string): Promise<TaskDetai
     where: { userId, taskId },
     orderBy: { updatedAt: 'desc' },
   });
+  const mediaItems = task.media ?? [];
   return {
     ...toDTO(task),
     activity: task.activity.map((item) => ({
@@ -313,7 +315,29 @@ export async function getTask(userId: string, taskId: string): Promise<TaskDetai
       createdAt: item.createdAt.toISOString(),
     })),
     timeEntries: task.timeEntries.map(timeEntryToDTO),
-      linkedNotes: linkedNotes.map(toNoteDTO),
+    linkedNotes: linkedNotes.map(toNoteDTO),
+    attachments: mediaItems
+      .filter((m: any) => m.type === 'attachment')
+      .map((m: any) => ({
+        id: m.id,
+        url: m.url,
+        type: m.type as 'attachment',
+        fileName: m.fileName,
+        mimeType: m.mimeType,
+        size: m.size,
+        createdAt: m.createdAt.toISOString(),
+      })),
+    voiceNotes: mediaItems
+      .filter((m: any) => m.type === 'voice_note')
+      .map((m: any) => ({
+        id: m.id,
+        url: m.url,
+        type: m.type as 'voice_note',
+        fileName: m.fileName,
+        mimeType: m.mimeType,
+        size: m.size,
+        createdAt: m.createdAt.toISOString(),
+      })),
   };
 }
 
@@ -705,4 +729,47 @@ export async function createTaskTimeEntry(userId: string, taskId: string, data: 
   });
   await createActivity(taskId, userId, 'TIME_LOGGED', `Logged ${data.minutes} minutes`);
   return timeEntryToDTO(entry);
+}
+
+/** Add a media item to a task */
+export async function addTaskMedia(
+  userId: string,
+  taskId: string,
+  url: string,
+  type: 'attachment' | 'voice_note',
+  fileName?: string,
+  mimeType?: string,
+  size?: number,
+): Promise<void> {
+  const task = await prisma.task.findFirst({ where: { id: taskId, userId } });
+  if (!task) throw createError(404, 'TASK_NOT_FOUND', 'Task not found');
+
+  await prisma.taskMedia.create({
+    data: {
+      taskId,
+      url,
+      type,
+      fileName: fileName ?? null,
+      mimeType: mimeType ?? null,
+      size: size ?? null,
+    },
+  });
+}
+
+/** Remove a media item from a task */
+export async function removeTaskMedia(
+  userId: string,
+  taskId: string,
+  mediaId: string,
+): Promise<void> {
+  const task = await prisma.task.findFirst({ where: { id: taskId, userId } });
+  if (!task) throw createError(404, 'TASK_NOT_FOUND', 'Task not found');
+
+  const media = await prisma.taskMedia.findFirst({
+    where: { id: mediaId, taskId },
+  });
+  if (!media) throw createError(404, 'MEDIA_NOT_FOUND', 'Media item not found');
+
+  await prisma.taskMedia.delete({ where: { id: mediaId } });
+  await deleteStoredFile(media.url);
 }

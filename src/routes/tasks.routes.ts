@@ -80,4 +80,8 @@ router.delete('/:taskId/subtasks/:subTaskId', validate({ params: subTaskIdParams
 // Time entry routes
 router.post('/:taskId/time-entries', validate({ params: taskIdParams, body: createTimeEntrySchema }), ctrl.createTimeEntry);
 
+// Media routes
+router.post('/:taskId/media', validate({ params: taskIdParams }), ctrl.addMedia);
+router.delete('/:taskId/media/:mediaId', ctrl.removeMedia);
+
 export default router;

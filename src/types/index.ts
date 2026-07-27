@@ -246,6 +246,8 @@ export interface TaskDetailDTO extends TaskDTO {
   activity: TaskActivityDTO[];
   timeEntries: TaskTimeEntryDTO[];
   linkedNotes: NoteDTO[];
+  attachments: MediaItemDTO[];
+  voiceNotes: MediaItemDTO[];
 }
 
 // ─── Habits ──────────────────────────────────────────────────────────────────
@@ -599,6 +601,18 @@ export interface ActivityFeedResponse {
   };
 }
 
+// ─── Project Media (multiple attachments / voice notes) ──────────────────────
+
+export interface MediaItemDTO {
+  id: string;
+  url: string;
+  type: 'attachment' | 'voice_note';
+  fileName: string | null;
+  mimeType: string | null;
+  size: number | null;
+  createdAt: string;
+}
+
 // ─── Projects (Individual) ────────────────────────────────────────────────────
 
 export type ProjectStatus = 'PLANNING' | 'ACTIVE' | 'ON_HOLD' | 'COMPLETED' | 'CANCELLED';
@@ -614,6 +628,8 @@ export interface ProjectDTO {
   dueDate: string | null;
   attachmentUrl: string | null;
   voiceNoteUrl: string | null;
+  attachments: MediaItemDTO[];
+  voiceNotes: MediaItemDTO[];
   progress: number; // 0-100
   createdAt: string;
   updatedAt: string;

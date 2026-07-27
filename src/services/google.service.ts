@@ -649,7 +649,7 @@ export async function syncGoogleCalendarTasks(userId: string): Promise<GoogleCal
       userId,
       'Google Calendar synced',
       `Synced ${created + updated + deleted} calendar item${created + updated + deleted === 1 ? '' : 's'}.`,
-      ['BROWSER_PUSH', 'EMAIL'],
+      ['BROWSER_PUSH'],
     );
   }
 

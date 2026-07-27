@@ -65,6 +65,8 @@ export async function getEnhancedDashboard(userId: string): Promise<EnhancedDash
       dueDate: p.dueDate?.toISOString() ?? null,
       attachmentUrl: p.attachmentUrl ?? null,
       voiceNoteUrl: p.voiceNoteUrl ?? null,
+      attachments: [],
+      voiceNotes: [],
       progress: p.progress,
       createdAt: p.createdAt.toISOString(),
       updatedAt: p.updatedAt.toISOString(),

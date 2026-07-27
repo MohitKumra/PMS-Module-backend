@@ -20,6 +20,7 @@ model Task {
   notes             Note[]
   projectTasks      ProjectTask?
   subTasks          SubTask[]
+  media             TaskMedia[]
   user              User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   activity          TaskActivity[]
   timeEntries       TaskTimeEntry[]
