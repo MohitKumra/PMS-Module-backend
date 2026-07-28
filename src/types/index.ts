@@ -485,6 +485,9 @@ export interface AnalyticsSummaryDTO {
   habitsTotal: number;
   focusMinutesTotal: number;
   focusSessionsTotal: number;
+  overdueTasks: number;
+  cancelledFocusSessions: number;
+  missedHabitsToday: number;
   longestHabitStreak: number;
   currentHabitStreak: number; // Current active streak (not broken)
   productivityScore: number; // 0-100 productivity score
@@ -492,9 +495,12 @@ export interface AnalyticsSummaryDTO {
 
 export interface DailyAnalyticsDTO {
   date: string; // "YYYY-MM-DD"
+  tasksCreated: number;
   tasksCompleted: number;
+  tasksOverdue: number;
   focusMinutes: number;
   habitsCompleted: number;
+  productivityScore: number;
 }
 
 // ─── Gamification ─────────────────────────────────────────────────────────
@@ -672,11 +678,16 @@ export interface ProjectAnalyticsDTO {
   projectName: string;
   status: ProjectStatus;
   progress: number;
+  expectedProgress: number;
+  progressDelta: number;
+  health: 'AHEAD' | 'ON_TRACK' | 'BEHIND';
   totalTasks: number;
   completedTasks: number;
   overdueTasks: number;
   focusMinutes: number;
   daysRemaining: number | null;
+  expectedFinish: string | null;
+  actualFinish: string | null;
   weeklyProgress: Array<{
     week: string;
     tasksCompleted: number;

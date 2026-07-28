@@ -32,6 +32,14 @@ function parseSkipDays(raw: string | null | undefined): number[] {
   try { return JSON.parse(raw); } catch { return []; }
 }
 
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+function formatIsoDate(date: Date | null | undefined): string | null {
+  return date ? date.toISOString() : null;
+}
+
 /** Helper to parse optional YYYY-MM-DD strings into UTC Date bounds. */
 function parseRange(startDateStr?: string, endDateStr?: string) {
   let start: Date | undefined;
@@ -83,6 +91,12 @@ export async function getSummary(userId: string, startDateStr?: string, endDateS
     } : {}),
   };
 
+  const overdueTaskWhere = {
+    userId,
+    status: { not: 'DONE' as const },
+    dueDate: { lt: utcToday() },
+  };
+
   const taskTotalWhere = {
     userId,
     ...(dateFilter ? {
@@ -106,12 +120,38 @@ export async function getSummary(userId: string, startDateStr?: string, endDateS
     } : {}),
   };
 
-  const [tasksTotalInRange, tasksCompleted, allSessions, notes, totalTasksAllTime] = await Promise.all([
+  const [tasksTotalInRange, tasksCompleted, overdueTasks, allSessions, notes, totalTasksAllTime, cancelledSessions] = await Promise.all([
     prisma.task.count({ where: taskTotalWhere }),
     prisma.task.count({ where: taskCompletedWhere }),
+    prisma.task.count({ where: overdueTaskWhere }),
     prisma.focusSession.findMany({ where: focusWhere }),
     prisma.note.findMany({ where: { userId } }),
-    prisma.task.count({ where: { userId } }),
+    // Count tasks that are relevant: completed OR (not done AND due today/overdue)
+    // Excludes tasks due in the future (tomorrow or later) from the denominator
+    prisma.task.count({
+      where: {
+        userId,
+        OR: [
+          { status: 'DONE' },
+          {
+            status: { not: 'DONE' },
+            dueDate: { lte: utcToday() },
+          },
+        ],
+      },
+    }),
+    prisma.focusSession.count({
+      where: {
+        userId,
+        status: 'CANCELLED',
+        ...(dateFilter ? {
+          OR: [
+            { startedAt: dateFilter },
+            { completedAt: dateFilter },
+          ],
+        } : {}),
+      },
+    }),
   ]);
 
   const tasksTotal = dateFilter ? (tasksTotalInRange > 0 ? tasksTotalInRange : tasksCompleted) : totalTasksAllTime;
@@ -187,14 +227,22 @@ export async function getSummary(userId: string, startDateStr?: string, endDateS
   const journalDaysCount = last7Days.filter(d => journalDates.includes(d)).length;
   const journalScore = (journalDaysCount / 7) * 100;
   const streakScore = Math.min((currentHabitStreak / 14) * 100, 100);
+  const overduePenalty = clamp(overdueTasks * 10, 0, 100);
+  const missedHabitsToday = Math.max(habits.length - habitsCompletedCount, 0);
+  const missedHabitsPenalty = habits.length > 0 ? Math.round((missedHabitsToday / habits.length) * 100) : 0;
+  const interruptionPenalty = allSessions.length > 0 ? Math.round((cancelledSessions / (allSessions.length + cancelledSessions)) * 100) : 0;
 
   score = Math.round(
     taskCompletionScore * weights.taskCompletion +
     habitCompletionScore * weights.habitCompletion +
     focusScore * weights.focusTime +
-    journalScore * weights.journalConsistency +
-    streakScore * weights.streak
+    streakScore * weights.streak -
+    overduePenalty * 0.1 -
+    missedHabitsPenalty * 0.05 -
+    interruptionPenalty * 0.05
   );
+
+  score = clamp(score, 0, 100);
 
   return {
     tasksCompleted,
@@ -204,6 +252,9 @@ export async function getSummary(userId: string, startDateStr?: string, endDateS
     habitsTotal: habits.length,
     focusMinutesTotal,
     focusSessionsTotal: sessions.length,
+    overdueTasks,
+    cancelledFocusSessions: cancelledSessions,
+    missedHabitsToday,
     longestHabitStreak,
     currentHabitStreak,
     productivityScore: score,
@@ -228,7 +279,19 @@ export async function getDailyBreakdown(userId: string, days = 30, startDateStr?
 
   const dateFilter = { gte: start, lte: end };
 
-  const [tasks, completions, allFocusSessions] = await Promise.all([
+  const [createdTasks, completedTasks, completions, allFocusSessions] = await Promise.all([
+    prisma.task.findMany({
+      where: {
+        userId,
+        OR: [
+          { createdAt: dateFilter },
+          { dueDate: dateFilter },
+          { completedAt: dateFilter },
+          { updatedAt: dateFilter },
+        ],
+      },
+      select: { createdAt: true, updatedAt: true, completedAt: true, dueDate: true, status: true },
+    }),
     prisma.task.findMany({
       where: {
         userId,
@@ -262,11 +325,27 @@ export async function getDailyBreakdown(userId: string, days = 30, startDateStr?
   const curr = new Date(start);
   while (curr <= end) {
     const key = toDateStr(curr);
-    bucket.set(key, { date: key, tasksCompleted: 0, focusMinutes: 0, habitsCompleted: 0 });
+    bucket.set(key, {
+      date: key,
+      tasksCreated: 0,
+      tasksCompleted: 0,
+      tasksOverdue: 0,
+      focusMinutes: 0,
+      habitsCompleted: 0,
+      productivityScore: 0,
+    });
     curr.setUTCDate(curr.getUTCDate() + 1);
   }
 
-  tasks.forEach((t: any) => {
+  createdTasks.forEach((t: any) => {
+    const d = t.createdAt ?? t.updatedAt;
+    const key = toDateStr(d);
+    if (bucket.has(key)) bucket.get(key)!.tasksCreated++;
+    if (t.status !== 'DONE' && t.dueDate && bucket.has(toDateStr(t.dueDate))) {
+      bucket.get(toDateStr(t.dueDate))!.tasksOverdue++;
+    }
+  });
+  completedTasks.forEach((t: any) => {
     const d = t.completedAt ?? t.updatedAt;
     const key = toDateStr(d);
     if (bucket.has(key)) bucket.get(key)!.tasksCompleted++;
@@ -280,9 +359,17 @@ export async function getDailyBreakdown(userId: string, days = 30, startDateStr?
     .forEach((s: any) => {
       const d = s.completedAt ?? s.startedAt;
       const key = toDateStr(d);
-      const mins = (s.elapsedMin && s.elapsedMin > 0) ? s.elapsedMin : s.durationMin;
-      if (bucket.has(key)) bucket.get(key)!.focusMinutes += mins;
-    });
+        const mins = (s.elapsedMin && s.elapsedMin > 0) ? s.elapsedMin : s.durationMin;
+        if (bucket.has(key)) bucket.get(key)!.focusMinutes += mins;
+      });
+
+  for (const day of bucket.values()) {
+    const taskScore = day.tasksCreated > 0 ? (day.tasksCompleted / day.tasksCreated) * 45 : 0;
+    const habitScore = Math.min(day.habitsCompleted * 8, 20);
+    const focusScore = Math.min((day.focusMinutes / 240) * 25, 25);
+    const penalty = Math.min(day.tasksOverdue * 4, 15);
+    day.productivityScore = clamp(Math.round(taskScore + habitScore + focusScore - penalty), 0, 100);
+  }
 
   return Array.from(bucket.values()).sort((a, b) => a.date.localeCompare(b.date));
 }
@@ -328,25 +415,35 @@ export async function getProjectAnalytics(userId: string, startDateStr?: string,
     }
   }
 
-  return projects.map((project) => {
-    const totalTasks = project.tasks.length;
-    const completedTasks = project.tasks.filter((pt) => {
-      if (pt.task.status !== 'DONE') return false;
-      const d = pt.task.completedAt ?? pt.task.updatedAt;
+    return projects.map((project) => {
+      const totalTasks = project.tasks.length;
+      const completedTasks = project.tasks.filter((pt) => {
+        if (pt.task.status !== 'DONE') return false;
+        const d = pt.task.completedAt ?? pt.task.updatedAt;
       if (start && d < start) return false;
       if (end && d > end) return false;
       return true;
     }).length;
 
-    const overdueTasks = project.tasks.filter(
-      (pt) => pt.task.dueDate && new Date(pt.task.dueDate) < today && pt.task.status !== 'DONE'
-    ).length;
-    const focusMinutes = focusMinutesByProject.get(project.id) ?? 0;
+      const overdueTasks = project.tasks.filter(
+        (pt) => pt.task.dueDate && new Date(pt.task.dueDate) < today && pt.task.status !== 'DONE'
+      ).length;
+      const focusMinutes = focusMinutesByProject.get(project.id) ?? 0;
+      const progress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : project.progress;
 
-    let daysRemaining: number | null = null;
-    if (project.dueDate) {
-      const dueDate = new Date(project.dueDate);
-      daysRemaining = Math.ceil((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+      let expectedProgress = project.progress;
+      if (project.startDate && project.dueDate) {
+        const totalDuration = Math.max(project.dueDate.getTime() - project.startDate.getTime(), 1);
+        const elapsed = clamp((today.getTime() - project.startDate.getTime()) / totalDuration, 0, 1);
+        expectedProgress = Math.round(elapsed * 100);
+      }
+      const progressDelta = progress - expectedProgress;
+      const health = progressDelta >= 10 ? 'AHEAD' : progressDelta <= -10 ? 'BEHIND' : 'ON_TRACK';
+
+      let daysRemaining: number | null = null;
+      if (project.dueDate) {
+        const dueDate = new Date(project.dueDate);
+        daysRemaining = Math.ceil((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
     }
 
     const fourWeeksAgo = new Date(today);
@@ -373,20 +470,25 @@ export async function getProjectAnalytics(userId: string, startDateStr?: string,
       .map(([week, tasksCompleted]) => ({ week, tasksCompleted }))
       .sort((a, b) => a.week.localeCompare(b.week));
 
-    return {
-      projectId: project.id,
-      projectName: project.name,
-      status: project.status,
-      progress: totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : project.progress,
-      totalTasks,
-      completedTasks,
-      overdueTasks,
-      focusMinutes,
-      daysRemaining,
-      weeklyProgress,
-    };
-  });
-}
+      return {
+        projectId: project.id,
+        projectName: project.name,
+        status: project.status,
+        progress,
+        expectedProgress,
+        progressDelta,
+        health,
+        totalTasks,
+        completedTasks,
+        overdueTasks,
+        focusMinutes,
+        daysRemaining,
+        expectedFinish: formatIsoDate(project.dueDate),
+        actualFinish: project.status === 'COMPLETED' ? formatIsoDate(project.updatedAt) : null,
+        weeklyProgress,
+      };
+    });
+  }
 
 /** Get weekly progress trend for specified range or N weeks */
 export async function getWeeklyProgress(userId: string, weeks = 12, startDateStr?: string, endDateStr?: string) {
@@ -532,6 +634,273 @@ export async function getUpcomingDeadlines(userId: string, days = 7) {
   ];
 
   return deadlines.sort((a, b) => a.daysUntilDue - b.daysUntilDue);
+}
+
+// ─── PHASE 2: New Endpoints ──────────────────────────────────────────────────
+
+/** Focus Analytics: session metrics, averages, breakdowns */
+export async function getFocusAnalytics(userId: string, startDateStr?: string, endDateStr?: string) {
+  const { start, end } = parseRange(startDateStr, endDateStr);
+  const dateFilter = (start || end) ? {
+    ...(start ? { gte: start } : {}),
+    ...(end ? { lte: end } : {}),
+  } : undefined;
+
+  const sessions = await prisma.focusSession.findMany({
+    where: {
+      userId,
+      ...(dateFilter ? {
+        OR: [
+          { startedAt: dateFilter },
+          { completedAt: dateFilter },
+        ],
+      } : {}),
+    },
+    select: {
+      id: true,
+      startedAt: true,
+      completedAt: true,
+      durationMin: true,
+      elapsedMin: true,
+      isBreak: true,
+      status: true,
+    },
+    orderBy: { startedAt: 'asc' },
+  });
+
+  const completedSessions = sessions.filter(s => s.status === 'COMPLETED' && !s.isBreak);
+  const cancelledSessions = sessions.filter(s => s.status === 'CANCELLED');
+  const breakSessions = sessions.filter(s => s.isBreak);
+
+  const durations = completedSessions.map(s => s.elapsedMin && s.elapsedMin > 0 ? s.elapsedMin : s.durationMin);
+  const totalFocus = durations.reduce((a, b) => a + b, 0);
+  const avgSession = durations.length > 0 ? Math.round(totalFocus / durations.length) : 0;
+  const longestSession = durations.length > 0 ? Math.max(...durations) : 0;
+  const shortestSession = durations.length > 0 ? Math.min(...durations) : 0;
+  const breakMinutes = breakSessions.reduce((a, s) => a + (s.elapsedMin && s.elapsedMin > 0 ? s.elapsedMin : s.durationMin), 0);
+
+  return {
+    totalFocusMinutes: totalFocus,
+    totalSessions: completedSessions.length,
+    averageSessionMinutes: avgSession,
+    longestSessionMinutes: longestSession,
+    shortestSessionMinutes: shortestSession,
+    interruptions: cancelledSessions.length,
+    cancelledSessions: cancelledSessions.length,
+    breakMinutes,
+  };
+}
+
+/** Task lifecycle analytics */
+export async function getTaskAnalytics(userId: string, startDateStr?: string, endDateStr?: string) {
+  const { start, end } = parseRange(startDateStr, endDateStr);
+  const dateFilter = (start || end) ? {
+    ...(start ? { gte: start } : {}),
+    ...(end ? { lte: end } : {}),
+  } : undefined;
+
+  const [allTasks, reschedules] = await Promise.all([
+    prisma.task.findMany({
+      where: {
+        userId,
+        ...(dateFilter ? {
+          OR: [
+            { createdAt: dateFilter },
+            { completedAt: dateFilter },
+            { updatedAt: dateFilter },
+          ],
+        } : {}),
+      },
+      select: {
+        id: true,
+        status: true,
+        createdAt: true,
+        completedAt: true,
+        updatedAt: true,
+        dueDate: true,
+      },
+    }),
+    prisma.taskActivity.count({
+      where: {
+        userId,
+        type: 'DUE_DATE_CHANGED',
+        ...(dateFilter ? { createdAt: dateFilter } : {}),
+      },
+    }),
+  ]);
+
+  const completed = allTasks.filter(t => t.status === 'DONE');
+  const cancelled = allTasks.filter(t => t.status === 'CANCELLED');
+  const overdue = allTasks.filter(t => t.status !== 'DONE' && t.dueDate && t.dueDate < utcToday());
+
+  // Completion times
+  const completionTimes = completed
+    .map(t => t.completedAt && t.createdAt ? (t.completedAt.getTime() - t.createdAt.getTime()) / (1000 * 60) : null)
+    .filter((t): t is number => t !== null && t > 0);
+
+  const avgCompletionMinutes = completionTimes.length > 0 ? Math.round(completionTimes.reduce((a, b) => a + b, 0) / completionTimes.length) : 0;
+  const fastestTaskMinutes = completionTimes.length > 0 ? Math.min(...completionTimes) : 0;
+  const longestTaskMinutes = completionTimes.length > 0 ? Math.max(...completionTimes) : 0;
+  const totalDays = dateFilter && start && end ? Math.max(daysBetween(toDateStr(start), toDateStr(end)) + 1, 1) : 30;
+
+  return {
+    totalCreated: allTasks.length,
+    totalCompleted: completed.length,
+    totalOverdue: overdue.length,
+    totalCancelled: cancelled.length,
+    totalRescheduled: reschedules,
+    completionRate: allTasks.length > 0 ? Math.round((completed.length / allTasks.length) * 100) : 0,
+    averageCompletionMinutes: avgCompletionMinutes,
+    fastestTaskMinutes: Math.round(fastestTaskMinutes),
+    longestTaskMinutes: Math.round(longestTaskMinutes),
+    completionVelocityPerDay: Math.round((completed.length / totalDays) * 10) / 10,
+  };
+}
+
+/** Habit analytics: per-habit completion rates */
+export async function getHabitAnalytics(userId: string, startDateStr?: string, endDateStr?: string) {
+  const { start, end } = parseRange(startDateStr, endDateStr);
+  const dateFilter = (start || end) ? {
+    ...(start ? { gte: start } : {}),
+    ...(end ? { lte: end } : {}),
+  } : undefined;
+
+  const habits = await prisma.habit.findMany({
+    where: { userId, isActive: true },
+    include: {
+      completions: {
+        ...(dateFilter ? { where: { date: dateFilter } } : {}),
+        select: { date: true },
+      },
+    },
+  });
+
+  const totalDays = start && end ? daysBetween(toDateStr(start), toDateStr(end)) + 1 : 30;
+  const expectedForHabit = (targetPerWeek: number) => (targetPerWeek >= 7 ? totalDays : Math.ceil((totalDays / 7) * targetPerWeek));
+
+  const habitData = habits.map((h) => {
+    const totalExpected = expectedForHabit(h.targetPerWeek);
+    const completionRate = totalExpected > 0 ? Math.round((h.completions.length / totalExpected) * 100) : 0;
+    const skippedDays = Math.max(totalExpected - h.completions.length, 0);
+    return {
+      id: h.id,
+      title: h.title,
+      completionCount: h.completions.length,
+      totalExpected,
+      skippedDays,
+      completionRate,
+    };
+  });
+
+  const overallCompletion = habitData.length > 0
+    ? Math.round(habitData.reduce((a, h) => a + h.completionRate, 0) / habitData.length)
+    : 0;
+
+  const weakest = [...habitData].sort((a, b) => a.completionRate - b.completionRate)[0] || null;
+  const strongest = [...habitData].sort((a, b) => b.completionRate - a.completionRate)[0] || null;
+  const totalSkippedDays = habitData.reduce((sum, h) => sum + h.skippedDays, 0);
+
+  return {
+    habits: habitData,
+    overallCompletion,
+    totalSkippedDays,
+    weakestHabit: weakest ? { id: weakest.id, title: weakest.title, rate: weakest.completionRate } : null,
+    strongestHabit: strongest ? { id: strongest.id, title: strongest.title, rate: strongest.completionRate } : null,
+    mostSuccessfulHabit: strongest ? { id: strongest.id, title: strongest.title, rate: strongest.completionRate } : null,
+  };
+}
+
+/** Weekly consistency: per-day-of-week aggregation */
+export async function getConsistency(userId: string, startDateStr?: string, endDateStr?: string) {
+  const { start, end } = parseRange(startDateStr, endDateStr);
+  const effectiveEnd = end ?? (() => { const d = utcToday(); d.setUTCHours(23, 59, 59, 999); return d; })();
+  const effectiveStart = start ?? (() => { const d = new Date(effectiveEnd); d.setUTCDate(d.getUTCDate() - 29); return d; })();
+
+  const daily = await getDailyBreakdown(userId, 30, toDateStr(effectiveStart), toDateStr(effectiveEnd));
+  
+  const dayBuckets: Record<number, { tasks: number; habits: number; focus: number; count: number }> = {};
+  for (let i = 0; i < 7; i++) dayBuckets[i] = { tasks: 0, habits: 0, focus: 0, count: 0 };
+
+  for (const d of daily) {
+    const dayOfWeek = getDayOfWeek(d.date);
+    dayBuckets[dayOfWeek].tasks += d.tasksCompleted;
+    dayBuckets[dayOfWeek].habits += d.habitsCompleted;
+    dayBuckets[dayOfWeek].focus += d.focusMinutes;
+    dayBuckets[dayOfWeek].count++;
+  }
+
+  const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const days = Object.entries(dayBuckets).map(([key, val]) => ({
+    day: dayNames[parseInt(key)],
+    tasksPerDay: val.count > 0 ? Math.round((val.tasks / val.count) * 10) / 10 : 0,
+    habitsPerDay: val.count > 0 ? Math.round((val.habits / val.count) * 10) / 10 : 0,
+    focusPerDay: val.count > 0 ? Math.round(val.focus / val.count) : 0,
+    score: val.count > 0 ? Math.min(Math.round(((val.tasks + val.habits) / Math.max(val.count, 1)) * 10), 10) : 0,
+  }));
+
+  const overallScore = days.length > 0
+    ? Math.round(days.reduce((a, d) => a + (d.score / 10) * 100, 0) / days.length)
+    : 0;
+
+  return { days, overallScore };
+}
+
+/** Time of day analysis */
+export async function getTimeOfDay(userId: string, startDateStr?: string, endDateStr?: string) {
+  const { start, end } = parseRange(startDateStr, endDateStr);
+  const dateFilter = (start || end) ? {
+    ...(start ? { gte: start } : {}),
+    ...(end ? { lte: end } : {}),
+  } : undefined;
+
+  const tasks = await prisma.task.findMany({
+    where: {
+      userId,
+      status: 'DONE',
+      ...(dateFilter ? { completedAt: dateFilter } : {}),
+    },
+    select: { completedAt: true },
+  });
+
+  const focusSessions = await prisma.focusSession.findMany({
+    where: {
+      userId,
+      status: 'COMPLETED',
+      isBreak: false,
+      ...(dateFilter ? { startedAt: dateFilter } : {}),
+    },
+    select: { startedAt: true, durationMin: true, elapsedMin: true },
+  });
+
+  const slots = ['morning', 'afternoon', 'evening', 'night'];
+  const slotRanges = [{ start: 5, end: 12 }, { start: 12, end: 17 }, { start: 17, end: 21 }, { start: 21, end: 5 }];
+  
+  const timeSlots = slots.map((name, i) => {
+    const { start: s, end: e } = slotRanges[i];
+    const slotTasks = tasks.filter(t => {
+      if (!t.completedAt) return false;
+      const h = t.completedAt.getUTCHours();
+      if (e > s) return h >= s && h < e;
+      return h >= s || h < e;
+    });
+      const slotFocus = focusSessions.filter(fs => {
+        const h = fs.startedAt.getUTCHours();
+        if (e > s) return h >= s && h < e;
+        return h >= s || h < e;
+      });
+      const focusMinutes = slotFocus.reduce((a, f) => a + (f.elapsedMin && f.elapsedMin > 0 ? f.elapsedMin : f.durationMin), 0);
+      const averageSessionMinutes = slotFocus.length > 0 ? Math.round(focusMinutes / slotFocus.length) : 0;
+
+      return {
+        slot: name,
+        tasksCompleted: slotTasks.length,
+        focusMinutes,
+        completionRate: tasks.length > 0 ? Math.round((slotTasks.length / tasks.length) * 100) : 0,
+        averageSessionMinutes,
+      };
+    });
+
+  return { timeSlots };
 }
 
 // ─── Helper Functions ──────────────────────────────────────────────────────────

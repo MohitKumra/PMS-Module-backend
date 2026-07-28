@@ -42,3 +42,45 @@ export async function upcomingDeadlines(req: Request, res: Response, next: NextF
     res.json(await analyticsService.getUpcomingDeadlines(req.user!.sub, days));
   } catch (err) { next(err); }
 }
+
+// ─── PHASE 2 Endpoints ───────────────────────────────────────────────────────
+
+export async function focusAnalytics(req: Request, res: Response, next: NextFunction) {
+  try {
+    const startDate = req.query.startDate as string | undefined;
+    const endDate = req.query.endDate as string | undefined;
+    res.json(await analyticsService.getFocusAnalytics(req.user!.sub, startDate, endDate));
+  } catch (err) { next(err); }
+}
+
+export async function taskAnalytics(req: Request, res: Response, next: NextFunction) {
+  try {
+    const startDate = req.query.startDate as string | undefined;
+    const endDate = req.query.endDate as string | undefined;
+    res.json(await analyticsService.getTaskAnalytics(req.user!.sub, startDate, endDate));
+  } catch (err) { next(err); }
+}
+
+export async function habitAnalytics(req: Request, res: Response, next: NextFunction) {
+  try {
+    const startDate = req.query.startDate as string | undefined;
+    const endDate = req.query.endDate as string | undefined;
+    res.json(await analyticsService.getHabitAnalytics(req.user!.sub, startDate, endDate));
+  } catch (err) { next(err); }
+}
+
+export async function consistency(req: Request, res: Response, next: NextFunction) {
+  try {
+    const startDate = req.query.startDate as string | undefined;
+    const endDate = req.query.endDate as string | undefined;
+    res.json(await analyticsService.getConsistency(req.user!.sub, startDate, endDate));
+  } catch (err) { next(err); }
+}
+
+export async function timeOfDay(req: Request, res: Response, next: NextFunction) {
+  try {
+    const startDate = req.query.startDate as string | undefined;
+    const endDate = req.query.endDate as string | undefined;
+    res.json(await analyticsService.getTimeOfDay(req.user!.sub, startDate, endDate));
+  } catch (err) { next(err); }
+}

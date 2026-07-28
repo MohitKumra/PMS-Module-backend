@@ -459,6 +459,9 @@ export async function updateTask(userId: string, taskId: string, data: UpdateTas
     nextDueDate = (data.dueDate && data.dueDate !== '') ? new Date(data.dueDate) : null;
   }
   const effectiveDueDate = nextDueDate !== undefined ? nextDueDate : existing.dueDate;
+  const dueDateChanged = data.dueDate !== undefined && (
+    (existing.dueDate?.toISOString() ?? null) !== (nextDueDate?.toISOString() ?? null)
+  );
   if (nextRecurrenceRule && !effectiveDueDate) {
     nextDueDate = startOfToday();
   }
@@ -545,12 +548,15 @@ export async function updateTask(userId: string, taskId: string, data: UpdateTas
   } else if (!wasNotDone && existing.status === 'DONE' && data.status && data.status !== 'DONE') {
     await revokeTaskCompletion(userId, task.id, task.title);
   }
-  if (data.title !== undefined && data.title !== existing.title) {
-    await createActivity(task.id, userId, 'TITLE_CHANGED', 'Updated task title');
-  }
-  if (data.description !== undefined) {
-    await createActivity(task.id, userId, 'DESCRIPTION_CHANGED', 'Updated task details');
-  }
+    if (data.title !== undefined && data.title !== existing.title) {
+      await createActivity(task.id, userId, 'TITLE_CHANGED', 'Updated task title');
+    }
+    if (dueDateChanged) {
+      await createActivity(task.id, userId, 'DUE_DATE_CHANGED', 'Rescheduled task');
+    }
+    if (data.description !== undefined) {
+      await createActivity(task.id, userId, 'DESCRIPTION_CHANGED', 'Updated task details');
+    }
   if (data.attachmentUrl !== undefined && data.attachmentUrl !== previousAttachmentUrl) {
     await deleteStoredFile(previousAttachmentUrl);
   }
