@@ -322,17 +322,15 @@ async function createNextOccurrences() {
     for (const task of recentDoneTasks) {
       const rootId = task.parentTaskId ?? task.id;
 
-      // Check if a future occurrence already exists
-      const existingOccurrence = await prisma.task.findFirst({
+      // Check if an active occurrence (TODO or IN_PROGRESS) already exists in this chain
+      const activeOccurrence = await prisma.task.findFirst({
         where: {
-          parentTaskId: rootId,
-          status: 'TODO',
-          recurrenceRule: { not: null },
-          id: { not: task.id },
+          userId: task.userId,
+          OR: [{ id: rootId }, { parentTaskId: rootId }],
+          status: { in: ['TODO', 'IN_PROGRESS'] },
         },
       });
-
-      if (existingOccurrence) continue; // Already has a future occurrence
+      if (activeOccurrence) continue;
 
       const nextDate = getNextOccurrence(
         task.dueDate,
@@ -340,8 +338,17 @@ async function createNextOccurrences() {
         task.recurrenceEndDate,
         task.skipDates
       );
-
       if (!nextDate) continue;
+
+      // Check if an occurrence for this exact date already exists in the chain
+      const existingSameDate = await prisma.task.findFirst({
+        where: {
+          userId: task.userId,
+          OR: [{ id: rootId }, { parentTaskId: rootId }],
+          dueDate: nextDate,
+        },
+      });
+      if (existingSameDate) continue;
 
       try {
         await prisma.task.create({

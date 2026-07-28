@@ -7,7 +7,7 @@ import { createError } from '../middleware/errorHandler';
 import { deleteStoredFile } from '../lib/fileStorage';
 import { rrulestr } from 'rrule';
 import { updateProjectProgress } from './project.service';
-import { syncGoogleCalendarTasks } from './google.service';
+import { syncGoogleCalendarTasks, deleteGoogleCalendarEvents } from './google.service';
 import { awardTaskCompletion, revokeTaskCompletion, deleteTaskPoints } from './gamification.service';
 import { toNoteDTO } from './notes.service';
 import type {
@@ -111,7 +111,7 @@ async function createNextRecurringOccurrence(
   const existingSameDate = await tx.task.findFirst({
     where: {
       userId: task.userId,
-      parentTaskId: rootId,
+      OR: [{ id: rootId }, { parentTaskId: rootId }],
       dueDate: nextDate,
     },
   });
@@ -202,9 +202,13 @@ async function triggerCalendarSync(userId: string): Promise<void> {
     
     await syncGoogleCalendarTasks(userId);
     console.log(`[Google Calendar] Successfully synced tasks for user ${userId}`);
-  } catch (error) {
-    // Log the error but don't block task operations
-    console.error(`[Google Calendar] Sync failed for user ${userId}:`, error);
+  } catch (error: any) {
+    // Log cleanly if re-authentication is required
+    if (error?.code === 'GOOGLE_CALENDAR_REAUTH_REQUIRED') {
+      console.warn(`[Google Calendar] Sync skipped for user ${userId}: Google re-authentication required.`);
+    } else {
+      console.error(`[Google Calendar] Sync failed for user ${userId}:`, error?.message || error);
+    }
   }
 }
 
@@ -554,24 +558,32 @@ export async function updateTask(userId: string, taskId: string, data: UpdateTas
     await deleteStoredFile(previousVoiceNoteUrl);
   }
 
-  // If task is being unmarked (DONE → TODO), delete ALL spawned occurrences
-  // regardless of their status (TODO or DONE) — unchecking the parent means
-  // the whole chain beyond this point should be rolled back.
-  if (!wasNotDone && existing.status === 'DONE' && data.status === 'TODO' && existing.recurrenceRule) {
+  // If task is being unmarked (DONE → non-DONE/TODO), delete spawned occurrences
+  // scheduled AFTER this task's due date (or created after if no due date).
+  // This rolls back the recurring chain from this point forward without
+  // affecting past completed occurrences prior to this date.
+  if (!wasNotDone && existing.status === 'DONE' && data.status !== undefined && data.status !== 'DONE' && existing.recurrenceRule) {
     const rootId = existing.parentTaskId ?? taskId;
     const spawnedOccurrences = await prisma.task.findMany({
       where: {
         parentTaskId: rootId,
         recurrenceRule: { not: null },
         id: { not: taskId },
+        ...(existing.dueDate
+          ? { dueDate: { gt: existing.dueDate } }
+          : { createdAt: { gt: existing.createdAt } }),
       },
     });
+    const deletedTaskIds = spawnedOccurrences.map((occ) => occ.id);
     for (const occ of spawnedOccurrences) {
       await prisma.subTask.deleteMany({ where: { taskId: occ.id } });
       await prisma.task.delete({ where: { id: occ.id } });
     }
-    if (spawnedOccurrences.length > 0) {
-      console.log(`Deleted ${spawnedOccurrences.length} spawned occurrence(s) for unmarked task ${taskId}`);
+    // Delete the Google Calendar events and their sync items for removed tasks
+    if (deletedTaskIds.length > 0) {
+      // Fire-and-forget: delete from Google Calendar
+      deleteGoogleCalendarEvents(userId, deletedTaskIds).catch(() => {});
+      console.log(`Deleted ${spawnedOccurrences.length} spawned occurrence(s) after ${existing.dueDate?.toISOString() ?? existing.createdAt.toISOString()} for unmarked task ${taskId}`);
     }
   }
 
@@ -597,6 +609,12 @@ export async function deleteTask(userId: string, taskId: string): Promise<void> 
   }
   
   await prisma.task.delete({ where: { id: taskId } });
+
+  // Clean up the Google Calendar sync item for this task
+  await prisma.googleCalendarSyncItem.deleteMany({
+    where: { userId, localType: 'TASK', localId: taskId },
+  });
+
   if (projectTask) {
     await updateProjectProgress(projectTask.projectId);
   }

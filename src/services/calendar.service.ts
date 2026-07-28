@@ -103,8 +103,37 @@ export async function getCalendarOverview(
     }),
   ]);
 
+  // Filter out and clean up duplicate TODO tasks on dates where a task was already completed
+  const doneTaskKeys = new Set<string>();
+  for (const t of tasks) {
+    if (t.status === 'DONE' && t.dueDate) {
+      const rootId = t.parentTaskId ?? t.id;
+      const dateKey = t.dueDate.toISOString().split('T')[0];
+      doneTaskKeys.add(`${rootId}_${dateKey}`);
+    }
+  }
+
+  const toDeleteIds: string[] = [];
+  const filteredTasks = tasks.filter((t) => {
+    if (t.status !== 'DONE' && t.dueDate) {
+      const rootId = t.parentTaskId ?? t.id;
+      const dateKey = t.dueDate.toISOString().split('T')[0];
+      if (doneTaskKeys.has(`${rootId}_${dateKey}`)) {
+        toDeleteIds.push(t.id);
+        return false;
+      }
+    }
+    return true;
+  });
+
+  if (toDeleteIds.length > 0) {
+    prisma.task.deleteMany({ where: { id: { in: toDeleteIds } } }).catch((err) => {
+      console.error('[CalendarService] Error cleaning up duplicate tasks:', err);
+    });
+  }
+
   const events = [
-    ...tasks.map(mapTaskEvent),
+    ...filteredTasks.map(mapTaskEvent),
     ...sessions.map(mapFocusEvent),
   ].sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
 

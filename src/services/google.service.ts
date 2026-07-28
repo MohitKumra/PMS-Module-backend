@@ -319,8 +319,12 @@ async function getValidAccessToken(
   
   const refreshToken = decryptSecret(connection.refreshToken);
   if (!refreshToken) {
-    console.error(`[Google Calendar] Refresh token missing for user ${connection.userId}`);
-    throw createError(400, 'GOOGLE_REFRESH_TOKEN_MISSING', 'Google refresh token is missing');
+    console.warn(`[Google Calendar] Refresh token missing for user ${connection.userId}. Deactivating connection.`);
+    await prisma.googleCalendarConnection.update({
+      where: { userId: connection.userId },
+      data: { isActive: false, revokedAt: new Date(), accessToken: null },
+    }).catch(() => {});
+    throw createError(401, 'GOOGLE_CALENDAR_REAUTH_REQUIRED', 'Google Calendar refresh token missing. Please reconnect in Settings.');
   }
 
   try {
@@ -332,12 +336,37 @@ async function getValidAccessToken(
       where: { userId: connection.userId },
       data: {
         accessToken: encryptSecret(refreshed.access_token),
+        ...(refreshed.refresh_token ? { refreshToken: encryptSecret(refreshed.refresh_token) } : {}),
         expiresAt: new Date(Date.now() + (refreshed.expires_in ?? 3600) * 1000),
       },
     });
 
     return refreshed.access_token;
-  } catch (error) {
+  } catch (error: any) {
+    const errorMsg = String(error?.message || '');
+    const isInvalidGrant =
+      errorMsg.includes('invalid_grant') ||
+      errorMsg.includes('expired or revoked') ||
+      error?.code === 'GOOGLE_REFRESH_FAILED';
+
+    if (isInvalidGrant) {
+      console.warn(`[Google Calendar] Refresh token for user ${connection.userId} is expired or revoked. Deactivating connection.`);
+      await prisma.googleCalendarConnection.update({
+        where: { userId: connection.userId },
+        data: {
+          isActive: false,
+          revokedAt: new Date(),
+          accessToken: null,
+        },
+      }).catch((dbErr) => console.error(`[Google Calendar] Failed to update connection state:`, dbErr));
+
+      throw createError(
+        401,
+        'GOOGLE_CALENDAR_REAUTH_REQUIRED',
+        'Your Google Calendar authorization has expired or been revoked. Please reconnect Google Calendar in Settings.'
+      );
+    }
+
     console.error(`[Google Calendar] Failed to refresh access token:`, error);
     throw error;
   }
@@ -553,12 +582,8 @@ export async function syncGoogleCalendarTasks(userId: string): Promise<GoogleCal
 
       if (result.status !== 404) {
         console.error(`[Google Calendar] Failed to update event for task "${task.title}":`, result.json);
-        const errorDetails = result.json?.error?.message || JSON.stringify(result.json);
-        throw createError(
-          400, 
-          'GOOGLE_CALENDAR_UPDATE_FAILED', 
-          `Failed to update Google Calendar event: ${errorDetails} (Status: ${result.status})`
-        );
+        skipped += 1;
+        continue;
       }
       
       console.log(`[Google Calendar] Event not found (404), will create new event for task "${task.title}"`);
@@ -576,12 +601,8 @@ export async function syncGoogleCalendarTasks(userId: string): Promise<GoogleCal
 
     if (!result.ok || !result.json?.id) {
       console.error(`[Google Calendar] Failed to create event for task "${task.title}":`, result.json);
-      const errorDetails = result.json?.error?.message || JSON.stringify(result.json);
-      throw createError(
-        400, 
-        'GOOGLE_CALENDAR_CREATE_FAILED', 
-        `Failed to create Google Calendar event: ${errorDetails} (Status: ${result.status})`
-      );
+      skipped += 1;
+      continue;
     }
 
     console.log(`[Google Calendar] Created event for task "${task.title}" with ID: ${result.json.id}`);
@@ -654,6 +675,46 @@ export async function syncGoogleCalendarTasks(userId: string): Promise<GoogleCal
   }
 
   return { synced: created + updated + deleted, created, updated, deleted, skipped };
+}
+
+/**
+ * Deletes Google Calendar events for the given task IDs.
+ * Called when recurring task occurrences are removed (e.g., on uncheck).
+ */
+export async function deleteGoogleCalendarEvents(userId: string, taskIds: string[]): Promise<void> {
+  if (taskIds.length === 0) return;
+
+  try {
+    const connection = await prisma.googleCalendarConnection.findUnique({ where: { userId } });
+    if (!connection || !connection.isActive) return;
+
+    const accessToken = await getValidAccessToken(connection);
+    const targetCalendarId = connection.calendarId || 'primary';
+
+    const syncItems = await prisma.googleCalendarSyncItem.findMany({
+      where: { userId, localType: 'TASK', localId: { in: taskIds } },
+    });
+
+    for (const item of syncItems) {
+      const result = await callGoogleCalendarApi(
+        'DELETE',
+        `/calendars/${encodeURIComponent(item.calendarId || targetCalendarId)}/events/${encodeURIComponent(item.googleEventId)}`,
+        accessToken,
+      );
+      if (result.ok || result.status === 404) {
+        await prisma.googleCalendarSyncItem.delete({ where: { id: item.id } });
+        console.log(`[Google Calendar] Deleted event for removed task ${item.localId}`);
+      } else {
+        console.error(`[Google Calendar] Failed to delete event for task ${item.localId}:`, result.json);
+      }
+    }
+  } catch (error: any) {
+    if (error?.code === 'GOOGLE_CALENDAR_REAUTH_REQUIRED') {
+      console.warn(`[Google Calendar] Event deletion skipped: re-authentication required.`);
+    } else {
+      console.error(`[Google Calendar] Error deleting events for tasks:`, error?.message || error);
+    }
+  }
 }
 
 export async function disconnectGoogleCalendar(userId: string): Promise<void> {
