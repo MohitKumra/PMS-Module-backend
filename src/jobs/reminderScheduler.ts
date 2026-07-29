@@ -8,23 +8,86 @@ import * as notifService from '../services/notification.service';
 import { synchronizeRecurringTasks } from '../services/task.service';
 import { rrulestr } from 'rrule';
 
+function normalizeTimeString(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  return /^\d{2}:\d{2}$/.test(trimmed) ? trimmed : null;
+}
+
+function parseMinutes(time: string | null | undefined): number | null {
+  const normalized = normalizeTimeString(time);
+  if (!normalized) return null;
+  const [hours, minutes] = normalized.split(':').map((part) => parseInt(part, 10));
+  return hours * 60 + minutes;
+}
+
+function subtractMinutes(time: string | null | undefined, minutes: number): string | null {
+  const total = parseMinutes(time);
+  if (total === null) return null;
+  const normalizedTotal = ((total - minutes) % 1440 + 1440) % 1440;
+  const hours = Math.floor(normalizedTotal / 60);
+  const mins = normalizedTotal % 60;
+  return `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
+}
+
+function dateKeyToUtcDate(dateKey: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateKey);
+  if (!match) return null;
+  const [, year, month, day] = match;
+  return new Date(Date.UTC(parseInt(year, 10), parseInt(month, 10) - 1, parseInt(day, 10)));
+}
+
+function shiftDateKey(dateKey: string, days: number): string {
+  const base = dateKeyToUtcDate(dateKey);
+  if (!base) return dateKey;
+  base.setUTCDate(base.getUTCDate() + days);
+  return base.toISOString().split('T')[0];
+}
+
+function getLocalDateKey(date: Date, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+  const year = parts.find((part) => part.type === 'year')?.value ?? '0000';
+  const month = parts.find((part) => part.type === 'month')?.value ?? '01';
+  const day = parts.find((part) => part.type === 'day')?.value ?? '01';
+  return `${year}-${month}-${day}`;
+}
+
+function getLocalMinutes(date: Date, timeZone: string): number {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(date);
+  const hour = parseInt(parts.find((part) => part.type === 'hour')?.value ?? '0', 10);
+  const minute = parseInt(parts.find((part) => part.type === 'minute')?.value ?? '0', 10);
+  return hour * 60 + minute;
+}
+
+function formatTaskDate(date: Date, timeZone: string): string {
+  return date.toLocaleDateString('en-US', {
+    timeZone,
+    month: 'short',
+    day: 'numeric',
+  });
+}
+
 /**
- * Checks for tasks that are due soon (in the next 15 minutes) and
- * sends reminders to users who have not been notified yet.
+ * Checks for task reminders at their due-date milestones and reminder times.
  */
 async function checkTaskReminders() {
   const now = new Date();
-  const fifteenMinutesLater = new Date(now.getTime() + 15 * 60 * 1000);
 
   try {
-    // Find all tasks with a due date in the upcoming window
-    const tasksDueSoon = await prisma.task.findMany({
+    const tasksToCheck = await prisma.task.findMany({
       where: {
         status: { in: ['TODO', 'IN_PROGRESS'] },
-        dueDate: {
-          gte: now,
-          lte: fifteenMinutesLater,
-        },
+        dueDate: { not: null },
       },
       include: {
         user: {
@@ -35,36 +98,101 @@ async function checkTaskReminders() {
       },
     });
 
-    for (const task of tasksDueSoon) {
-      // Check if we already sent a notification for this task in the last 1 hour
-      const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
-      const alreadySent = await prisma.notificationLog.findFirst({
-        where: {
-          userId: task.userId,
-          title: { contains: task.title },
-          sentAt: { gte: oneHourAgo },
-        },
-      });
+    for (const task of tasksToCheck) {
+      if (!task.user.notificationPreferences?.taskDue) {
+        continue;
+      }
 
-      if (!alreadySent) {
-        if (!task.user.notificationPreferences?.taskDue) {
-          continue;
-        }
-        console.info(`⏰  Task Reminder triggered for User ${task.userId}: "${task.title}"`);
-        const title = `Task Due Soon: ${task.title}`;
-        const body = task.description
-          ? `"${task.description}" is due soon.`
-          : `Your task is due in less than 15 minutes.`;
+      const timezone = task.user.timezone || 'UTC';
+      const nowDateKey = getLocalDateKey(now, timezone);
+      const nowMinutes = getLocalMinutes(now, timezone);
+      const dueDateKey = getLocalDateKey(task.dueDate!, timezone);
+      const dueTomorrowKey = shiftDateKey(dueDateKey, -1);
+      const dueTime = normalizeTimeString(task.dueTime);
+      const reminderTime = normalizeTimeString(task.reminderTime)
+        ?? subtractMinutes(dueTime, 30);
+      const reminderMinutes = parseMinutes(reminderTime);
+      const dueMinutes = parseMinutes(dueTime) ?? 0;
+      const dueDateMorningWindow = nowMinutes >= 9 * 60 && nowMinutes < 12 * 60;
+      const hasMorningReminder =
+        reminderMinutes !== null &&
+        nowDateKey === dueDateKey &&
+        reminderMinutes >= 6 * 60 &&
+        reminderMinutes < 12 * 60;
+      const dueIsOverdue = nowDateKey > dueDateKey || (dueTime !== null && nowDateKey === dueDateKey && nowMinutes >= dueMinutes);
 
-        // Send push + email with playful template
-        await notifService.sendNotification(task.userId, title, body, ['BROWSER_PUSH', 'EMAIL'], {
+      const notifications: Array<{
+        key: string;
+        title: string;
+        body: string;
+        templateKind: 'due_tomorrow' | 'due_today' | 'reminder_time' | 'overdue';
+      }> = [];
+
+      if (nowDateKey === dueTomorrowKey && dueDateMorningWindow) {
+        notifications.push({
+          key: `task-due-tomorrow:${task.id}:${dueDateKey}`,
+          title: `Task due tomorrow: ${task.title}`,
+          body: `You have a task due tomorrow. A little planning now will make tomorrow easier.`,
+          templateKind: 'due_tomorrow',
+        });
+      }
+
+      if (nowDateKey === dueDateKey && dueDateMorningWindow && !hasMorningReminder) {
+        notifications.push({
+          key: `task-due-today:${task.id}:${dueDateKey}`,
+          title: `Task is due today: ${task.title}`,
+          body: `Today is the day to finish "${task.title}".`,
+          templateKind: 'due_today',
+        });
+      }
+
+      if (reminderMinutes !== null && nowDateKey === dueDateKey && nowMinutes >= reminderMinutes) {
+        notifications.push({
+          key: `task-reminder:${task.id}:${dueDateKey}:${reminderTime}`,
+          title: `Time to work on ${task.title}`,
+          body: task.reminderMessage?.trim()
+            ? task.reminderMessage.trim()
+            : `A gentle nudge to work on "${task.title}".`,
+          templateKind: 'reminder_time',
+        });
+      }
+
+      if (dueIsOverdue) {
+        notifications.push({
+          key: `task-overdue:${task.id}:${dueDateKey}`,
+          title: `Task is overdue: ${task.title}`,
+          body: `This task missed its deadline. Jump back in when you can.`,
+          templateKind: 'overdue',
+        });
+      }
+
+      for (const notification of notifications) {
+        const alreadySent = await prisma.notificationLog.findFirst({
+          where: {
+            userId: task.userId,
+            title: notification.title,
+          },
+        });
+        if (alreadySent) continue;
+
+        console.info(`⏰  Task reminder triggered for User ${task.userId}: "${task.title}" -> ${notification.key}`);
+        await notifService.sendNotification(task.userId, notification.title, notification.body, ['BROWSER_PUSH', 'EMAIL'], {
           templateName: 'task-due-playful',
           templateVars: {
             task: {
               title: task.title,
               description: task.description,
-              dueDate: task.dueDate?.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) ?? 'Today',
+              dueDate: formatTaskDate(task.dueDate!, timezone),
+              dueTime: dueTime ?? '00:00',
               priority: task.priority,
+              bannerLabel:
+                notification.templateKind === 'due_tomorrow' ? 'Due tomorrow' :
+                notification.templateKind === 'due_today' ? 'Due today' :
+                notification.templateKind === 'reminder_time' ? 'Reminder time' :
+                'Overdue',
+              headline: notification.title,
+              supportingCopy: notification.body,
+              alertStyle: notification.templateKind,
             },
           },
         });
@@ -317,6 +445,9 @@ async function createNextOccurrences() {
         recurrenceEndDate: true,
         skipDates: true,
         parentTaskId: true,
+        dueTime: true,
+        reminderTime: true,
+        reminderMessage: true,
         attachmentUrl: true,
         voiceNoteUrl: true,
         subTasks: { select: { title: true, order: true } },
@@ -367,6 +498,9 @@ async function createNextOccurrences() {
             recurrenceEndDate: task.recurrenceEndDate,
             skipDates: task.skipDates,
             parentTaskId: rootId,
+            dueTime: task.dueTime,
+            reminderTime: task.reminderTime,
+            reminderMessage: task.reminderMessage,
             attachmentUrl: task.attachmentUrl,
             voiceNoteUrl: task.voiceNoteUrl,
             subTasks: task.subTasks.length > 0 ? {

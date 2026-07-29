@@ -6,6 +6,9 @@ model Task {
   status            TaskStatus      @default(TODO)
   priority          Priority        @default(MEDIUM)
   dueDate           DateTime?
+  dueTime           String?
+  reminderTime      String?
+  reminderMessage   String?
   recurrenceRule    String?
   parentTaskId      String?
   attachmentUrl     String?

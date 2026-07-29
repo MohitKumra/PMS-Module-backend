@@ -35,6 +35,30 @@ function startOfToday(): Date {
   return d;
 }
 
+function normalizeTimeString(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  return /^\d{2}:\d{2}$/.test(trimmed) ? trimmed : null;
+}
+
+function subtractMinutes(time: string, minutes: number): string | null {
+  const normalized = normalizeTimeString(time);
+  if (!normalized) return null;
+  const [hours, mins] = normalized.split(':').map((part) => parseInt(part, 10));
+  const total = hours * 60 + mins - minutes;
+  const normalizedTotal = ((total % 1440) + 1440) % 1440;
+  const nextHours = Math.floor(normalizedTotal / 60);
+  const nextMinutes = normalizedTotal % 60;
+  return `${String(nextHours).padStart(2, '0')}:${String(nextMinutes).padStart(2, '0')}`;
+}
+
+function resolveReminderTime(dueTime: string | null | undefined, reminderTime: string | null | undefined): string | null {
+  const explicitReminder = normalizeTimeString(reminderTime);
+  if (explicitReminder) return explicitReminder;
+  const normalizedDueTime = normalizeTimeString(dueTime);
+  return normalizedDueTime ? subtractMinutes(normalizedDueTime, 30) : null;
+}
+
 const ACTIVE_RECURRING_STATUSES = ['TODO', 'IN_PROGRESS'] as const;
 
 function dateKeyInTimeZone(date: Date, timeZone: string): string {
@@ -129,6 +153,9 @@ async function createNextRecurringOccurrence(
       recurrenceEndDate: task.recurrenceEndDate,
       skipDates: task.skipDates || [],
       parentTaskId: rootId,
+      dueTime: task.dueTime ?? null,
+      reminderTime: task.reminderTime ?? null,
+      reminderMessage: task.reminderMessage ?? null,
       attachmentUrl: task.attachmentUrl,
       voiceNoteUrl: task.voiceNoteUrl,
       estimatedDuration: task.estimatedDuration,
@@ -169,6 +196,9 @@ function toDTO(t: any): TaskDTO {
     status: t.status as TaskDTO['status'],
     priority: t.priority as TaskDTO['priority'],
     dueDate: t.dueDate?.toISOString() ?? null,
+    dueTime: t.dueTime ?? null,
+    reminderTime: t.reminderTime ?? null,
+    reminderMessage: t.reminderMessage ?? null,
     recurrenceRule: t.recurrenceRule,
     recurrenceEndDate: t.recurrenceEndDate?.toISOString() ?? null,
     skipDates: t.skipDates || [],
@@ -355,6 +385,9 @@ export async function createTask(userId: string, data: CreateTaskRequest): Promi
     : data.recurrenceRule
     ? startOfToday()
     : null;
+  const dueTime = normalizeTimeString(data.dueTime);
+  const reminderTime = resolveReminderTime(dueTime, data.reminderTime);
+  const reminderMessage = data.reminderMessage?.trim() || null;
   const projectId = data.projectId?.trim() || null;
 
   const task = await prisma.$transaction(async (tx) => {
@@ -374,6 +407,9 @@ export async function createTask(userId: string, data: CreateTaskRequest): Promi
         status: data.status ?? 'TODO',
         priority: data.priority ?? 'MEDIUM',
         dueDate,
+        dueTime,
+        reminderTime,
+        reminderMessage,
         recurrenceRule: data.recurrenceRule ?? null,
         recurrenceEndDate: (data.recurrenceEndDate && data.recurrenceEndDate !== '') ? new Date(data.recurrenceEndDate) : null,
         skipDates: data.skipDates || [],
@@ -458,10 +494,26 @@ export async function updateTask(userId: string, taskId: string, data: UpdateTas
   if (data.dueDate !== undefined) {
     nextDueDate = (data.dueDate && data.dueDate !== '') ? new Date(data.dueDate) : null;
   }
+  const nextDueTime = data.dueTime !== undefined
+    ? normalizeTimeString(data.dueTime)
+    : existing.dueTime ?? null;
+  const nextReminderMessage =
+    data.reminderMessage !== undefined
+      ? data.reminderMessage?.trim() || null
+      : existing.reminderMessage ?? null;
+  let nextReminderTime: string | null | undefined = undefined;
+  if (data.reminderTime !== undefined) {
+    nextReminderTime = normalizeTimeString(data.reminderTime);
+  } else if (data.dueTime !== undefined) {
+    nextReminderTime = resolveReminderTime(nextDueTime, undefined);
+  } else {
+    nextReminderTime = existing.reminderTime ?? null;
+  }
   const effectiveDueDate = nextDueDate !== undefined ? nextDueDate : existing.dueDate;
   const dueDateChanged = data.dueDate !== undefined && (
     (existing.dueDate?.toISOString() ?? null) !== (nextDueDate?.toISOString() ?? null)
   );
+  const dueTimeChanged = data.dueTime !== undefined && (existing.dueTime ?? null) !== (nextDueTime ?? null);
   if (nextRecurrenceRule && !effectiveDueDate) {
     nextDueDate = startOfToday();
   }
@@ -518,6 +570,9 @@ export async function updateTask(userId: string, taskId: string, data: UpdateTas
         ...(data.status !== undefined && { status: data.status }),
         ...(data.priority !== undefined && { priority: data.priority }),
         ...(nextDueDate !== undefined && { dueDate: nextDueDate }),
+        ...(data.dueTime !== undefined && { dueTime: nextDueTime }),
+        ...(data.reminderTime !== undefined || data.dueTime !== undefined ? { reminderTime: nextReminderTime } : {}),
+        ...(data.reminderMessage !== undefined && { reminderMessage: nextReminderMessage }),
         ...(data.recurrenceRule !== undefined && { recurrenceRule: data.recurrenceRule }),
         ...(data.recurrenceEndDate !== undefined && { recurrenceEndDate: (data.recurrenceEndDate && data.recurrenceEndDate !== '') ? new Date(data.recurrenceEndDate) : null }),
         ...(data.skipDates !== undefined && { skipDates: data.skipDates }),
@@ -551,7 +606,7 @@ export async function updateTask(userId: string, taskId: string, data: UpdateTas
     if (data.title !== undefined && data.title !== existing.title) {
       await createActivity(task.id, userId, 'TITLE_CHANGED', 'Updated task title');
     }
-    if (dueDateChanged) {
+    if (dueDateChanged || dueTimeChanged) {
       await createActivity(task.id, userId, 'DUE_DATE_CHANGED', 'Rescheduled task');
     }
     if (data.description !== undefined) {

@@ -165,6 +165,9 @@ export interface TaskDTO {
   status: TaskStatus;
   priority: Priority;
   dueDate: string | null; // ISO 8601
+  dueTime: string | null; // "HH:mm"
+  reminderTime: string | null; // "HH:mm"
+  reminderMessage: string | null;
   recurrenceRule: string | null; // RRULE string
   recurrenceEndDate: string | null; // ISO 8601
   skipDates: string[]; // YYYY-MM-DD
@@ -190,6 +193,9 @@ export interface CreateTaskRequest {
   status?: TaskStatus;
   priority?: Priority;
   dueDate?: string;
+  dueTime?: string | null;
+  reminderTime?: string | null;
+  reminderMessage?: string | null;
   projectId?: string | null;
   recurrenceRule?: string;
   recurrenceEndDate?: string;
@@ -207,6 +213,9 @@ export interface UpdateTaskRequest {
   status?: TaskStatus;
   priority?: Priority;
   dueDate?: string | null;
+  dueTime?: string | null;
+  reminderTime?: string | null;
+  reminderMessage?: string | null;
   recurrenceRule?: string | null;
   recurrenceEndDate?: string | null;
   skipDates?: string[];
