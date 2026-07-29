@@ -1,6 +1,7 @@
 import { prisma } from '../lib/prismaClient';
 import { createError } from '../middleware/errorHandler';
 import { awardHabitCompletion, revokeHabitCompletion, deductPoints } from './gamification.service';
+import * as notifService from './notification.service';
 import type { HabitDTO, CreateHabitRequest, UpdateHabitRequest, WeekOverviewDTO, HabitStreakBreakDTO } from '../types';
 
 function toDateStr(d: Date): string {
@@ -299,6 +300,11 @@ export async function toggleCompletion(userId: string, habitId: string): Promise
       id: true,
       skipDays: true,
       completions: { select: { date: true, id: true } },
+      user: {
+        select: {
+          notificationPreferences: true,
+        },
+      },
     },
   }) as any;
   if (!habit) throw createError(404, 'HABIT_NOT_FOUND', 'Habit not found');
@@ -375,6 +381,16 @@ export async function toggleCompletion(userId: string, habitId: string): Promise
       entityId: habitId,
       description: `Streak broken for habit: ${habit.title} (lost ${oldStreak}-day streak)`,
     });
+
+    const habitReminderEnabled = habit.user?.notificationPreferences?.habitReminder ?? true;
+    if (habitReminderEnabled) {
+      await notifService.sendNotification(
+        userId,
+        `Streak broken: ${habit.title}`,
+        `Your streak for "${habit.title}" has been broken. Restart it today so the habit does not stay down for long.`,
+        ['BROWSER_PUSH', 'EMAIL']
+      );
+    }
   }
 
   const durationDays = habit.durationDays;
@@ -413,18 +429,25 @@ export async function toggleCompletion(userId: string, habitId: string): Promise
 }
 
 export async function getBrokenStreaks(userId: string): Promise<HabitStreakBreakDTO[]> {
-  const yesterday = new Date(utcToday());
-  yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+  const now = new Date();
+  const recentWindowStart = new Date(now.getTime() - 48 * 60 * 60 * 1000);
 
   const habits = await prisma.habit.findMany({
     where: {
       userId,
+      streakBrokenAt: {
+        gte: recentWindowStart,
+      },
     } as any,
     select: {
       id: true,
       title: true,
       skipDays: true,
       completions: { select: { date: true } },
+      streakBrokenAt: true,
+    },
+    orderBy: {
+      streakBrokenAt: 'desc',
     },
   }) as any[];
 
@@ -438,6 +461,7 @@ export async function getBrokenStreaks(userId: string): Promise<HabitStreakBreak
       title: h.title,
       previousStreak,
       xpLost: previousStreak * 15,
+      brokenAt: h.streakBrokenAt?.toISOString() ?? now.toISOString(),
     };
   });
 }

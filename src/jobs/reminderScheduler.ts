@@ -158,6 +158,8 @@ async function checkHabitReminders() {
         title: true,
         targetPerWeek: true,
         reminderTime: true,
+        reminderMessage: true,
+        skipDays: true,
         createdAt: true,
         user: {
           include: {
@@ -197,9 +199,11 @@ async function checkHabitReminders() {
         const parts = formatter.formatToParts(now);
         const hour = parts.find((p) => p.type === 'hour')?.value ?? '00';
         const minute = parts.find((p) => p.type === 'minute')?.value ?? '00';
-        const formattedUserTime = `${hour}:${minute}`;
+        const currentMinutes = parseInt(hour, 10) * 60 + parseInt(minute, 10);
+        const [reminderHour, reminderMinute] = habit.reminderTime.split(':').map((value) => parseInt(value, 10));
+        const reminderMinutes = reminderHour * 60 + reminderMinute;
 
-        if (formattedUserTime === habit.reminderTime) {
+        if (currentMinutes >= reminderMinutes) {
           // Verify if already completed today — use UTC midnight to match habit.service.ts
           const todayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
           const alreadyCompletedToday = await prisma.habitCompletion.findFirst({
@@ -235,7 +239,7 @@ async function checkHabitReminders() {
               await notifService.sendNotification(
                 habit.userId,
                 reminderTitle,
-                `Don't forget to check off your habit "${habit.title}" today!`,
+                `Don't let "${habit.title}" slip today. Completing it now helps protect your streak.`,
                 ['BROWSER_PUSH', 'EMAIL'],
                 {
                   templateName: 'habit-reminder-playful',
