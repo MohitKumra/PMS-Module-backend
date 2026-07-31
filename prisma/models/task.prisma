@@ -20,6 +20,7 @@ model Task {
   inProgressAt      DateTime?
   estimatedDuration Int?
   voiceNoteUrl      String?
+  notionPageId      String?   @unique
   notes             Note[]
   projectTasks      ProjectTask?
   subTasks          SubTask[]

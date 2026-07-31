@@ -10,6 +10,8 @@ model User {
   createdAt                DateTime                  @default(now())
   updatedAt                DateTime                  @updatedAt
   recoveryEmail            String?
+  notionConnection         NotionConnection?
+  integrationLogs          IntegrationLog[]
   focusSessions            FocusSession[]
   focusTimeLogs            FocusTimeLog[]
   googleCalendarConnection GoogleCalendarConnection?

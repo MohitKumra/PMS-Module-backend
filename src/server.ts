@@ -12,6 +12,7 @@ import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import path from 'path';
 
+import aiRoutes           from './routes/ai.routes';
 import authRoutes         from './routes/auth.routes';
 import tasksRoutes        from './routes/tasks.routes';
 import habitsRoutes       from './routes/habits.routes';
@@ -28,6 +29,7 @@ import usersRoutes        from './routes/users.routes';
 import uploadsRoutes      from './routes/uploads.routes';
 import mediaFileRoutes    from './routes/media-file.routes';
 import schedulerRoutes    from './routes/scheduler.routes';
+import notionRoutes       from './routes/notion.routes';
 import projectsController  from './controllers/projects.controller';
 import { errorHandler }   from './middleware/errorHandler';
 import { startScheduler } from './jobs/reminderScheduler';
@@ -84,6 +86,7 @@ app.use(cookieParser());
 app.get('/health', (_req, res) => res.json({ status: 'ok', ts: new Date().toISOString() }));
 
 // ─── API routes ───────────────────────────────────────────────────────────────
+app.use('/api/ai',            aiRoutes);
 app.use('/api/auth',          authRoutes);
 app.use('/api/tasks',         tasksRoutes);
 app.use('/api/habits',        habitsRoutes);
@@ -100,6 +103,7 @@ app.use('/api/users',         usersRoutes);
 app.use('/api/media',         mediaFileRoutes);
 app.use('/api/media',         uploadsRoutes);
 app.use('/api/scheduler',     schedulerRoutes);
+app.use('/api/notion',        notionRoutes);
 app.use('/api/projects',      projectsController);
 
 // ─── 404 catch ────────────────────────────────────────────────────────────────
