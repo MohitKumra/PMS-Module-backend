@@ -1,6 +1,7 @@
 model Habit {
   id            String            @id @default(cuid())
   userId        String
+  goalId        String?
   title         String
   targetPerWeek Int               @default(7)
   reminderTime  String?
@@ -11,6 +12,7 @@ model Habit {
   isActive      Boolean           @default(true)
   createdAt     DateTime          @default(now())
   user          User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  goal          Goal?             @relation("GoalHabits", fields: [goalId], references: [id], onDelete: SetNull)
   completions   HabitCompletion[]
   skipLogs      HabitSkipLog[]
 }

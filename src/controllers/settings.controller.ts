@@ -31,6 +31,15 @@ export async function updateNotifications(req: Request, res: Response, next: Nex
   }
 }
 
+export async function updateAI(req: Request, res: Response, next: NextFunction) {
+  try {
+    const settings = await settingsService.updateAIPreferences(req.user!.sub, req.body);
+    res.json({ ai: settings });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function updateRecoveryEmail(req: Request, res: Response, next: NextFunction) {
   try {
     const recoveryEmail = await settingsService.updateRecoveryEmail(req.user!.sub, req.body.recoveryEmail ?? null);

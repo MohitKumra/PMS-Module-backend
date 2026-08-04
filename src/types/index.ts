@@ -71,9 +71,36 @@ export interface SecuritySettingsDTO {
   recoveryEmail: string | null;
 }
 
+export interface AIPreferenceDTO {
+  dailyBriefEnabled: boolean;
+  journalWeeklyEnabled: boolean;
+  insightsEnabled: boolean;
+  coachEnabled: boolean;
+  journalAnalysisEnabled: boolean;
+  goalSummaryEnabled: boolean;
+  taskParserEnabled: boolean;
+  goalPlannerEnabled: boolean;
+  summaryRefreshMinutes: number;
+
+  // ─── Token consumption counters (read-only, set server-side) ──────────
+  tokensToday: number;
+  tokensThisWeek: number;
+  tokensThisMonth: number;
+  tokensTotal: number;
+  aiCallsTotal: number;
+  tokenUsageUpdatedAt: string | null;
+}
+
+export interface AISettingsDTO {
+  ai: AIPreferenceDTO;
+}
+
+export interface UpdateAIPreferencesRequest extends AIPreferenceDTO {}
+
 export interface SettingsDTO {
   appearance: AppearanceSettingsDTO;
   notifications: NotificationPreferenceDTO;
+  ai: AIPreferenceDTO;
   integrations: {
     googleCalendar: GoogleCalendarIntegrationDTO;
   };
@@ -114,6 +141,164 @@ export interface GoogleCalendarSyncResponse {
   updated: number;
   deleted: number;
   skipped: number;
+}
+
+// ─── Goals ───────────────────────────────────────────────────────────────────
+
+export type GoalStatus = 'ACTIVE' | 'PAUSED' | 'COMPLETED' | 'ARCHIVED';
+export type GoalPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+
+export interface GoalDTO {
+  id: string;
+  userId: string;
+  title: string;
+  description: string | null;
+  category: string | null;
+  icon: string | null;
+  color: string;
+  targetDate: string | null;
+  status: GoalStatus;
+  priority: GoalPriority;
+  progress: number;
+  manualProgress: number;
+  aiSummary: string | null;
+  linkedHabitIds: string[];
+  linkedTaskIds: string[];
+  linkedProjectIds: string[];
+  milestones: GoalMilestoneDTO[];
+  habitCount: number;
+  taskCount: number;
+  projectCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type GoalMilestoneStatus = 'PENDING' | 'COMPLETED' | 'SKIPPED';
+
+export interface GoalMilestoneDTO {
+  id: string;
+  goalId: string;
+  title: string;
+  description: string | null;
+  dueDate: string | null;
+  status: GoalMilestoneStatus;
+  sortOrder: number;
+  completedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateGoalMilestoneRequest {
+  title: string;
+  description?: string | null;
+  dueDate?: string | null;
+  status?: GoalMilestoneStatus;
+  sortOrder?: number;
+}
+
+export interface UpdateGoalMilestoneRequest {
+  title?: string;
+  description?: string | null;
+  dueDate?: string | null;
+  status?: GoalMilestoneStatus;
+  sortOrder?: number;
+}
+
+export interface CreateGoalRequest {
+  title: string;
+  description?: string;
+  category?: string;
+  icon?: string;
+  color?: string;
+  targetDate?: string | null;
+  status?: GoalStatus;
+  priority?: GoalPriority;
+  manualProgress?: number;
+  aiSummary?: string | null;
+  linkedHabitIds?: string[];
+  linkedTaskIds?: string[];
+  linkedProjectIds?: string[];
+}
+
+export interface UpdateGoalRequest {
+  title?: string;
+  description?: string | null;
+  category?: string | null;
+  icon?: string | null;
+  color?: string;
+  targetDate?: string | null;
+  status?: GoalStatus;
+  priority?: GoalPriority;
+  manualProgress?: number;
+  aiSummary?: string | null;
+  linkedHabitIds?: string[];
+  linkedTaskIds?: string[];
+  linkedProjectIds?: string[];
+}
+
+export interface GoalPlannerGoalInput {
+  title: string;
+  description?: string | null;
+  category?: string | null;
+  icon?: string | null;
+  color?: string | null;
+  targetDate?: string | null;
+  status?: GoalStatus;
+  priority?: GoalPriority;
+  manualProgress?: number;
+}
+
+export interface GoalPlannerMilestoneInput {
+  title: string;
+  description?: string | null;
+  dueDate?: string | null;
+  sortOrder?: number;
+}
+
+export interface GoalPlannerTaskInput {
+  title: string;
+  description?: string | null;
+  priority?: Priority;
+  dueDate?: string | null;
+  dueTime?: string | null;
+  reminderTime?: string | null;
+  reminderMessage?: string | null;
+  estimatedDuration?: number | null;
+}
+
+export interface GoalPlannerHabitInput {
+  title: string;
+  reminderTime?: string | null;
+  reminderMessage?: string | null;
+  targetPerWeek?: number;
+}
+
+export interface GoalPlannerProjectInput {
+  name: string;
+  description?: string | null;
+  status?: ProjectStatus;
+  color?: string | null;
+  startDate?: string | null;
+  dueDate?: string | null;
+}
+
+export interface GoalPlannerPlanDTO {
+  goal: GoalPlannerGoalInput;
+  summary: string;
+  milestones: GoalPlannerMilestoneInput[];
+  tasks: GoalPlannerTaskInput[];
+  habits: GoalPlannerHabitInput[];
+  projects: GoalPlannerProjectInput[];
+  source: 'ai' | 'fallback';
+}
+
+export interface GoalWorkspaceCreateResponse {
+  goal: GoalDTO;
+  milestones: GoalMilestoneDTO[];
+  tasks: TaskDTO[];
+  habits: HabitDTO[];
+  projects: ProjectDTO[];
+  source: 'ai' | 'fallback';
 }
 
 // ─── Tasks ───────────────────────────────────────────────────────────────────
@@ -160,6 +345,7 @@ export interface UpdateSubTaskRequest {
 export interface TaskDTO {
   id: string;
   userId: string;
+  goalId: string | null;
   title: string;
   description: string | null;
   status: TaskStatus;
@@ -197,6 +383,7 @@ export interface CreateTaskRequest {
   reminderTime?: string | null;
   reminderMessage?: string | null;
   projectId?: string | null;
+  goalId?: string | null;
   recurrenceRule?: string;
   recurrenceEndDate?: string;
   skipDates?: string[];
@@ -205,6 +392,7 @@ export interface CreateTaskRequest {
   attachmentUrl?: string | null;
   voiceNoteUrl?: string | null;
   subTasks?: CreateSubTaskRequest[];
+  recurrenceConfig?: TaskRecurrenceConfig;
 }
 
 export interface UpdateTaskRequest {
@@ -222,7 +410,34 @@ export interface UpdateTaskRequest {
   attachmentUrl?: string | null;
   voiceNoteUrl?: string | null;
   estimatedDuration?: number | null;
+  goalId?: string | null;
   subTasks?: TaskSubTaskInput[];
+  recurrenceConfig?: TaskRecurrenceConfig | null;
+}
+
+export type TaskRecurrenceFrequency = 'day' | 'week' | 'month' | 'year';
+export type TaskRecurrenceEndsType = 'never' | 'date' | 'occurrences';
+export type TaskRecurrenceRepeatBasedOn = 'dueDate' | 'completionDate';
+export type TaskRecurrenceMissedBehavior = 'skip' | 'overdue' | 'createNext';
+export type TaskRecurrenceGenerateNext = 'onCompletion' | 'onDueDate';
+export type TaskRecurrenceMonthlyMode = 'dayOfMonth' | 'weekdayPattern';
+
+export interface TaskRecurrenceConfig {
+  enabled: boolean;
+  frequency: TaskRecurrenceFrequency;
+  interval: number;
+  weekdays?: string[];
+  monthlyMode?: TaskRecurrenceMonthlyMode;
+  dayOfMonth?: number | null;
+  weekOfMonth?: number | null;
+  weekday?: string | null;
+  startsAt?: string | null;
+  endsType?: TaskRecurrenceEndsType;
+  endsAt?: string | null;
+  occurrenceCount?: number | null;
+  repeatBasedOn?: TaskRecurrenceRepeatBasedOn;
+  missedBehavior?: TaskRecurrenceMissedBehavior;
+  generateNext?: TaskRecurrenceGenerateNext;
 }
 
 export interface TaskActivityDTO {
@@ -264,6 +479,7 @@ export interface TaskDetailDTO extends TaskDTO {
 export interface HabitDTO {
   id: string;
   userId: string;
+  goalId: string | null;
   title: string;
   targetPerWeek: number;
   reminderTime: string | null; // "HH:mm"
@@ -291,6 +507,7 @@ export interface CreateHabitRequest {
   reminderMessage?: string;
   durationDays?: number | null;  // null = forever
   skipDays?: number[];           // day indices 0-6
+  goalId?: string | null;
 }
 
 export interface HabitsListResponse {
@@ -315,6 +532,7 @@ export interface UpdateHabitRequest {
   reminderMessage?: string | null;
   durationDays?: number | null;
   skipDays?: number[];
+  goalId?: string | null;
 }
 
 // ─── Week Overview ────────────────────────────────────────────────────────────
@@ -640,6 +858,7 @@ export interface ProjectDTO {
   status: ProjectStatus;
   color: string;
   userId: string;
+  goalId: string | null;
   startDate: string | null;
   dueDate: string | null;
   attachmentUrl: string | null;
@@ -662,6 +881,7 @@ export interface CreateProjectRequest {
   dueDate?: string;
   attachmentUrl?: string | null;
   voiceNoteUrl?: string | null;
+  goalId?: string | null;
 }
 
 export interface UpdateProjectRequest {
@@ -674,6 +894,7 @@ export interface UpdateProjectRequest {
   attachmentUrl?: string | null;
   voiceNoteUrl?: string | null;
   progress?: number;
+  goalId?: string | null;
 }
 
 export interface AssignTaskToProjectRequest {

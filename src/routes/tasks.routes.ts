@@ -30,6 +30,24 @@ const createTimeEntrySchema = z.object({
   startedAt: z.string().datetime().optional(),
 });
 
+const recurrenceConfigSchema = z.object({
+  enabled: z.boolean(),
+  frequency: z.enum(['day', 'week', 'month', 'year']),
+  interval: z.number().int().min(1),
+  weekdays: z.array(z.string()).optional(),
+  monthlyMode: z.enum(['dayOfMonth', 'weekdayPattern']).optional(),
+  dayOfMonth: z.number().int().min(1).max(31).nullable().optional(),
+  weekOfMonth: z.number().int().min(-5).max(5).nullable().optional(),
+  weekday: z.string().nullable().optional(),
+  startsAt: z.string().nullable().optional(),
+  endsType: z.enum(['never', 'date', 'occurrences']).optional(),
+  endsAt: z.string().nullable().optional(),
+  occurrenceCount: z.number().int().positive().nullable().optional(),
+  repeatBasedOn: z.enum(['dueDate', 'completionDate']).optional(),
+  missedBehavior: z.enum(['skip', 'overdue', 'createNext']).optional(),
+  generateNext: z.enum(['onCompletion', 'onDueDate']).optional(),
+});
+
 const createSchema = z.object({
   title: z.string().min(1).max(500),
   description: z.string().max(5000).optional(),
@@ -42,6 +60,7 @@ const createSchema = z.object({
   projectId: z.string().nullable().optional(),
   recurrenceRule: z.string().max(200).optional(),
   recurrenceEndDate: z.string().optional().refine(val => !val || /^\d{4}-\d{2}-\d{2}$/.test(val), 'Invalid date format'),
+  recurrenceConfig: recurrenceConfigSchema.optional(),
   skipDates: z.array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format')).optional(),
   parentTaskId: z.string().optional(),
   estimatedDuration: z.number().int().positive().nullable().optional(),
@@ -59,6 +78,7 @@ const updateSchema = createSchema.partial().extend({
   reminderMessage: z.string().max(500).nullable().optional(),
   recurrenceRule: z.string().max(200).nullable().optional(),
   recurrenceEndDate: z.string().nullable().optional().refine(val => val === null || !val || /^\d{4}-\d{2}-\d{2}$/.test(val), 'Invalid date format'),
+  recurrenceConfig: recurrenceConfigSchema.nullable().optional(),
   skipDates: z.array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format')).optional(),
   attachmentUrl: z.string().min(1).max(2048).nullable().optional(),
   voiceNoteUrl: z.string().min(1).max(2048).nullable().optional(),

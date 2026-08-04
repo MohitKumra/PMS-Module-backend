@@ -61,6 +61,7 @@ export async function getEnhancedDashboard(userId: string): Promise<EnhancedDash
       status: p.status,
       color: p.color ?? '#4F46E5',
       userId: p.userId,
+      goalId: p.goalId ?? null,
       startDate: p.startDate?.toISOString() ?? null,
       dueDate: p.dueDate?.toISOString() ?? null,
       attachmentUrl: p.attachmentUrl ?? null,

@@ -127,6 +127,7 @@ function calcStreakSafeDays(skipDaysRaw: string): Set<string> {
 interface HabitRow {
   id: string;
   userId: string;
+  goalId: string | null;
   title: string;
   targetPerWeek: number;
   reminderTime: string | null;
@@ -155,7 +156,7 @@ async function toDTO(h: HabitRow & {
   const completionsLastWeek = h.completions.filter((c) => c.date >= lastMonday && c.date < monday).length;
 
   return {
-    id: h.id, userId: h.userId, title: h.title,
+    id: h.id, userId: h.userId, goalId: h.goalId ?? null, title: h.title,
     targetPerWeek: h.targetPerWeek, reminderTime: h.reminderTime,
     reminderMessage: h.reminderMessage,
     durationDays: h.durationDays,
@@ -183,6 +184,7 @@ export async function listHabits(userId: string): Promise<{
     select: {
       id: true,
       userId: true,
+      goalId: true,
       title: true,
       targetPerWeek: true,
       reminderTime: true,
@@ -215,6 +217,10 @@ export async function createHabit(userId: string, data: CreateHabitRequest): Pro
   const skipDays = data.skipDays ? JSON.stringify(data.skipDays) : '[]';
   const skipDayIndices = parseSkipDays(skipDays);
   const targetPerWeek = 7 - skipDayIndices.length; // auto-compute from skip days
+  if (data.goalId) {
+    const goal = await prisma.goal.findFirst({ where: { id: data.goalId, userId }, select: { id: true } });
+    if (!goal) throw createError(404, 'GOAL_NOT_FOUND', 'Goal not found');
+  }
   const habit = await prisma.habit.create({
     data: {
       userId,
@@ -224,6 +230,7 @@ export async function createHabit(userId: string, data: CreateHabitRequest): Pro
       reminderMessage: data.reminderMessage ?? null,
       durationDays: data.durationDays ?? null,
       skipDays,
+      goalId: data.goalId ?? null,
     } as any,
     include: { completions: { select: { date: true } } },
   });
@@ -236,12 +243,17 @@ export async function updateHabit(userId: string, habitId: string, data: UpdateH
     select: { id: true } 
   });
   if (!existing) throw createError(404, 'HABIT_NOT_FOUND', 'Habit not found');
+  if (data.goalId !== undefined && data.goalId !== null) {
+    const goal = await prisma.goal.findFirst({ where: { id: data.goalId, userId }, select: { id: true } });
+    if (!goal) throw createError(404, 'GOAL_NOT_FOUND', 'Goal not found');
+  }
 
   const updateData: Record<string, any> = {};
   if (data.title !== undefined) updateData.title = data.title;
   if (data.reminderTime !== undefined) updateData.reminderTime = data.reminderTime;
   if (data.reminderMessage !== undefined) updateData.reminderMessage = data.reminderMessage;
   if (data.durationDays !== undefined) updateData.durationDays = data.durationDays;
+  if (data.goalId !== undefined) updateData.goalId = data.goalId;
   if (data.skipDays !== undefined) {
     updateData.skipDays = JSON.stringify(data.skipDays);
     // Recompute targetPerWeek from new skip days
@@ -255,6 +267,7 @@ export async function updateHabit(userId: string, habitId: string, data: UpdateH
     select: {
       id: true,
       userId: true,
+      goalId: true,
       title: true,
       targetPerWeek: true,
       reminderTime: true,
@@ -321,6 +334,7 @@ export async function toggleCompletion(userId: string, habitId: string): Promise
       select: {
         id: true,
         userId: true,
+        goalId: true,
         title: true,
         targetPerWeek: true,
         reminderTime: true,
@@ -406,6 +420,7 @@ export async function toggleCompletion(userId: string, habitId: string): Promise
     select: {
       id: true,
       userId: true,
+      goalId: true,
       title: true,
       targetPerWeek: true,
       reminderTime: true,

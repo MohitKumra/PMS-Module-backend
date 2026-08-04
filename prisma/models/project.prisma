@@ -1,6 +1,7 @@
 model Project {
   id            String        @id @default(cuid())
   name          String
+  goalId        String?
   description   String?
   status        ProjectStatus @default(PLANNING)
   color         String?       @default("#4F46E5")
@@ -15,6 +16,7 @@ model Project {
   notes         Note[]
   media         ProjectMedia[]
   user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  goal          Goal?         @relation("GoalProjects", fields: [goalId], references: [id], onDelete: SetNull)
   tasks         ProjectTask[]
 
   @@index([userId])

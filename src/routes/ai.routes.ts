@@ -31,4 +31,10 @@ router.get('/journal-weekly', aiController.getJournalWeekly);
 // POST /api/ai/parse-task - Parse natural language into task data
 router.post('/parse-task', aiController.postParseTask);
 
+// POST /api/ai/goal-plan - Generate a full workspace plan from a single prompt
+router.post('/goal-plan', aiController.postGoalPlan);
+
+// POST /api/ai/goal-workspace - Create goal, milestones, tasks, habits, and projects from a plan
+router.post('/goal-workspace', aiController.postGoalWorkspace);
+
 export default router;

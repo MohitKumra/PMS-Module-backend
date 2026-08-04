@@ -166,11 +166,16 @@ async function checkTaskReminders() {
         });
       }
 
+      // Start of today in the user's timezone — used to scope dedup so each
+      // reminder fires at most once per day instead of once ever.
+      const todayStartUtc = dateKeyToUtcDate(nowDateKey) ?? new Date(0);
+
       for (const notification of notifications) {
         const alreadySent = await prisma.notificationLog.findFirst({
           where: {
             userId: task.userId,
             title: notification.title,
+            sentAt: { gte: todayStartUtc },
           },
         });
         if (alreadySent) continue;
@@ -331,57 +336,72 @@ async function checkHabitReminders() {
         const [reminderHour, reminderMinute] = habit.reminderTime.split(':').map((value) => parseInt(value, 10));
         const reminderMinutes = reminderHour * 60 + reminderMinute;
 
-        if (currentMinutes >= reminderMinutes) {
-          // Verify if already completed today — use UTC midnight to match habit.service.ts
+        // Fire only within a 1-minute window of the scheduled reminder time
+        // (i.e. currentMinutes === reminderMinutes).
+        // Using >= caused the reminder to re-fire on every subsequent cron tick.
+        const withinReminderWindow = Math.abs(currentMinutes - reminderMinutes) <= 1;
+        if (withinReminderWindow) {
+          // Respect user preference — default to enabled if preference row is null
+          const prefs = habit.user.notificationPreferences;
+          const shouldNotify = prefs === null || prefs.habitReminder === true;
+          if (!shouldNotify) {
+            continue;
+          }
+
+          // Verify if already completed today — use UTC midnight to match habit.service.ts.
+          // If already completed, no point sending a reminder.
           const todayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
           const alreadyCompletedToday = await prisma.habitCompletion.findFirst({
+            where: { habitId: habit.id, date: todayStart },
+          });
+          if (alreadyCompletedToday) continue;
+
+          // Dedup: check if we already sent a notification for this exact habit today,
+          // keyed on habitId embedded in the notification title to prevent false
+          // matches from partial title substring overlap.
+          const todayStartParts = new Intl.DateTimeFormat('en-CA', {
+            timeZone: habit.user.timezone || 'UTC',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+          }).formatToParts(now);
+          const todayYear = todayStartParts.find((p) => p.type === 'year')?.value ?? '0000';
+          const todayMonth = todayStartParts.find((p) => p.type === 'month')?.value ?? '01';
+          const todayDay = todayStartParts.find((p) => p.type === 'day')?.value ?? '01';
+          const todayStartUtc = new Date(Date.UTC(parseInt(todayYear, 10), parseInt(todayMonth, 10) - 1, parseInt(todayDay, 10)));
+
+          // Use a dedup key that includes the habitId so it is unique per habit per day
+          const dedupKey = `habit-reminder:${habit.id}:${todayYear}-${todayMonth}-${todayDay}`;
+          const alreadyNotifiedToday = await prisma.notificationLog.findFirst({
             where: {
-              habitId: habit.id,
-              date: todayStart,
+              userId: habit.userId,
+              title: dedupKey,
+              sentAt: { gte: todayStartUtc },
             },
           });
+          if (alreadyNotifiedToday) continue;
 
-          if (!alreadyCompletedToday) {
-            // Respect user preference — default to enabled if preference row is null
-            const prefs = habit.user.notificationPreferences;
-            const shouldNotify = prefs === null || prefs.habitReminder === true;
-            if (!shouldNotify) {
-              continue;
-            }
-            // Check if notified in the last 10 minutes to avoid double-runs
-            const tenMinAgo = new Date(now.getTime() - 10 * 60 * 1000);
-            const alreadyNotified = await prisma.notificationLog.findFirst({
-              where: {
-                userId: habit.userId,
-                title: { contains: habit.title },
-                sentAt: { gte: tenMinAgo },
-              },
-            });
-
-            if (!alreadyNotified) {
-              // Use reminderMessage as the title if set, otherwise fallback to habit title
-              const reminderTitle = (habit as any).reminderMessage
-                ? (habit as any).reminderMessage
-                : `Habit Reminder: ${habit.title}`;
-              console.info(`⏰  Habit Reminder triggered for User ${habit.userId}: "${habit.title}"`);
-              await notifService.sendNotification(
-                habit.userId,
+          const reminderTitle = habit.reminderMessage?.trim()
+            ? habit.reminderMessage.trim()
+            : `Habit Reminder: ${habit.title}`;
+          console.info(`⏰  Habit Reminder triggered for User ${habit.userId}: "${habit.title}"`);
+          await notifService.sendNotification(
+            habit.userId,
+            // Store dedupKey as the notification title so future lookups are exact
+            dedupKey,
+            `Don't let "${habit.title}" slip today. Completing it now helps protect your streak.`,
+            ['BROWSER_PUSH', 'EMAIL'],
+            {
+              templateName: 'habit-reminder-playful',
+              templateVars: {
                 reminderTitle,
-                `Don't let "${habit.title}" slip today. Completing it now helps protect your streak.`,
-                ['BROWSER_PUSH', 'EMAIL'],
-                {
-                  templateName: 'habit-reminder-playful',
-                  templateVars: {
-                    reminderTitle,
-                    habit: {
-                      title: habit.title,
-                      reminderTime: habit.reminderTime,
-                    },
-                  },
-                }
-              );
+                habit: {
+                  title: habit.title,
+                  reminderTime: habit.reminderTime,
+                },
+              },
             }
-          }
+          );
         }
       } catch (tzErr) {
         console.error(`❌  Failed timezone calculation for User ${habit.userId} / Timezone ${habit.user.timezone}:`, tzErr);

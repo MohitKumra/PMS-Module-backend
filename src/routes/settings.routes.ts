@@ -23,6 +23,18 @@ const notificationsSchema = z.object({
   calendarSync: z.boolean(),
 });
 
+const aiSchema = z.object({
+  dailyBriefEnabled: z.boolean(),
+  journalWeeklyEnabled: z.boolean(),
+  insightsEnabled: z.boolean(),
+  coachEnabled: z.boolean(),
+  journalAnalysisEnabled: z.boolean(),
+  goalSummaryEnabled: z.boolean(),
+  taskParserEnabled: z.boolean(),
+  goalPlannerEnabled: z.boolean(),
+  summaryRefreshMinutes: z.number().int().min(5).max(1440),
+});
+
 const recoverySchema = z.object({
   recoveryEmail: z.string().email().nullable().optional(),
 });
@@ -30,6 +42,7 @@ const recoverySchema = z.object({
 router.get('/', ctrl.getSettings);
 router.patch('/appearance', validate({ body: appearanceSchema }), ctrl.updateAppearance);
 router.patch('/notifications', validate({ body: notificationsSchema }), ctrl.updateNotifications);
+router.patch('/ai', validate({ body: aiSchema }), ctrl.updateAI);
 router.patch('/security/recovery-email', validate({ body: recoverySchema }), ctrl.updateRecoveryEmail);
 router.get('/google-calendar/start', ctrl.googleCalendarStart);
 router.post('/google-calendar/sync', ctrl.syncGoogleCalendar);

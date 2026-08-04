@@ -15,6 +15,7 @@ import type {
   TaskDetailDTO,
   CreateTaskRequest,
   UpdateTaskRequest,
+  TaskRecurrenceConfig,
   SubTaskDTO,
   CreateSubTaskRequest,
   UpdateSubTaskRequest,
@@ -57,6 +58,87 @@ function resolveReminderTime(dueTime: string | null | undefined, reminderTime: s
   if (explicitReminder) return explicitReminder;
   const normalizedDueTime = normalizeTimeString(dueTime);
   return normalizedDueTime ? subtractMinutes(normalizedDueTime, 30) : null;
+}
+
+function getWeekdayToken(date: Date): string {
+  return ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'][date.getDay()];
+}
+
+function buildRecurrenceFromConfig(config: TaskRecurrenceConfig, startDate: Date): { recurrenceRule: string | null; recurrenceEndDate: Date | null; dueDate: Date | null } {
+  if (!config.enabled) {
+    return { recurrenceRule: null, recurrenceEndDate: null, dueDate: startDate };
+  }
+
+  const interval = Math.max(1, config.interval || 1);
+  const parts: string[] = [];
+  let recurrenceEndDate: Date | null = config.endsType === 'date' && config.endsAt ? new Date(config.endsAt) : null;
+
+  switch (config.frequency) {
+    case 'day':
+      parts.push('FREQ=DAILY', `INTERVAL=${interval}`);
+      break;
+    case 'week': {
+      parts.push('FREQ=WEEKLY', `INTERVAL=${interval}`);
+      const weekdays = (config.weekdays ?? []).map((day) => day.trim().toUpperCase()).filter(Boolean);
+      if (weekdays.length > 0) {
+        const normalized = weekdays.map((day) => {
+          const map: Record<string, string> = {
+            sunday: 'SU',
+            monday: 'MO',
+            tuesday: 'TU',
+            wednesday: 'WE',
+            thursday: 'TH',
+            friday: 'FR',
+            saturday: 'SA',
+            su: 'SU',
+            mo: 'MO',
+            tu: 'TU',
+            we: 'WE',
+            th: 'TH',
+            fr: 'FR',
+            sa: 'SA',
+          };
+          return map[day.toLowerCase()] ?? day.slice(0, 2);
+        }).join(',');
+        parts.push(`BYDAY=${normalized}`);
+      }
+      break;
+    }
+    case 'month':
+      parts.push('FREQ=MONTHLY', `INTERVAL=${interval}`);
+      if (config.monthlyMode === 'weekdayPattern' && config.weekday && config.weekOfMonth) {
+        const weekday = config.weekday.trim().toUpperCase().slice(0, 2);
+        parts.push(`BYDAY=${weekday}`, `BYSETPOS=${config.weekOfMonth}`);
+      } else {
+        const dayOfMonth = typeof config.dayOfMonth === 'number' ? config.dayOfMonth : startDate.getDate();
+        parts.push(`BYMONTHDAY=${Math.max(1, Math.min(31, dayOfMonth))}`);
+      }
+      break;
+    case 'year': {
+      parts.push('FREQ=YEARLY', `INTERVAL=${interval}`);
+      const month = startDate.getMonth() + 1;
+      const day = startDate.getDate();
+      parts.push(`BYMONTH=${month}`, `BYMONTHDAY=${day}`);
+      break;
+    }
+    default:
+      parts.push('FREQ=DAILY', 'INTERVAL=1');
+      break;
+  }
+
+  if (config.endsType === 'occurrences' && config.occurrenceCount && config.occurrenceCount > 0) {
+    parts.push(`COUNT=${config.occurrenceCount}`);
+    recurrenceEndDate = null;
+  }
+
+  const dueDate = config.startsAt ? new Date(config.startsAt) : startDate;
+  return { recurrenceRule: parts.join(';'), recurrenceEndDate, dueDate };
+}
+
+function recurrenceConfigToRule(config?: TaskRecurrenceConfig | null, fallbackDueDate?: Date | null): { recurrenceRule?: string | null; recurrenceEndDate?: Date | null; dueDate?: Date | null } {
+  if (!config?.enabled) return {};
+  const startDate = config.startsAt ? new Date(config.startsAt) : (fallbackDueDate ?? startOfToday());
+  return buildRecurrenceFromConfig(config, startDate);
 }
 
 const ACTIVE_RECURRING_STATUSES = ['TODO', 'IN_PROGRESS'] as const;
@@ -191,6 +273,7 @@ function toDTO(t: any): TaskDTO {
   return {
     id: t.id,
     userId: t.userId,
+    goalId: t.goalId ?? null,
     title: t.title,
     description: t.description,
     status: t.status as TaskDTO['status'],
@@ -309,6 +392,7 @@ export async function listTasks(userId: string, filters?: Record<string, string>
       include: {
         subTasks: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] },
         projectTasks: { include: { project: true } },
+        goal: true,
       }
     }),
     prisma.task.count({ where }),
@@ -324,13 +408,14 @@ export async function listTasks(userId: string, filters?: Record<string, string>
 export async function getTask(userId: string, taskId: string): Promise<TaskDetailDTO> {
   const task = await prisma.task.findFirst({
     where: { id: taskId, userId },
-    include: {
-      subTasks: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] },
-      projectTasks: { include: { project: true } },
-      activity: { orderBy: { createdAt: 'desc' } },
-      timeEntries: { orderBy: { createdAt: 'desc' } },
-      media: true,
-    }
+      include: {
+        subTasks: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] },
+        projectTasks: { include: { project: true } },
+        activity: { orderBy: { createdAt: 'desc' } },
+        timeEntries: { orderBy: { createdAt: 'desc' } },
+        media: true,
+        goal: true,
+      }
   });
   if (!task) throw createError(404, 'TASK_NOT_FOUND', 'Task not found');
   const linkedNotes = await prisma.note.findMany({
@@ -380,15 +465,19 @@ export async function createTask(userId: string, data: CreateTaskRequest): Promi
   // Recurring tasks need an anchor date to compute occurrences from, even if
   // the user didn't set one — default silently to today rather than forcing
   // it as a required field in the UI.
-  const dueDate = hasExplicitDueDate
-    ? new Date(data.dueDate as string)
-    : data.recurrenceRule
-    ? startOfToday()
-    : null;
+  const recurrenceData = recurrenceConfigToRule(data.recurrenceConfig, hasExplicitDueDate ? new Date(data.dueDate as string) : null);
+  const dueDate = recurrenceData.dueDate ?? (
+    hasExplicitDueDate
+      ? new Date(data.dueDate as string)
+      : data.recurrenceRule
+        ? startOfToday()
+        : null
+  );
   const dueTime = normalizeTimeString(data.dueTime);
   const reminderTime = resolveReminderTime(dueTime, data.reminderTime);
   const reminderMessage = data.reminderMessage?.trim() || null;
   const projectId = data.projectId?.trim() || null;
+  const goalId = data.goalId?.trim() || null;
 
   const task = await prisma.$transaction(async (tx) => {
     if (projectId) {
@@ -397,6 +486,22 @@ export async function createTask(userId: string, data: CreateTaskRequest): Promi
         select: { id: true },
       });
       if (!project) throw createError(404, 'PROJECT_NOT_FOUND', 'Project not found');
+    }
+    if (goalId) {
+      const goal = await tx.goal.findFirst({
+        where: { id: goalId, userId },
+        select: { id: true },
+      });
+      if (!goal) throw createError(404, 'GOAL_NOT_FOUND', 'Goal not found');
+    }
+    let resolvedProjectId = projectId;
+    if (!resolvedProjectId && goalId) {
+      const goalProject = await tx.project.findFirst({
+        where: { userId, goalId },
+        orderBy: { createdAt: 'asc' },
+        select: { id: true },
+      });
+      resolvedProjectId = goalProject?.id ?? null;
     }
 
     return tx.task.create({
@@ -410,13 +515,14 @@ export async function createTask(userId: string, data: CreateTaskRequest): Promi
         dueTime,
         reminderTime,
         reminderMessage,
-        recurrenceRule: data.recurrenceRule ?? null,
-        recurrenceEndDate: (data.recurrenceEndDate && data.recurrenceEndDate !== '') ? new Date(data.recurrenceEndDate) : null,
+        recurrenceRule: recurrenceData.recurrenceRule ?? data.recurrenceRule ?? null,
+        recurrenceEndDate: recurrenceData.recurrenceEndDate ?? ((data.recurrenceEndDate && data.recurrenceEndDate !== '') ? new Date(data.recurrenceEndDate) : null),
         skipDates: data.skipDates || [],
         parentTaskId: data.parentTaskId ?? null,
         estimatedDuration: data.estimatedDuration ?? null,
         attachmentUrl: data.attachmentUrl ?? null,
         voiceNoteUrl: data.voiceNoteUrl ?? null,
+        goalId,
         inProgressAt: data.status === 'IN_PROGRESS' ? new Date() : null,
         completedAt: data.status === 'DONE' ? new Date() : null,
         subTasks: data.subTasks && data.subTasks.length > 0 ? {
@@ -425,9 +531,9 @@ export async function createTask(userId: string, data: CreateTaskRequest): Promi
             order: st.order ?? index,
           }))
         } : undefined,
-        projectTasks: projectId ? {
+        projectTasks: resolvedProjectId ? {
           create: {
-            projectId,
+            projectId: resolvedProjectId,
             order: 0,
           },
         } : undefined,
@@ -435,12 +541,16 @@ export async function createTask(userId: string, data: CreateTaskRequest): Promi
       include: {
         subTasks: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] },
         projectTasks: { include: { project: true } },
+        goal: true,
       }
     });
   });
   await createActivity(task.id, userId, 'CREATED', `Created task "${task.title}"`);
-  if (projectId) {
-    await updateProjectProgress(projectId);
+  if (projectId || goalId) {
+    const linkedProjectId = projectId ?? (await prisma.project.findFirst({ where: { userId, goalId }, select: { id: true } }))?.id ?? null;
+    if (linkedProjectId) {
+      await updateProjectProgress(linkedProjectId);
+    }
   }
 
   // Fire-and-forget: sync to Google Calendar if connected
@@ -453,14 +563,20 @@ export async function updateTask(userId: string, taskId: string, data: UpdateTas
   const existing = await prisma.task.findFirst({
     where: { id: taskId, userId },
     include: {
-      user: { select: { timezone: true } },
-      subTasks: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] },
-      projectTasks: true,
-    },
+        user: { select: { timezone: true } },
+        subTasks: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] },
+        projectTasks: true,
+        goal: true,
+      },
   });
   if (!existing) throw createError(404, 'TASK_NOT_FOUND', 'Task not found');
   const previousAttachmentUrl = existing.attachmentUrl;
   const previousVoiceNoteUrl = existing.voiceNoteUrl;
+
+  if (data.goalId !== undefined && data.goalId !== null) {
+    const goal = await prisma.goal.findFirst({ where: { id: data.goalId, userId }, select: { id: true } });
+    if (!goal) throw createError(404, 'GOAL_NOT_FOUND', 'Goal not found');
+  }
 
   const wasNotDone = existing.status !== 'DONE';
   const isBeingMarkedDone = data.status === 'DONE';
@@ -489,11 +605,12 @@ export async function updateTask(userId: string, taskId: string, data: UpdateTas
   // Resolve the effective recurrence rule and due date after this update,
   // so we can anchor recurrence to "today" if the task ends up recurring
   // with no due date (covers turning recurrence on for the first time via edit).
-  const nextRecurrenceRule = data.recurrenceRule !== undefined ? data.recurrenceRule : existing.recurrenceRule;
   let nextDueDate: Date | null | undefined = undefined;
   if (data.dueDate !== undefined) {
     nextDueDate = (data.dueDate && data.dueDate !== '') ? new Date(data.dueDate) : null;
   }
+  const nextRecurrenceRule = data.recurrenceRule !== undefined ? data.recurrenceRule : existing.recurrenceRule;
+  const nextRecurrenceData = recurrenceConfigToRule(data.recurrenceConfig, nextDueDate ?? existing.dueDate);
   const nextDueTime = data.dueTime !== undefined
     ? normalizeTimeString(data.dueTime)
     : existing.dueTime ?? null;
@@ -514,7 +631,7 @@ export async function updateTask(userId: string, taskId: string, data: UpdateTas
     (existing.dueDate?.toISOString() ?? null) !== (nextDueDate?.toISOString() ?? null)
   );
   const dueTimeChanged = data.dueTime !== undefined && (existing.dueTime ?? null) !== (nextDueTime ?? null);
-  if (nextRecurrenceRule && !effectiveDueDate) {
+  if ((nextRecurrenceRule || nextRecurrenceData.recurrenceRule) && !effectiveDueDate) {
     nextDueDate = startOfToday();
   }
 
@@ -575,16 +692,20 @@ export async function updateTask(userId: string, taskId: string, data: UpdateTas
         ...(data.reminderMessage !== undefined && { reminderMessage: nextReminderMessage }),
         ...(data.recurrenceRule !== undefined && { recurrenceRule: data.recurrenceRule }),
         ...(data.recurrenceEndDate !== undefined && { recurrenceEndDate: (data.recurrenceEndDate && data.recurrenceEndDate !== '') ? new Date(data.recurrenceEndDate) : null }),
+        ...(data.recurrenceConfig !== undefined && nextRecurrenceData.recurrenceRule !== undefined && { recurrenceRule: nextRecurrenceData.recurrenceRule }),
+        ...(data.recurrenceConfig !== undefined && nextRecurrenceData.recurrenceEndDate !== undefined && { recurrenceEndDate: nextRecurrenceData.recurrenceEndDate }),
         ...(data.skipDates !== undefined && { skipDates: data.skipDates }),
         ...(data.attachmentUrl !== undefined && { attachmentUrl: data.attachmentUrl }),
         ...(data.voiceNoteUrl !== undefined && { voiceNoteUrl: data.voiceNoteUrl }),
         ...(data.estimatedDuration !== undefined && { estimatedDuration: data.estimatedDuration }),
+        ...(data.goalId !== undefined && { goalId: data.goalId || null }),
         ...(nextInProgressAt !== undefined && { inProgressAt: nextInProgressAt }),
         ...(nextCompletedAt !== undefined && { completedAt: nextCompletedAt }),
       },
       include: {
         subTasks: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] },
         projectTasks: { include: { project: true } },
+        goal: true,
       },
     });
 
@@ -694,6 +815,7 @@ export async function synchronizeRecurringTasks(userId?: string): Promise<void> 
     include: {
       subTasks: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] },
       projectTasks: true,
+      goal: true,
     },
   });
 

@@ -29,6 +29,7 @@ function toDTO(project: any): ProjectDTO {
     status: project.status,
     color: project.color ?? '#4F46E5',
     userId: project.userId,
+    goalId: project.goalId ?? null,
     startDate: project.startDate?.toISOString() ?? null,
     dueDate: project.dueDate?.toISOString() ?? null,
     attachmentUrl: project.attachmentUrl ?? null,
@@ -113,6 +114,11 @@ export async function createProject(
   userId: string,
   req: CreateProjectRequest
 ): Promise<ProjectDTO> {
+  if (req.goalId) {
+    const goal = await prisma.goal.findFirst({ where: { id: req.goalId, userId }, select: { id: true } });
+    if (!goal) throw createError(404, 'GOAL_NOT_FOUND', 'Goal not found');
+  }
+
   const project = await prisma.project.create({
     data: {
       userId,
@@ -124,6 +130,7 @@ export async function createProject(
       dueDate: req.dueDate ? new Date(req.dueDate) : null,
       attachmentUrl: normalizeMediaUrl(req.attachmentUrl),
       voiceNoteUrl: normalizeMediaUrl(req.voiceNoteUrl),
+      goalId: req.goalId ?? null,
     },
     include: {
       _count: { select: { tasks: true } },
@@ -147,6 +154,11 @@ export async function updateProject(
   const previousAttachmentUrl = existing.attachmentUrl;
   const previousVoiceNoteUrl = existing.voiceNoteUrl;
 
+  if (req.goalId !== undefined && req.goalId !== null) {
+    const goal = await prisma.goal.findFirst({ where: { id: req.goalId, userId }, select: { id: true } });
+    if (!goal) throw createError(404, 'GOAL_NOT_FOUND', 'Goal not found');
+  }
+
   const updated = await prisma.project.update({
     where: { id: projectId },
     data: {
@@ -158,6 +170,7 @@ export async function updateProject(
       ...(req.dueDate !== undefined && { dueDate: req.dueDate ? new Date(req.dueDate) : null }),
       ...(req.attachmentUrl !== undefined && { attachmentUrl: normalizeMediaUrl(req.attachmentUrl) }),
       ...(req.voiceNoteUrl !== undefined && { voiceNoteUrl: normalizeMediaUrl(req.voiceNoteUrl) }),
+      ...(req.goalId !== undefined && { goalId: req.goalId ?? null }),
       ...(req.progress !== undefined && { progress: req.progress }),
     },
     include: {

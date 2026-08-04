@@ -17,6 +17,7 @@ model User {
   googleCalendarConnection GoogleCalendarConnection?
   googleCalendarSyncItems  GoogleCalendarSyncItem[]
   habits                   Habit[]
+  goals                    Goal[]
   notes                    Note[]
   notifications            NotificationLog[]
   notificationPreferences  NotificationPreference?
@@ -27,5 +28,6 @@ model User {
   taskActivities           TaskActivity[]
   taskTimeEntries          TaskTimeEntry[]
   achievements             UserAchievement[]
+  aiPreferences            AIPreference?
   preferences              UserPreference?
 }

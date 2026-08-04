@@ -38,6 +38,12 @@ export interface EmailTemplateVars {
   templateVars: Record<string, any>;
 }
 
+/**
+ * Safety net: maximum number of emails a single user can receive per day.
+ * Prevents any future scheduler/notification regression from flooding inboxes.
+ */
+const DAILY_EMAIL_CAP = 10;
+
 /** Logs and delivers a notification across the requested channels. */
 export async function sendNotification(
   userId: string,
@@ -69,6 +75,20 @@ export async function sendNotification(
   for (const channel of channels) {
     try {
       if (channel === 'EMAIL') {
+        // Enforce a per-user daily email cap to guard against notification storms.
+        const dayStart = new Date();
+        dayStart.setHours(0, 0, 0, 0);
+        const emailsToday = await prisma.notificationLog.count({
+          where: {
+            userId,
+            channel: 'EMAIL',
+            sentAt: { gte: dayStart },
+          },
+        });
+        if (emailsToday > DAILY_EMAIL_CAP) {
+          console.warn(`⚠️  Daily email cap (${DAILY_EMAIL_CAP}) reached for User ${userId}. Skipping email: "${title}"`);
+          continue;
+        }
         let html: string;
         if (emailTemplate) {
           // Render the custom playful template
