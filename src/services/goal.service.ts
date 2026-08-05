@@ -21,7 +21,7 @@ function clampProgress(value: number | null | undefined): number {
   if (typeof value !== 'number' || Number.isNaN(value)) return 0;
   return Math.max(0, Math.min(100, Math.round(value)));
 }
-
+  
 function uniqueIds(ids?: string[]): string[] {
   return Array.from(new Set((ids ?? []).map((id) => id.trim()).filter(Boolean)));
 }
@@ -69,30 +69,96 @@ async function loadGoal(userId: string, goalId: string) {
   });
 }
 
+/**
+ * Compute goal progress from real, derived signals only:
+ *   Milestones 35%  → completed / (total − skipped)
+ *   Tasks      25%  → done / (total − cancelled)
+ *   Projects   20%  → average linked project progress
+ *   Habits     20%  → 4-week rolling completion consistency (smoothed)
+ *
+ * No manual input is ever used — every factor comes from user actions.
+ */
 function calculateProgress(goal: GoalWithRelations): number {
   const now = utcToday();
-  const weekStart = weekStartUtc();
 
-  const habitScore = goal.habits.length === 0
+  // ── Milestones (35%) ──────────────────────────────────────────────
+  const activeMilestones = goal.milestones.filter((m) => m.status !== 'SKIPPED');
+  const milestoneScore = activeMilestones.length === 0
     ? 0
-    : goal.habits.reduce((sum, habit) => {
-        const completionsThisWeek = habit.completions.filter((completion) => completion.date >= weekStart && completion.date <= now).length;
-        const target = Math.max(habit.targetPerWeek || 1, 1);
-        return sum + Math.min(1, completionsThisWeek / target);
-      }, 0) / goal.habits.length;
+    : activeMilestones.filter((m) => m.status === 'COMPLETED').length / activeMilestones.length;
 
-  const taskScore = goal.tasks.length === 0
+  // ── Tasks (25%) ───────────────────────────────────────────────────
+  const activeTasks = goal.tasks.filter((t) => t.status !== 'CANCELLED');
+  const taskScore = activeTasks.length === 0
     ? 0
-    : goal.tasks.filter((task) => task.status === 'DONE').length / goal.tasks.length;
+    : activeTasks.filter((t) => t.status === 'DONE').length / activeTasks.length;
 
+  // ── Projects (20%) ────────────────────────────────────────────────
   const projectScore = goal.projects.length === 0
     ? 0
     : goal.projects.reduce((sum, project) => sum + clampProgress(project.progress) / 100, 0) / goal.projects.length;
 
-  const manualScore = clampProgress(goal.manualProgress) / 100;
+  // ── Habits (20%) — 4-week rolling consistency ─────────────────────
+  // For each habit, average the weekly completion ratio over the last 4
+  // weeks (capped at 1 per week), then average across habits. This smooths
+  // single-week noise and rewards sustained momentum.
+  const habitScore = goal.habits.length === 0
+    ? 0
+    : goal.habits.reduce((sum, habit) => {
+        const target = Math.max(habit.targetPerWeek || 1, 1);
+        let weeksSum = 0;
+        for (let w = 0; w < 4; w++) {
+          const weekEnd = new Date(now);
+          weekEnd.setUTCDate(weekEnd.getUTCDate() - (w * 7));
+          const weekStart = new Date(weekEnd);
+          weekStart.setUTCDate(weekStart.getUTCDate() - 6);
+          const completionsInWeek = habit.completions.filter((completion) => {
+            const d = new Date(completion.date);
+            return d >= weekStart && d <= weekEnd;
+          }).length;
+          weeksSum += Math.min(1, completionsInWeek / target);
+        }
+        return sum + (weeksSum / 4);
+      }, 0) / goal.habits.length;
 
-  const weighted = (habitScore * 0.4) + (taskScore * 0.3) + (projectScore * 0.2) + (manualScore * 0.1);
+  const weighted = (milestoneScore * 0.35) + (taskScore * 0.25) + (projectScore * 0.2) + (habitScore * 0.2);
   return Math.max(0, Math.min(100, Math.round(weighted * 100)));
+}
+
+/**
+ * Recompute and persist a goal's progress from its linked work.
+ * Also auto-completes the goal when progress reaches 100%.
+ * Safe to call from any service that mutates linked tasks/habits/projects/milestones.
+ */
+export async function recomputeGoalProgress(goalId: string): Promise<void> {
+  const goal = await loadGoalForRecompute(goalId);
+  if (!goal) return;
+
+  const progress = calculateProgress(goal as any);
+  const nextStatus = progress >= 100 && goal.status === 'ACTIVE' ? 'COMPLETED' : goal.status;
+
+  await prisma.goal.update({
+    where: { id: goalId },
+    data: { progress, ...(nextStatus !== goal.status ? { status: nextStatus } : {}) },
+  });
+}
+
+async function loadGoalForRecompute(goalId: string) {
+  return prisma.goal.findUnique({
+    where: { id: goalId },
+    include: {
+      milestones: { select: { status: true } },
+      habits: {
+        select: {
+          id: true,
+          targetPerWeek: true,
+          completions: { select: { date: true } },
+        },
+      },
+      tasks: { select: { id: true, status: true } },
+      projects: { select: { id: true, progress: true } },
+    },
+  });
 }
 
 function toDTO(goal: GoalWithRelations): GoalDTO {
@@ -109,7 +175,6 @@ function toDTO(goal: GoalWithRelations): GoalDTO {
     status: goal.status as GoalDTO['status'],
     priority: goal.priority as GoalDTO['priority'],
     progress,
-    manualProgress: clampProgress(goal.manualProgress),
     aiSummary: goal.aiSummary ?? null,
     linkedHabitIds: goal.habits.map((habit) => habit.id),
     linkedTaskIds: goal.tasks.map((task) => task.id),
@@ -228,7 +293,6 @@ export async function createGoal(userId: string, data: CreateGoalRequest): Promi
         targetDate: data.targetDate ? new Date(data.targetDate) : null,
         status: data.status ?? 'ACTIVE',
         priority: data.priority ?? 'MEDIUM',
-        manualProgress: clampProgress(data.manualProgress),
         aiSummary: data.aiSummary ?? null,
       },
     });
@@ -280,7 +344,6 @@ export async function updateGoal(userId: string, goalId: string, data: UpdateGoa
         ...(data.targetDate !== undefined && { targetDate: data.targetDate ? new Date(data.targetDate) : null }),
         ...(data.status !== undefined && { status: data.status }),
         ...(data.priority !== undefined && { priority: data.priority }),
-        ...(data.manualProgress !== undefined && { manualProgress: clampProgress(data.manualProgress) }),
         ...(data.aiSummary !== undefined && { aiSummary: data.aiSummary }),
       },
     });
@@ -406,7 +469,6 @@ export async function createGoalWorkspace(userId: string, plan: GoalPlannerPlanD
         targetDate: plan.goal.targetDate ? new Date(plan.goal.targetDate) : null,
         status: plan.goal.status ?? 'ACTIVE',
         priority: plan.goal.priority ?? 'MEDIUM',
-        manualProgress: clampProgress(plan.goal.manualProgress),
         aiSummary: plan.summary || null,
       },
     });
@@ -517,6 +579,7 @@ export async function createGoalWorkspace(userId: string, plan: GoalPlannerPlanD
   ]);
 
   await Promise.all(projects.map((project) => updateProjectProgress(project.id).catch(() => undefined)));
+  await recomputeGoalProgress(createdGoal.id).catch(() => undefined);
 
   return {
     goal,
@@ -552,6 +615,7 @@ export async function createGoalMilestone(userId: string, goalId: string, data: 
       completedAt: data.status === 'COMPLETED' ? new Date() : null,
     },
   });
+  await recomputeGoalProgress(goalId).catch(() => undefined);
   return toMilestoneDTO(milestone);
 }
 
@@ -569,6 +633,7 @@ export async function updateGoalMilestone(userId: string, goalId: string, milest
       ...(data.status !== undefined && { completedAt: data.status === 'COMPLETED' ? new Date() : data.status === 'PENDING' ? null : milestone.completedAt }),
     },
   });
+  await recomputeGoalProgress(goalId).catch(() => undefined);
   return toMilestoneDTO(updated);
 }
 
@@ -576,4 +641,5 @@ export async function deleteGoalMilestone(userId: string, goalId: string, milest
   const milestone = await prisma.goalMilestone.findFirst({ where: { id: milestoneId, goalId } });
   if (!milestone) throw createError(404, 'GOAL_MILESTONE_NOT_FOUND', 'Goal milestone not found');
   await prisma.goalMilestone.delete({ where: { id: milestoneId } });
+  await recomputeGoalProgress(goalId).catch(() => undefined);
 }

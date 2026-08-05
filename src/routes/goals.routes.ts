@@ -19,7 +19,6 @@ const baseSchema = z.object({
   targetDate: z.string().optional().nullable().refine((val) => val == null || /^\d{4}-\d{2}-\d{2}$/.test(val), 'Invalid date format'),
   status: goalStatusSchema.optional(),
   priority: goalPrioritySchema.optional(),
-  manualProgress: z.number().int().min(0).max(100).optional(),
   aiSummary: z.string().max(5000).optional().nullable(),
   linkedHabitIds: z.array(z.string()).optional(),
   linkedTaskIds: z.array(z.string()).optional(),

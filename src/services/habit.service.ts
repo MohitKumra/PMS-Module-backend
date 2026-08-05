@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prismaClient';
 import { createError } from '../middleware/errorHandler';
+import { recomputeGoalProgress } from './goal.service';
 import { awardHabitCompletion, revokeHabitCompletion, deductPoints } from './gamification.service';
 import * as notifService from './notification.service';
 import type { HabitDTO, CreateHabitRequest, UpdateHabitRequest, WeekOverviewDTO, HabitStreakBreakDTO } from '../types';
@@ -439,6 +440,9 @@ export async function toggleCompletion(userId: string, habitId: string): Promise
     await awardHabitCompletion(userId, completionId, habit.title);
   } else if (wasCompleted && existing) {
     await revokeHabitCompletion(userId, existing.id, habit.title);
+  }
+  if (finalHabit.goalId) {
+    await recomputeGoalProgress(finalHabit.goalId).catch(() => undefined);
   }
   return toDTO(finalHabit);
 }

@@ -7,6 +7,7 @@ import { createError } from '../middleware/errorHandler';
 import { deleteStoredFile } from '../lib/fileStorage';
 import { rrulestr } from 'rrule';
 import { updateProjectProgress } from './project.service';
+import { recomputeGoalProgress } from './goal.service';
 import { syncGoogleCalendarTasks, deleteGoogleCalendarEvents } from './google.service';
 import { awardTaskCompletion, revokeTaskCompletion, deleteTaskPoints } from './gamification.service';
 import { toNoteDTO } from './notes.service';
@@ -556,6 +557,10 @@ export async function createTask(userId: string, data: CreateTaskRequest): Promi
   // Fire-and-forget: sync to Google Calendar if connected
   triggerCalendarSync(userId);
 
+  if (goalId) {
+    await recomputeGoalProgress(goalId).catch(() => undefined);
+  }
+
   return toDTO(task);
 }
 
@@ -774,6 +779,11 @@ export async function updateTask(userId: string, taskId: string, data: UpdateTas
     await updateProjectProgress(projectTask.projectId);
   }
 
+  const effectiveGoalId = data.goalId !== undefined ? (data.goalId || null) : (existing.goalId ?? null);
+  if (effectiveGoalId) {
+    await recomputeGoalProgress(effectiveGoalId).catch(() => undefined);
+  }
+
   // Fire-and-forget: sync to Google Calendar if connected
   triggerCalendarSync(userId);
 
@@ -799,6 +809,10 @@ export async function deleteTask(userId: string, taskId: string): Promise<void> 
 
   if (projectTask) {
     await updateProjectProgress(projectTask.projectId);
+  }
+
+  if (existing.goalId) {
+    await recomputeGoalProgress(existing.goalId).catch(() => undefined);
   }
 
   // Fire-and-forget: sync to Google Calendar if connected

@@ -335,8 +335,7 @@ Output ONLY valid JSON with this exact shape:
     "color": "#4F46E5",
     "targetDate": "YYYY-MM-DD (realistic deadline, must be >= {{TODAY_DATE}}) or null",
     "status": "ACTIVE",
-    "priority": "LOW|MEDIUM|HIGH|CRITICAL",
-    "manualProgress": 0
+    "priority": "LOW|MEDIUM|HIGH|CRITICAL"
   },
   "summary": "2-3 sentence executive summary of the full plan",
   "milestones": [
@@ -421,7 +420,6 @@ function fallbackGoalPlan(prompt: string, todayDateStr?: string): GoalPlannerPla
       targetDate: addDays(45),
       status: 'ACTIVE',
       priority: 'MEDIUM',
-      manualProgress: 0,
     },
     summary: `Workspace generated from: ${title}`,
     milestones: [

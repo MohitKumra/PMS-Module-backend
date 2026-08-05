@@ -4,6 +4,7 @@
 import { prisma } from '../lib/prismaClient';
 import { createError } from '../middleware/errorHandler';
 import { deleteStoredFile } from '../lib/fileStorage';
+import { recomputeGoalProgress } from './goal.service';
 import { awardProjectCompletion, revokeProjectCompletion, deleteProjectPoints } from './gamification.service';
 import type {
   ProjectDTO,
@@ -382,4 +383,8 @@ export async function updateProjectProgress(projectId: string): Promise<void> {
     where: { id: projectId },
     data: { progress },
   });
+
+  if (project.goalId) {
+    await recomputeGoalProgress(project.goalId).catch(() => undefined);
+  }
 }

@@ -98,10 +98,22 @@ export async function getEnhancedDashboard(userId: string): Promise<EnhancedDash
 
 /**
  * Get pending tasks count for today.
+ * Counts only tasks that are overdue or due today (plus undated tasks) —
+ * future-dated tasks are excluded from the sidebar badge.
  */
 export async function getPendingTasksCount(userId: string): Promise<number> {
+  const now = new Date();
+  const endOfToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999));
+
   return prisma.task.count({
-    where: { userId, status: { in: ['TODO', 'IN_PROGRESS'] } },
+    where: {
+      userId,
+      status: { in: ['TODO', 'IN_PROGRESS'] },
+      OR: [
+        { dueDate: null },                // undated = pending
+        { dueDate: { lte: endOfToday } }, // overdue or due today
+      ],
+    },
   });
 }
 
