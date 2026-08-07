@@ -4,7 +4,7 @@
 // a zero-token fallback shape.
 
 import { Request, Response } from 'express';
-import { getAIStatus, generateAIInsights, generateAICoach, generateDailyBrief, analyzeJournalEntry, analyzeJournalWeek, parseTaskFromNaturalLanguage, generateGoalPlan } from '../services/ai/aiService';
+import { getAIStatus, generateAIInsights, generateAICoach, generateDailyBrief, analyzeJournalEntry, analyzeJournalWeek, parseTaskFromNaturalLanguage, generateGoalPlan, fallbackGoalPlan } from '../services/ai/aiService';
 import { getSummary, getWeeklyProgress, getUpcomingDeadlines } from '../services/analytics.service';
 import { prisma } from '../lib/prismaClient';
 import * as goalService from '../services/goal.service';
@@ -310,7 +310,7 @@ export async function postGoalPlan(req: Request, res: Response) {
     const userId = req.user!.sub;
     const enabled = await isAIFeatureEnabled(userId, 'goalPlannerEnabled');
     if (!enabled) {
-      const fallback = await generateGoalPlan(userId, prompt);
+      const fallback = fallbackGoalPlan(prompt);
       res.json({ ...fallback, source: 'fallback' as const });
       return;
     }

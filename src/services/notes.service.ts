@@ -30,6 +30,7 @@ export function toNoteDTO(n: any): NoteDTO {
     mood: n.mood ?? null,
     tags: n.tags ?? [],
     archived: n.archived ?? false,
+    bookmarkPage: n.bookmarkPage ?? null,
     createdAt: n.createdAt instanceof Date ? n.createdAt.toISOString() : n.createdAt,
     updatedAt: n.updatedAt instanceof Date ? n.updatedAt.toISOString() : n.updatedAt,
   };
@@ -150,6 +151,7 @@ export async function createNote(userId: string, data: CreateNoteRequest): Promi
       voiceNoteUrl: normalizeMediaUrl(data.voiceNoteUrl),
       mood: data.mood ?? null,
       tags: data.tags ?? [],
+      bookmarkPage: data.bookmarkPage ?? null,
     },
   });
   return toNoteDTO(note);
@@ -183,6 +185,7 @@ export async function updateNote(userId: string, noteId: string, data: UpdateNot
       ...(data.mood !== undefined && { mood: data.mood }),
       ...(data.tags !== undefined && { tags: data.tags }),
       ...(data.archived !== undefined && { archived: data.archived }),
+      ...(data.bookmarkPage !== undefined && { bookmarkPage: data.bookmarkPage }),
     },
   });
   if (data.attachmentUrl !== undefined && data.attachmentUrl !== previousAttachmentUrl) {

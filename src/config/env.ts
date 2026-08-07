@@ -45,7 +45,7 @@ const envSchema = z.object({
   AI_PROVIDER: z.enum(['groq', 'openai', '']).default(''),
   AI_MODEL: z.string().optional(),
   AI_BASE_URL: z.string().optional(),
-  AI_MAX_TOKENS: z.string().default('1024'),
+  AI_max_completion_tokens: z.string().default('1024'),
   AI_TEMPERATURE: z.string().default('0.7'),
 });
 

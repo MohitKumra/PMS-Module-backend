@@ -20,6 +20,7 @@ const createSchema = z.object({
   tags: z.array(z.string().max(50)).max(20).optional(),
   isPinned: z.boolean().optional(),
   archived: z.boolean().optional(),
+  bookmarkPage: z.number().nullable().optional(),
 });
 const idParams = z.object({ id: z.string() });
 

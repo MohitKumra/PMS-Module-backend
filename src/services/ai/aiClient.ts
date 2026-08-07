@@ -121,7 +121,7 @@ export async function complete(options: AIRequestOptions): Promise<AIResponse | 
     return null;
   }
 
-  const maxTokens = options.maxTokens ?? parseInt(env.AI_MAX_TOKENS || '1024', 10);
+  const maxTokens = options.maxTokens ?? parseInt(env.AI_max_completion_tokens || '1024', 10);
   const temperature = options.temperature ?? parseFloat(env.AI_TEMPERATURE || '0.7');
 
   try {
@@ -133,7 +133,7 @@ export async function complete(options: AIRequestOptions): Promise<AIResponse | 
     const completion = await aiClient.chat.completions.create({
       model: currentModel,
       messages,
-      max_tokens: maxTokens,
+      max_completion_tokens: maxTokens,
       temperature,
       ...(options.responseFormat === 'json_object'
         ? { response_format: { type: 'json_object' as const } }

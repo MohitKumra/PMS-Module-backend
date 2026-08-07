@@ -576,6 +576,7 @@ export interface NoteDTO {
   mood: NoteMood;
   tags: string[];
   archived: boolean;
+  bookmarkPage?: number | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -590,6 +591,7 @@ export interface CreateNoteRequest {
   voiceNoteUrl?: string | null;
   mood?: NoteMood;
   tags?: string[];
+  bookmarkPage?: number | null;
 }
 
 export interface UpdateNoteRequest {
@@ -604,6 +606,7 @@ export interface UpdateNoteRequest {
   mood?: NoteMood;
   tags?: string[];
   archived?: boolean;
+  bookmarkPage?: number | null;
 }
 
 export interface NoteListFilters {

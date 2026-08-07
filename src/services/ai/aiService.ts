@@ -393,7 +393,7 @@ Rules:
 - If the prompt is vague, infer a strong default workspace for a personal productivity goal.
 `;
 
-function fallbackGoalPlan(prompt: string, todayDateStr?: string): GoalPlannerPlanDTO {
+export function fallbackGoalPlan(prompt: string, todayDateStr?: string): GoalPlannerPlanDTO {
   const trimmed = prompt.trim();
   const headline = trimmed.split(/[.\n]/)[0]?.trim() || 'Goal';
   const title = headline.length > 70 ? `${headline.slice(0, 67).trimEnd()}...` : headline;
