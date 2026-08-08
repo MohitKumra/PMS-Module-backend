@@ -9,7 +9,7 @@ async function main() {
         avatarUrl: true,
       },
     });
-    
+
     console.log('Users and their avatar URLs:');
     console.log(JSON.stringify(users, null, 2));
   } finally {

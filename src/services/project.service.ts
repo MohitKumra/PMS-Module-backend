@@ -111,10 +111,7 @@ export async function getProject(userId: string, projectId: string): Promise<Pro
 }
 
 /** Create a new project */
-export async function createProject(
-  userId: string,
-  req: CreateProjectRequest
-): Promise<ProjectDTO> {
+export async function createProject(userId: string, req: CreateProjectRequest): Promise<ProjectDTO> {
   if (req.goalId) {
     const goal = await prisma.goal.findFirst({ where: { id: req.goalId, userId }, select: { id: true } });
     if (!goal) throw createError(404, 'GOAL_NOT_FOUND', 'Goal not found');
@@ -142,11 +139,7 @@ export async function createProject(
 }
 
 /** Update a project */
-export async function updateProject(
-  userId: string,
-  projectId: string,
-  req: UpdateProjectRequest
-): Promise<ProjectDTO> {
+export async function updateProject(userId: string, projectId: string, req: UpdateProjectRequest): Promise<ProjectDTO> {
   const existing = await prisma.project.findFirst({
     where: { id: projectId, userId },
   });
@@ -241,10 +234,10 @@ export async function assignTaskToProject(
   });
   if (!task) throw createError(404, 'TASK_NOT_FOUND', 'Task not found');
 
-   // Check if task is already assigned to this project
-   const existing = await prisma.projectTask.findUnique({
-     where: { taskId: req.taskId },
-   });
+  // Check if task is already assigned to this project
+  const existing = await prisma.projectTask.findUnique({
+    where: { taskId: req.taskId },
+  });
 
   if (existing) throw createError(400, 'TASK_ALREADY_ASSIGNED', 'Task already assigned to this project');
 
@@ -260,11 +253,7 @@ export async function assignTaskToProject(
 }
 
 /** Remove a task from a project */
-export async function removeTaskFromProject(
-  userId: string,
-  projectId: string,
-  taskId: string
-): Promise<void> {
+export async function removeTaskFromProject(userId: string, projectId: string, taskId: string): Promise<void> {
   const project = await prisma.project.findFirst({
     where: { id: projectId, userId },
   });
@@ -306,7 +295,7 @@ export async function addProjectMedia(
   type: 'attachment' | 'voice_note',
   fileName?: string,
   mimeType?: string,
-  size?: number,
+  size?: number
 ): Promise<void> {
   const project = await prisma.project.findFirst({
     where: { id: projectId, userId },
@@ -326,11 +315,7 @@ export async function addProjectMedia(
 }
 
 /** Remove a media item from a project */
-export async function removeProjectMedia(
-  userId: string,
-  projectId: string,
-  mediaId: string,
-): Promise<void> {
+export async function removeProjectMedia(userId: string, projectId: string, mediaId: string): Promise<void> {
   const project = await prisma.project.findFirst({
     where: { id: projectId, userId },
   });

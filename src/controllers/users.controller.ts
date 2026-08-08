@@ -1,4 +1,4 @@
-import { Request, Response, NextFunction } from 'express';
+import type { Request, Response, NextFunction } from 'express';
 import { prisma } from '../lib/prismaClient';
 import { createError } from '../middleware/errorHandler';
 import { deleteStoredFile, storeBase64File } from '../lib/fileStorage';

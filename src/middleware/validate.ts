@@ -3,8 +3,9 @@
 // Usage: router.post('/route', validate({ body: MySchema }), controller)
 // Controllers never see malformed data — validation errors are returned as 400.
 
-import { Request, Response, NextFunction } from 'express';
-import { ZodSchema, ZodError } from 'zod';
+import type { Request, Response, NextFunction } from 'express';
+import type { ZodSchema } from 'zod';
+import { ZodError } from 'zod';
 
 interface ValidateSchemas {
   body?: ZodSchema;

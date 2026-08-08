@@ -1,0 +1,110 @@
+# name: Backend PR Checks
+
+# on:
+#   pull_request:
+#     types: [opened, synchronize, reopened]
+#   push:
+#     branches: [main]
+
+# concurrency:
+#   group: ${{ github.workflow }}-${{ github.ref }}
+#   cancel-in-progress: true
+
+# jobs:
+#   backend-checks:
+#     name: Backend Verification
+#     runs-on: ubuntu-latest
+#     services:
+#       postgres:
+#         image: postgres:16
+#         env:
+#           POSTGRES_USER: postgres
+#           POSTGRES_PASSWORD: postgres
+#           POSTGRES_DB: pms_test
+#         ports:
+#           - 5432:5432
+#         options: >-
+#           --health-cmd "pg_isready -U postgres"
+#           --health-interval 10s
+#           --health-timeout 5s
+#           --health-retries 5
+#     env:
+#       NODE_ENV: test
+#       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/pms_test?schema=public
+#       TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/pms_test?schema=public
+#       JWT_SECRET: ci-test-secret-that-is-at-least-32-characters-long
+#       JWT_REFRESH_SECRET: ci-test-refresh-secret-that-is-at-least-32-chars
+#     steps:
+#       - name: Checkout
+#         uses: actions/checkout@v4
+
+#       - name: Setup Node
+#         uses: actions/setup-node@v4
+#         with:
+#           node-version-file: .nvmrc
+#           cache: npm
+#           cache-dependency-path: package-lock.json
+
+#       - name: Install dependencies
+#         run: npm ci
+
+#       - name: Formatting check
+#         run: npm run format:check
+
+#       - name: ESLint
+#         run: npm run lint
+
+#       - name: TypeScript
+#         run: npm run typecheck
+
+#       - name: Prisma validate
+#         run: npm run prisma:validate
+
+#       - name: Prisma generate
+#         run: npm run prisma:generate
+
+#       - name: Migration reproducibility (clean DB)
+#         run: npm run migration:test
+
+#       - name: Migration consistency
+#         run: npm run migration:consistency
+
+#       - name: Destructive migration scan
+#         run: npm run migration:destructive
+
+#       - name: Unit tests
+#         run: npm run test:unit
+
+#       - name: Integration tests
+#         run: npm run test:integration
+
+#       - name: Build
+#         run: npm run build
+
+#       - name: Production startup smoke test
+#         run: npm run start:smoke
+
+#   security:
+#     name: Security & Secrets
+#     runs-on: ubuntu-latest
+#     steps:
+#       - name: Checkout
+#         uses: actions/checkout@v4
+
+#       - name: Setup Node
+#         uses: actions/setup-node@v4
+#         with:
+#           node-version-file: .nvmrc
+#           cache: npm
+#           cache-dependency-path: package-lock.json
+
+#       - name: Install dependencies
+#         run: npm ci
+
+#       - name: Dependency audit (critical/high block)
+#         run: npm audit --audit-level=high
+
+#       - name: Secret scan (gitleaks)
+#         uses: gitleaks/gitleaks-action@v2
+#         env:
+#           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

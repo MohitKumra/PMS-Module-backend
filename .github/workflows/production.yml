@@ -1,0 +1,99 @@
+# name: Backend Production Deployment
+
+# on:
+#   workflow_dispatch:
+#     inputs:
+#       confirm:
+#         description: 'Type "DEPLOY" to confirm production deployment'
+#         required: true
+#         default: ''
+
+# concurrency:
+#   group: production
+#   cancel-in-progress: false
+
+# jobs:
+#   verify-input:
+#     name: Verify deployment confirmation
+#     runs-on: ubuntu-latest
+#     steps:
+#       - name: Check confirmation
+#         run: |
+#           if [[ "${{ github.event.inputs.confirm }}" != "DEPLOY" ]]; then
+#             echo "❌  You must type DEPLOY to confirm production deployment."
+#             exit 1
+#           fi
+#           echo "✅  Deployment confirmed."
+
+#   deploy-production:
+#     name: Deploy to Production
+#     runs-on: ubuntu-latest
+#     environment: production
+#     needs: verify-input
+#     env:
+#       NODE_ENV: production
+#       DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+#       JWT_SECRET: ${{ secrets.PRODUCTION_JWT_SECRET }}
+#       JWT_REFRESH_SECRET: ${{ secrets.PRODUCTION_JWT_REFRESH_SECRET }}
+#       FRONTEND_URL: ${{ secrets.PRODUCTION_FRONTEND_URL }}
+#       BACKEND_URL: ${{ secrets.PRODUCTION_BACKEND_URL }}
+#     steps:
+#       - name: Checkout
+#         uses: actions/checkout@v4
+
+#       - name: Setup Node
+#         uses: actions/setup-node@v4
+#         with:
+#           node-version-file: .nvmrc
+#           cache: npm
+#           cache-dependency-path: package-lock.json
+
+#       - name: Install dependencies
+#         run: npm ci
+
+#       - name: Backend build
+#         run: npm run build
+
+#       # ─── 1. Database backup (before any migration) ──────────────────────────
+#       # Replace this with your actual database provider's backup mechanism.
+#       # Examples:
+#       #   - Postgres + pg_dump:   pg_dump "$DATABASE_URL" | gzip > backup.sql.gz
+#       #   - Supabase:             supabase db dump
+#       #   - Neon:                 neon backup or platform snapshot
+#       #   - RDS:                  AWS RDS snapshot
+#       - name: Database backup
+#         run: |
+#           echo "::warning::Replace this step with your database provider's backup mechanism."
+#           echo "Backing up production database before migrations (commit ${{ github.sha }})."
+
+#       # ─── 2. Apply database migrations (safe: migrate deploy) ───────────────
+#       - name: Apply database migrations
+#         run: npx prisma migrate deploy --config=prisma.config.ts
+#         env:
+#           DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+
+#       # ─── 3. Deploy the backend artifact to your hosting platform ───────────
+#       # Replace this placeholder with your actual deployment mechanism.
+#       - name: Deploy backend artifact
+#         run: |
+#           echo "::warning::Replace this step with your hosting platform deployment."
+#           echo "Deploying backend build from ${{ github.sha }}"
+
+#       # ─── 4. Health & readiness checks ──────────────────────────────────────
+#       - name: Health check
+#         run: |
+#           curl --fail --retry 10 --retry-delay 5 --retry-all-errors \
+#             "${{ secrets.PRODUCTION_BACKEND_URL }}/health"
+
+#       - name: Readiness check
+#         run: |
+#           curl --fail --retry 10 --retry-delay 5 --retry-all-errors \
+#             "${{ secrets.PRODUCTION_BACKEND_URL }}/ready"
+
+#       # ─── 5. Smoke tests ────────────────────────────────────────────────────
+#       - name: Smoke test (unauthenticated health)
+#         run: |
+#           curl --fail "${{ secrets.PRODUCTION_BACKEND_URL }}/health"
+
+#       - name: Production deployment complete
+#         run: echo "Production deployment of ${{ github.sha }} completed successfully."

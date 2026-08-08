@@ -42,7 +42,8 @@ function mapTaskEvent(task: {
     taskId: task.id,
     priority: task.priority,
     status: task.status,
-    sourceLabel: task.status === 'DONE' ? 'Completed task' : task.status === 'CANCELLED' ? 'Cancelled task' : 'Task due date',
+    sourceLabel:
+      task.status === 'DONE' ? 'Completed task' : task.status === 'CANCELLED' ? 'Cancelled task' : 'Task due date',
     metadata: {
       description: task.description,
     },
@@ -58,15 +59,19 @@ function mapFocusEvent(session: any): CalendarEventDTO {
     id: `focus-${session.id}`,
     type: 'FOCUS_SESSION',
     title: isBreakSession
-      ? (isCompleted ? 'Break' : 'Incomplete break')
-      : (isCompleted ? 'Focus session' : 'Incomplete focus session'),
+      ? isCompleted
+        ? 'Break'
+        : 'Incomplete break'
+      : isCompleted
+        ? 'Focus session'
+        : 'Incomplete focus session',
     startAt: toIsoDate(startAt),
     endAt: toIsoDate(endAt),
     allDay: false,
     taskId: null,
     priority: null,
     status: null,
-    sourceLabel: isBreakSession ? 'Break' : (isCompleted ? 'Pomodoro' : 'Focus draft'),
+    sourceLabel: isBreakSession ? 'Break' : isCompleted ? 'Pomodoro' : 'Focus draft',
     metadata: {
       durationMin: session.durationMin,
     },
@@ -75,7 +80,7 @@ function mapFocusEvent(session: any): CalendarEventDTO {
 
 export async function getCalendarOverview(
   userId: string,
-  range: { from: string; to: string },
+  range: { from: string; to: string }
 ): Promise<CalendarOverviewDTO> {
   const from = parseDateOnly(range.from);
   const to = normalizeEndOfDay(parseDateOnly(range.to));
@@ -132,10 +137,9 @@ export async function getCalendarOverview(
     });
   }
 
-  const events = [
-    ...filteredTasks.map(mapTaskEvent),
-    ...sessions.map(mapFocusEvent),
-  ].sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
+  const events = [...filteredTasks.map(mapTaskEvent), ...sessions.map(mapFocusEvent)].sort(
+    (a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime()
+  );
 
   return {
     range: {

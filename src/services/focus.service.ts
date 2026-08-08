@@ -19,30 +19,39 @@ import { awardFocusSession } from './gamification.service';
 
 function toDTO(s: any): FocusSessionDTO {
   return {
-    id: s.id, userId: s.userId, durationMin: s.durationMin,
+    id: s.id,
+    userId: s.userId,
+    durationMin: s.durationMin,
     elapsedMin: s.elapsedMin ?? 0,
     startedAt: s.startedAt.toISOString(),
     status: (s.status ?? 'IN_PROGRESS') as FocusSessionStatus,
     completedAt: s.completedAt?.toISOString() ?? null,
-    taskId: s.taskId, projectId: s.projectId, isBreak: s.isBreak ?? false,
+    taskId: s.taskId,
+    projectId: s.projectId,
+    isBreak: s.isBreak ?? false,
   };
 }
 
-function toTimeLogDTO(l: {
-  id: string; userId: string; durationMin: number; date: Date;
-}): FocusTimeLogDTO {
+function toTimeLogDTO(l: { id: string; userId: string; durationMin: number; date: Date }): FocusTimeLogDTO {
   return {
-    id: l.id, userId: l.userId, durationMin: l.durationMin,
+    id: l.id,
+    userId: l.userId,
+    durationMin: l.durationMin,
     date: l.date.toISOString(),
   };
 }
 
 // ─── List helpers (backward compat) ──────────────────────────────────────────
 
-export async function listSessions(userId: string, limit = 100): Promise<{ data: FocusSessionDTO[]; meta: { total: number } }> {
+export async function listSessions(
+  userId: string,
+  limit = 100
+): Promise<{ data: FocusSessionDTO[]; meta: { total: number } }> {
   const [sessions, total] = await Promise.all([
     prisma.focusSession.findMany({
-      where: { userId }, orderBy: { startedAt: 'desc' }, take: limit,
+      where: { userId },
+      orderBy: { startedAt: 'desc' },
+      take: limit,
     }),
     prisma.focusSession.count({ where: { userId } }),
   ]);
@@ -96,7 +105,7 @@ export async function createSession(userId: string, data: CreateFocusSessionRequ
 export async function updateSession(
   userId: string,
   sessionId: string,
-  data: UpdateFocusSessionRequest,
+  data: UpdateFocusSessionRequest
 ): Promise<FocusSessionDTO> {
   const session = await prisma.focusSession.findFirst({
     where: { id: sessionId, userId, status: 'IN_PROGRESS' },
@@ -120,10 +129,7 @@ export async function updateSession(
 // ─── Complete (timer finished) ───────────────────────────────────────────────
 // Called when the timer reaches 0. Awards XP and counts in stats.
 
-export async function completeSession(
-  userId: string,
-  sessionId: string,
-): Promise<FocusSessionDTO> {
+export async function completeSession(userId: string, sessionId: string): Promise<FocusSessionDTO> {
   const session = await prisma.focusSession.findFirst({
     where: { id: sessionId, userId, status: 'IN_PROGRESS' },
   });
@@ -156,7 +162,7 @@ export async function completeSession(
       userId,
       `Focus session complete: ${updated.durationMin} min`,
       'Your focus block finished successfully.',
-      ['BROWSER_PUSH', 'EMAIL'],
+      ['BROWSER_PUSH', 'EMAIL']
     );
   }
 
@@ -167,10 +173,7 @@ export async function completeSession(
 // Called when the user cancels a session (e.g., exit without completing).
 // No XP awarded, not counted in stats.
 
-export async function cancelSession(
-  userId: string,
-  sessionId: string,
-): Promise<FocusSessionDTO> {
+export async function cancelSession(userId: string, sessionId: string): Promise<FocusSessionDTO> {
   const session = await prisma.focusSession.findFirst({
     where: { id: sessionId, userId, status: 'IN_PROGRESS' },
   });

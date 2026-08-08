@@ -3,7 +3,8 @@
 // and implements delivery across multiple channels (Web Push, Email).
 
 import { prisma } from '../lib/prismaClient';
-import { sendPush, PushSubscription } from '../lib/pushSender';
+import type { PushSubscription } from '../lib/pushSender';
+import { sendPush } from '../lib/pushSender';
 import { sendMail, renderHabitReminder, renderTaskDue, renderProjectDeadline } from '../lib/mailer';
 import { createError } from '../middleware/errorHandler';
 import type { NotificationChannel } from '../types';
@@ -86,7 +87,9 @@ export async function sendNotification(
           },
         });
         if (emailsToday > DAILY_EMAIL_CAP) {
-          console.warn(`⚠️  Daily email cap (${DAILY_EMAIL_CAP}) reached for User ${userId}. Skipping email: "${title}"`);
+          console.warn(
+            `⚠️  Daily email cap (${DAILY_EMAIL_CAP}) reached for User ${userId}. Skipping email: "${title}"`
+          );
           continue;
         }
         let html: string;

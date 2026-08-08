@@ -59,7 +59,7 @@ export async function signup(
   email: string,
   password: string,
   name?: string,
-  timezone?: string | null,
+  timezone?: string | null
 ): Promise<AuthResponse> {
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) throw createError(409, 'EMAIL_IN_USE', 'An account with this email already exists');
@@ -90,7 +90,7 @@ export async function signup(
 export async function login(
   email: string,
   password: string,
-  timezone?: string | null,
+  timezone?: string | null
 ): Promise<{ response: AuthResponse; refreshToken: string }> {
   const user = await prisma.user.findUnique({ where: { email } });
   if (!user || !user.passwordHash) {
@@ -120,9 +120,7 @@ export async function login(
 // Refresh
 // ---------------------------------------------------------------------------
 
-export async function refreshTokens(
-  refreshToken: string,
-): Promise<{ accessToken: string; refreshToken: string }> {
+export async function refreshTokens(refreshToken: string): Promise<{ accessToken: string; refreshToken: string }> {
   let payload;
   try {
     payload = verifyRefreshToken(refreshToken);
@@ -216,7 +214,7 @@ export async function setPassword(userId: string, newPassword: string): Promise<
 export async function changePassword(
   userId: string,
   currentPassword: string | undefined,
-  newPassword: string,
+  newPassword: string
 ): Promise<void> {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) throw createError(404, 'USER_NOT_FOUND', 'User not found');

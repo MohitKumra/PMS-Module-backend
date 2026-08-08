@@ -12,49 +12,57 @@ import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import path from 'path';
 
-import aiRoutes           from './routes/ai.routes';
-import authRoutes         from './routes/auth.routes';
-import tasksRoutes        from './routes/tasks.routes';
-import habitsRoutes       from './routes/habits.routes';
-import notesRoutes        from './routes/notes.routes';
-import calendarRoutes     from './routes/calendar.routes';
-import focusRoutes        from './routes/focus.routes';
-import analyticsRoutes    from './routes/analytics.routes';
-import goalsRoutes        from './routes/goals.routes';
+import aiRoutes from './routes/ai.routes';
+import authRoutes from './routes/auth.routes';
+import tasksRoutes from './routes/tasks.routes';
+import habitsRoutes from './routes/habits.routes';
+import notesRoutes from './routes/notes.routes';
+import calendarRoutes from './routes/calendar.routes';
+import focusRoutes from './routes/focus.routes';
+import analyticsRoutes from './routes/analytics.routes';
+import goalsRoutes from './routes/goals.routes';
 import notificationsRoutes from './routes/notifications.routes';
-import settingsRoutes      from './routes/settings.routes';
-import gamificationRoutes  from './routes/gamification.routes';
-import dashboardRoutes    from './routes/dashboard.routes';
-import searchRoutes       from './routes/search.routes';
-import usersRoutes        from './routes/users.routes';
-import uploadsRoutes      from './routes/uploads.routes';
-import mediaFileRoutes    from './routes/media-file.routes';
-import schedulerRoutes    from './routes/scheduler.routes';
-import notionRoutes       from './routes/notion.routes';
-import projectsController  from './controllers/projects.controller';
-import { errorHandler }   from './middleware/errorHandler';
+import settingsRoutes from './routes/settings.routes';
+import gamificationRoutes from './routes/gamification.routes';
+import dashboardRoutes from './routes/dashboard.routes';
+import searchRoutes from './routes/search.routes';
+import usersRoutes from './routes/users.routes';
+import uploadsRoutes from './routes/uploads.routes';
+import mediaFileRoutes from './routes/media-file.routes';
+import schedulerRoutes from './routes/scheduler.routes';
+import notionRoutes from './routes/notion.routes';
+import projectsController from './controllers/projects.controller';
+import { errorHandler } from './middleware/errorHandler';
 import { startScheduler } from './jobs/reminderScheduler';
+import { prisma } from './lib/prismaClient';
 
 const app = express();
 
+// ─── Readiness check ─────────────────────────────────────────────────────────
+// Verifies critical dependencies (database connectivity) required to serve traffic.
+// Never exposes credentials or internal connection details.
+app.get('/ready', async (_req, res) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    res.json({ status: 'ready' });
+  } catch {
+    res.status(503).json({ status: 'not_ready', reason: 'database_unavailable' });
+  }
+});
+
 // ─── Core middleware ──────────────────────────────────────────────────────────
-app.use(cors({
-  origin: env.FRONTEND_URL,
-  credentials: true,  
-  methods : [
-    'POST',
-    'GET',
-    'PUT',
-    'PATCH',
-    'DELETE',
-    'OPTIONS'
-  ]        // allow cookies (refresh token)
-}));
+app.use(
+  cors({
+    origin: env.FRONTEND_URL,
+    credentials: true,
+    methods: ['POST', 'GET', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'], // allow cookies (refresh token)
+  })
+);
 
 // Middleware to set correct Content-Type and media headers for audio files
 app.use('/uploads', (req, res, next) => {
   const filePath = req.path.toLowerCase();
-  
+
   // Set correct Content-Type based on extension
   let contentType: string | undefined;
   if (filePath.endsWith('.webm')) {
@@ -68,7 +76,7 @@ app.use('/uploads', (req, res, next) => {
   } else if (filePath.endsWith('.wav')) {
     contentType = 'audio/wav';
   }
-  
+
   if (contentType) {
     res.setHeader('Content-Type', contentType);
     // Critical headers for audio playback
@@ -76,7 +84,7 @@ app.use('/uploads', (req, res, next) => {
     res.setHeader('Cache-Control', 'public, max-age=31536000');
     res.setHeader('Access-Control-Allow-Origin', '*');
   }
-  
+
   next();
 });
 app.use('/uploads', express.static(path.resolve(process.cwd(), 'uploads')));
@@ -87,26 +95,26 @@ app.use(cookieParser());
 app.get('/health', (_req, res) => res.json({ status: 'ok', ts: new Date().toISOString() }));
 
 // ─── API routes ───────────────────────────────────────────────────────────────
-app.use('/api/ai',            aiRoutes);
-app.use('/api/auth',          authRoutes);
-app.use('/api/tasks',         tasksRoutes);
-app.use('/api/habits',        habitsRoutes);
-app.use('/api/notes',         notesRoutes);
-app.use('/api/calendar',      calendarRoutes);
-app.use('/api/focus',         focusRoutes);
-app.use('/api/analytics',     analyticsRoutes);
-app.use('/api/goals',         goalsRoutes);
+app.use('/api/ai', aiRoutes);
+app.use('/api/auth', authRoutes);
+app.use('/api/tasks', tasksRoutes);
+app.use('/api/habits', habitsRoutes);
+app.use('/api/notes', notesRoutes);
+app.use('/api/calendar', calendarRoutes);
+app.use('/api/focus', focusRoutes);
+app.use('/api/analytics', analyticsRoutes);
+app.use('/api/goals', goalsRoutes);
 app.use('/api/notifications', notificationsRoutes);
-app.use('/api/settings',      settingsRoutes);
-app.use('/api/gamification',  gamificationRoutes);
-app.use('/api/dashboard',     dashboardRoutes);
-app.use('/api/search',        searchRoutes);
-app.use('/api/users',         usersRoutes);
-app.use('/api/media',         mediaFileRoutes);
-app.use('/api/media',         uploadsRoutes);
-app.use('/api/scheduler',     schedulerRoutes);
-app.use('/api/notion',        notionRoutes);
-app.use('/api/projects',      projectsController);
+app.use('/api/settings', settingsRoutes);
+app.use('/api/gamification', gamificationRoutes);
+app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/search', searchRoutes);
+app.use('/api/users', usersRoutes);
+app.use('/api/media', mediaFileRoutes);
+app.use('/api/media', uploadsRoutes);
+app.use('/api/scheduler', schedulerRoutes);
+app.use('/api/notion', notionRoutes);
+app.use('/api/projects', projectsController);
 
 // ─── 404 catch ────────────────────────────────────────────────────────────────
 app.use((_req, res) => res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Route not found' } }));

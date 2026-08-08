@@ -1,4 +1,4 @@
-import { Request, Response, NextFunction } from 'express';
+import type { Request, Response, NextFunction } from 'express';
 import * as goalService from '../services/goal.service';
 
 export async function list(req: Request, res: Response, next: NextFunction) {
@@ -64,7 +64,14 @@ export async function createMilestone(req: Request, res: Response, next: NextFun
 
 export async function updateMilestone(req: Request, res: Response, next: NextFunction) {
   try {
-    res.json(await goalService.updateGoalMilestone(req.user!.sub, req.params.id as string, req.params.milestoneId as string, req.body));
+    res.json(
+      await goalService.updateGoalMilestone(
+        req.user!.sub,
+        req.params.id as string,
+        req.params.milestoneId as string,
+        req.body
+      )
+    );
   } catch (err) {
     next(err);
   }

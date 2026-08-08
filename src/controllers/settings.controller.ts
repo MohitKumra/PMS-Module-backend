@@ -1,4 +1,4 @@
-import { Request, Response, NextFunction } from 'express';
+import type { Request, Response, NextFunction } from 'express';
 import * as settingsService from '../services/settings.service';
 import * as googleService from '../services/google.service';
 import { buildGoogleAuthRedirect } from '../services/google.service';

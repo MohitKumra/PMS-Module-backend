@@ -109,11 +109,7 @@ function renderTemplate(templateName: string, variables: Record<string, any>): s
 }
 
 function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, '\x26amp;')
-    .replace(/</g, '\x26lt;')
-    .replace(/>/g, '\x26gt;')
-    .replace(/"/g, '\x26quot;');
+  return str.replace(/&/g, '\x26amp;').replace(/</g, '\x26lt;').replace(/>/g, '\x26gt;').replace(/"/g, '\x26quot;');
 }
 
 function resolveVariables(template: string, ctx: Record<string, any>): string {

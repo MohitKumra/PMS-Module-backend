@@ -1,4 +1,4 @@
-import { Request, Response, NextFunction } from 'express';
+import type { Request, Response, NextFunction } from 'express';
 import { getGamificationProfile, getAchievementsWithStatus } from '../services/gamification.service';
 
 export async function profile(req: Request, res: Response, next: NextFunction) {

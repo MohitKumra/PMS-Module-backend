@@ -154,3 +154,10 @@ dist/
 # Environment variables
 .env.local
 .env.*.local
+
+# Temporary verification artifacts
+tsc-check.txt
+verify-out.txt
+audit-out.txt
+migration-test-out.txt
+gitleaks-report.txt

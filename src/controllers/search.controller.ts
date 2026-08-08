@@ -1,14 +1,10 @@
 // backend/src/controllers/search.controller.ts
 // Search controller
 
-import { Request, Response, NextFunction } from 'express';
+import type { Request, Response, NextFunction } from 'express';
 import { search } from '../services/search.service';
 
-export async function searchHandler(
-  req: Request,
-  res: Response,
-  next: NextFunction
-) {
+export async function searchHandler(req: Request, res: Response, next: NextFunction) {
   try {
     const userId = req.user!.sub;
     const query = req.query.q as string;

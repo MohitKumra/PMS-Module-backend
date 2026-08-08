@@ -4,8 +4,9 @@
 // and attaches the decoded payload as `req.user` for downstream handlers.
 // Responds 401 if the token is missing, malformed, or expired.
 
-import { Request, Response, NextFunction } from 'express';
-import { verifyAccessToken, JwtPayload } from '../lib/jwt';
+import type { Request, Response, NextFunction } from 'express';
+import type { JwtPayload } from '../lib/jwt';
+import { verifyAccessToken } from '../lib/jwt';
 import { prisma } from '../lib/prismaClient';
 
 // Extend Express Request to carry the authenticated user

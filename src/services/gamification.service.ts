@@ -1,11 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prismaClient';
-import type {
-  AchievementDTO,
-  AchievementWithStatusDTO,
-  GamificationProfileDTO,
-  PointLedgerDTO,
-} from '../types';
+import type { AchievementDTO, AchievementWithStatusDTO, GamificationProfileDTO, PointLedgerDTO } from '../types';
 
 type GamificationTx = Prisma.TransactionClient;
 
@@ -279,22 +274,21 @@ async function createPointLedger(tx: GamificationTx, input: AwardInput) {
 }
 
 async function getStats(userId: string, tx: GamificationTx = prisma): Promise<UserStats> {
-  const [points, tasksCompleted, habitsCompleted, focusStats, projectsCompleted, habits] =
-    await Promise.all([
-      tx.pointLedger.aggregate({ where: { userId }, _sum: { points: true } }),
-      tx.task.count({ where: { userId, status: 'DONE' } }),
-      tx.habitCompletion.count({ where: { habit: { userId } } }),
-      tx.focusSession.aggregate({
-        where: { userId, status: 'COMPLETED', isBreak: false },
-        _count: true,
-        _sum: { durationMin: true },
-      }),
-      tx.project.count({ where: { userId, status: 'COMPLETED' } }),
-      tx.habit.findMany({
-        where: { userId },
-        select: { completions: { select: { date: true } } },
-      }),
-    ]);
+  const [points, tasksCompleted, habitsCompleted, focusStats, projectsCompleted, habits] = await Promise.all([
+    tx.pointLedger.aggregate({ where: { userId }, _sum: { points: true } }),
+    tx.task.count({ where: { userId, status: 'DONE' } }),
+    tx.habitCompletion.count({ where: { habit: { userId } } }),
+    tx.focusSession.aggregate({
+      where: { userId, status: 'COMPLETED', isBreak: false },
+      _count: true,
+      _sum: { durationMin: true },
+    }),
+    tx.project.count({ where: { userId, status: 'COMPLETED' } }),
+    tx.habit.findMany({
+      where: { userId },
+      select: { completions: { select: { date: true } } },
+    }),
+  ]);
 
   return {
     totalPoints: points._sum.points ?? 0,

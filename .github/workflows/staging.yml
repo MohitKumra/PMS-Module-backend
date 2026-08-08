@@ -1,0 +1,77 @@
+# name: Backend Staging Deployment
+
+# on:
+#   push:
+#     branches: [main]
+
+# concurrency:
+#   group: staging
+#   cancel-in-progress: false
+
+# jobs:
+#   deploy-staging:
+#     name: Deploy to Staging
+#     runs-on: ubuntu-latest
+#     environment: staging
+#     env:
+#       NODE_ENV: production
+#       DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+#       JWT_SECRET: ${{ secrets.STAGING_JWT_SECRET }}
+#       JWT_REFRESH_SECRET: ${{ secrets.STAGING_JWT_REFRESH_SECRET }}
+#       FRONTEND_URL: ${{ secrets.STAGING_FRONTEND_URL }}
+#       BACKEND_URL: ${{ secrets.STAGING_BACKEND_URL }}
+#     steps:
+#       - name: Checkout
+#         uses: actions/checkout@v4
+
+#       - name: Setup Node
+#         uses: actions/setup-node@v4
+#         with:
+#           node-version-file: .nvmrc
+#           cache: npm
+#           cache-dependency-path: package-lock.json
+
+#       - name: Install dependencies
+#         run: npm ci
+
+#       - name: Build backend
+#         run: npm run build
+
+#       # ─── Deploy the backend artifact to your hosting platform ─────────────
+#       # Replace the placeholder step with your actual deployment mechanism.
+#       # Examples:
+#       #   - Render:       `render deploy` or platform API call
+#       #   - Railway:      `railway up`
+#       #   - Fly.io:       `fly deploy`
+#       #   - VPS (PM2):    rsync + ssh + pm2 restart
+#       #   - Docker:       build & push image, then deploy
+#       - name: Deploy backend artifact
+#         run: |
+#           echo "::warning::Replace this step with your hosting platform deployment."
+#           echo "Deploying backend build from ${{ github.sha }}"
+
+#       # ─── Apply database migrations (safe: migrate deploy, never migrate dev) ─
+#       - name: Apply database migrations
+#         run: npx prisma migrate deploy --config=prisma.config.ts
+#         env:
+#           DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+
+#       # ─── Health check ─────────────────────────────────────────────────────
+#       - name: Health check
+#         run: |
+#           curl --fail --retry 5 --retry-delay 5 --retry-all-errors \
+#             "${{ secrets.STAGING_BACKEND_URL }}/health"
+
+#       - name: Readiness check
+#         run: |
+#           curl --fail --retry 5 --retry-delay 5 --retry-all-errors \
+#             "${{ secrets.STAGING_BACKEND_URL }}/ready"
+
+#       # ─── Smoke tests ──────────────────────────────────────────────────────
+#       - name: Smoke test (auth endpoint)
+#         run: |
+#           curl --fail "${{ secrets.STAGING_BACKEND_URL }}/api/auth/me" || \
+#           echo "::warning::Auth smoke test returned non-200 (expected if unauthenticated)."
+
+#       - name: Staging deployment complete
+#         run: echo "Staging deployment of ${{ github.sha }} completed successfully."

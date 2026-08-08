@@ -19,37 +19,38 @@ export async function getDashboardSummary(userId: string): Promise<AnalyticsSumm
  * Get enhanced dashboard data with projects, messages, and weekly progress
  */
 export async function getEnhancedDashboard(userId: string): Promise<EnhancedDashboardDTO> {
-  const [summary, gamification, activeProjects, projectStats, weeklyProgress, upcomingDeadlines, insights] = await Promise.all([
-    getSummary(userId),
-    getGamificationProfile(userId),
-    // Get active projects (top 6 by recent activity)
-    prisma.project.findMany({
-      where: {
-        userId,
-        status: { in: ['PLANNING', 'ACTIVE'] },
-      },
-      include: {
-        _count: { select: { tasks: true } },
-        tasks: {
-          include: { task: true },
+  const [summary, gamification, activeProjects, projectStats, weeklyProgress, upcomingDeadlines, insights] =
+    await Promise.all([
+      getSummary(userId),
+      getGamificationProfile(userId),
+      // Get active projects (top 6 by recent activity)
+      prisma.project.findMany({
+        where: {
+          userId,
+          status: { in: ['PLANNING', 'ACTIVE'] },
         },
-      },
-      orderBy: { updatedAt: 'desc' },
-      take: 6,
-    }),
-    // Get project statistics
-    prisma.project.groupBy({
-      by: ['status'],
-      where: { userId },
-      _count: true,
-    }),
-    // Get weekly progress
-    getWeeklyProgress(userId, 8), // Last 8 weeks
-    // Get upcoming deadlines
-    getUpcomingDeadlines(userId, 7), // Next 7 days
-    // Get smart insights
-    generateInsights(userId),
-  ]);
+        include: {
+          _count: { select: { tasks: true } },
+          tasks: {
+            include: { task: true },
+          },
+        },
+        orderBy: { updatedAt: 'desc' },
+        take: 6,
+      }),
+      // Get project statistics
+      prisma.project.groupBy({
+        by: ['status'],
+        where: { userId },
+        _count: true,
+      }),
+      // Get weekly progress
+      getWeeklyProgress(userId, 8), // Last 8 weeks
+      // Get upcoming deadlines
+      getUpcomingDeadlines(userId, 7), // Next 7 days
+      // Get smart insights
+      generateInsights(userId),
+    ]);
 
   // Transform active projects
   const projectsData = activeProjects.map((p: any) => {
@@ -110,7 +111,7 @@ export async function getPendingTasksCount(userId: string): Promise<number> {
       userId,
       status: { in: ['TODO', 'IN_PROGRESS'] },
       OR: [
-        { dueDate: null },                // undated = pending
+        { dueDate: null }, // undated = pending
         { dueDate: { lte: endOfToday } }, // overdue or due today
       ],
     },

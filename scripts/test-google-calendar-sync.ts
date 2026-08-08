@@ -1,6 +1,6 @@
 /**
  * Test script for Google Calendar sync
- * 
+ *
  * Usage: npx tsx scripts/test-google-calendar-sync.ts <userId>
  */
 
@@ -9,7 +9,7 @@ import { syncGoogleCalendarTasks } from '../src/services/google.service';
 
 async function main() {
   const userId = process.argv[2];
-  
+
   if (!userId) {
     console.error('Usage: npx tsx scripts/test-google-calendar-sync.ts <userId>');
     process.exit(1);
@@ -18,21 +18,21 @@ async function main() {
   console.log('=== Google Calendar Sync Test ===\n');
 
   // Check user exists
-  const user = await prisma.user.findUnique({ 
+  const user = await prisma.user.findUnique({
     where: { id: userId },
-    include: { notificationPreferences: true }
+    include: { notificationPreferences: true },
   });
-  
+
   if (!user) {
     console.error(`❌ User not found: ${userId}`);
     process.exit(1);
   }
-  
+
   console.log(`✅ User found: ${user.email}\n`);
 
   // Check Google Calendar connection
   const connection = await prisma.googleCalendarConnection.findUnique({
-    where: { userId }
+    where: { userId },
   });
 
   if (!connection) {
@@ -65,16 +65,16 @@ async function main() {
 
   // Check tasks with due dates
   const tasksWithDueDates = await prisma.task.findMany({
-    where: { 
+    where: {
       userId,
-      dueDate: { not: null }
+      dueDate: { not: null },
     },
     orderBy: { dueDate: 'asc' },
-    take: 5
+    take: 5,
   });
 
   console.log(`📋 Tasks with due dates: ${tasksWithDueDates.length}`);
-  
+
   if (tasksWithDueDates.length === 0) {
     console.warn('⚠️  No tasks with due dates found');
     console.log('   → Create a task with a due date to test sync');
@@ -89,7 +89,7 @@ async function main() {
 
   // Check existing sync items
   const syncItems = await prisma.googleCalendarSyncItem.findMany({
-    where: { userId, localType: 'TASK' }
+    where: { userId, localType: 'TASK' },
   });
 
   console.log(`🔗 Already synced events: ${syncItems.length}`);
@@ -104,10 +104,10 @@ async function main() {
   // Attempt sync
   console.log('🔄 Starting sync...\n');
   console.log('─'.repeat(60));
-  
+
   try {
     const result = await syncGoogleCalendarTasks(userId);
-    
+
     console.log('─'.repeat(60));
     console.log('\n✅ Sync completed successfully!\n');
     console.log('Results:');
@@ -122,7 +122,7 @@ async function main() {
     console.log('─'.repeat(60));
     console.error('\n❌ Sync failed!\n');
     console.error('Error:', error.message);
-    
+
     if (error.code === 'GOOGLE_CALENDAR_NOT_CONNECTED') {
       console.log('\n💡 Solution: Connect Google Calendar in Settings');
     } else if (error.code === 'GOOGLE_REFRESH_TOKEN_MISSING') {
@@ -134,7 +134,7 @@ async function main() {
       console.log('   - Verify Calendar API is enabled in Google Cloud Console');
       console.log('   - Check API quotas');
     }
-    
+
     process.exit(1);
   }
 }

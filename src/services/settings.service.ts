@@ -84,9 +84,11 @@ export async function getSettings(userId: string): Promise<SettingsDTO> {
 
   return {
     appearance: {
-      themePreference: (appearance?.themePreference as AppearanceSettingsDTO['themePreference']) ?? DEFAULT_APPEARANCE.themePreference,
+      themePreference:
+        (appearance?.themePreference as AppearanceSettingsDTO['themePreference']) ?? DEFAULT_APPEARANCE.themePreference,
       layoutPreference: (appearance?.layoutPreference as LayoutPreference) ?? DEFAULT_APPEARANCE.layoutPreference,
-      calendarView: (appearance?.calendarView as AppearanceSettingsDTO['calendarView']) ?? DEFAULT_APPEARANCE.calendarView,
+      calendarView:
+        (appearance?.calendarView as AppearanceSettingsDTO['calendarView']) ?? DEFAULT_APPEARANCE.calendarView,
       taskView: (appearance?.taskView as TaskViewPreference) ?? DEFAULT_APPEARANCE.taskView,
     },
     notifications: {
@@ -128,7 +130,7 @@ export async function getSettings(userId: string): Promise<SettingsDTO> {
 
 export async function updateAppearance(
   userId: string,
-  data: Partial<AppearanceSettingsDTO>,
+  data: Partial<AppearanceSettingsDTO>
 ): Promise<AppearanceSettingsDTO> {
   await ensureUserExists(userId);
   const updated = await prisma.userPreference.upsert({
@@ -158,7 +160,7 @@ export async function updateAppearance(
 
 export async function updateNotificationPreferences(
   userId: string,
-  data: NotificationPreferenceDTO,
+  data: NotificationPreferenceDTO
 ): Promise<NotificationPreferenceDTO> {
   await ensureUserExists(userId);
   const updated = await prisma.notificationPreference.upsert({
@@ -176,10 +178,7 @@ export async function updateNotificationPreferences(
   };
 }
 
-export async function updateAIPreferences(
-  userId: string,
-  data: UpdateAIPreferencesRequest,
-): Promise<AIPreferenceDTO> {
+export async function updateAIPreferences(userId: string, data: UpdateAIPreferencesRequest): Promise<AIPreferenceDTO> {
   await ensureUserExists(userId);
 
   // Strip read-only token counters so clients can never overwrite them.

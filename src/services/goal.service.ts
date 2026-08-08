@@ -21,7 +21,7 @@ function clampProgress(value: number | null | undefined): number {
   if (typeof value !== 'number' || Number.isNaN(value)) return 0;
   return Math.max(0, Math.min(100, Math.round(value)));
 }
-  
+
 function uniqueIds(ids?: string[]): string[] {
   return Array.from(new Set((ids ?? []).map((id) => id.trim()).filter(Boolean)));
 }
@@ -83,45 +83,47 @@ function calculateProgress(goal: GoalWithRelations): number {
 
   // ── Milestones (35%) ──────────────────────────────────────────────
   const activeMilestones = goal.milestones.filter((m) => m.status !== 'SKIPPED');
-  const milestoneScore = activeMilestones.length === 0
-    ? 0
-    : activeMilestones.filter((m) => m.status === 'COMPLETED').length / activeMilestones.length;
+  const milestoneScore =
+    activeMilestones.length === 0
+      ? 0
+      : activeMilestones.filter((m) => m.status === 'COMPLETED').length / activeMilestones.length;
 
   // ── Tasks (25%) ───────────────────────────────────────────────────
   const activeTasks = goal.tasks.filter((t) => t.status !== 'CANCELLED');
-  const taskScore = activeTasks.length === 0
-    ? 0
-    : activeTasks.filter((t) => t.status === 'DONE').length / activeTasks.length;
+  const taskScore =
+    activeTasks.length === 0 ? 0 : activeTasks.filter((t) => t.status === 'DONE').length / activeTasks.length;
 
   // ── Projects (20%) ────────────────────────────────────────────────
-  const projectScore = goal.projects.length === 0
-    ? 0
-    : goal.projects.reduce((sum, project) => sum + clampProgress(project.progress) / 100, 0) / goal.projects.length;
+  const projectScore =
+    goal.projects.length === 0
+      ? 0
+      : goal.projects.reduce((sum, project) => sum + clampProgress(project.progress) / 100, 0) / goal.projects.length;
 
   // ── Habits (20%) — 4-week rolling consistency ─────────────────────
   // For each habit, average the weekly completion ratio over the last 4
   // weeks (capped at 1 per week), then average across habits. This smooths
   // single-week noise and rewards sustained momentum.
-  const habitScore = goal.habits.length === 0
-    ? 0
-    : goal.habits.reduce((sum, habit) => {
-        const target = Math.max(habit.targetPerWeek || 1, 1);
-        let weeksSum = 0;
-        for (let w = 0; w < 4; w++) {
-          const weekEnd = new Date(now);
-          weekEnd.setUTCDate(weekEnd.getUTCDate() - (w * 7));
-          const weekStart = new Date(weekEnd);
-          weekStart.setUTCDate(weekStart.getUTCDate() - 6);
-          const completionsInWeek = habit.completions.filter((completion) => {
-            const d = new Date(completion.date);
-            return d >= weekStart && d <= weekEnd;
-          }).length;
-          weeksSum += Math.min(1, completionsInWeek / target);
-        }
-        return sum + (weeksSum / 4);
-      }, 0) / goal.habits.length;
+  const habitScore =
+    goal.habits.length === 0
+      ? 0
+      : goal.habits.reduce((sum, habit) => {
+          const target = Math.max(habit.targetPerWeek || 1, 1);
+          let weeksSum = 0;
+          for (let w = 0; w < 4; w++) {
+            const weekEnd = new Date(now);
+            weekEnd.setUTCDate(weekEnd.getUTCDate() - w * 7);
+            const weekStart = new Date(weekEnd);
+            weekStart.setUTCDate(weekStart.getUTCDate() - 6);
+            const completionsInWeek = habit.completions.filter((completion) => {
+              const d = new Date(completion.date);
+              return d >= weekStart && d <= weekEnd;
+            }).length;
+            weeksSum += Math.min(1, completionsInWeek / target);
+          }
+          return sum + weeksSum / 4;
+        }, 0) / goal.habits.length;
 
-  const weighted = (milestoneScore * 0.35) + (taskScore * 0.25) + (projectScore * 0.2) + (habitScore * 0.2);
+  const weighted = milestoneScore * 0.35 + taskScore * 0.25 + projectScore * 0.2 + habitScore * 0.2;
   return Math.max(0, Math.min(100, Math.round(weighted * 100)));
 }
 
@@ -221,13 +223,9 @@ async function syncLinks(
   userId: string,
   goalId: string,
   currentIds: { habits: string[]; tasks: string[]; projects: string[] },
-  nextIds: { habits: string[]; tasks: string[]; projects: string[] },
+  nextIds: { habits: string[]; tasks: string[]; projects: string[] }
 ) {
-  const updateLinks = async (
-    model: 'habit' | 'task' | 'project',
-    ids: string[],
-    current: string[],
-  ) => {
+  const updateLinks = async (model: 'habit' | 'task' | 'project', ids: string[], current: string[]) => {
     const toKeep = new Set(ids);
     const toClear = current.filter((id) => !toKeep.has(id));
     if (toClear.length > 0) {
@@ -302,7 +300,7 @@ export async function createGoal(userId: string, data: CreateGoalRequest): Promi
       userId,
       created.id,
       { habits: [], tasks: [], projects: [] },
-      { habits: linkedHabitIds, tasks: linkedTaskIds, projects: linkedProjectIds },
+      { habits: linkedHabitIds, tasks: linkedTaskIds, projects: linkedProjectIds }
     );
 
     return tx.goal.findUnique({
@@ -326,7 +324,9 @@ export async function updateGoal(userId: string, goalId: string, data: UpdateGoa
 
   const nextHabitIds = data.linkedHabitIds ? uniqueIds(data.linkedHabitIds) : existing.habits.map((habit) => habit.id);
   const nextTaskIds = data.linkedTaskIds ? uniqueIds(data.linkedTaskIds) : existing.tasks.map((task) => task.id);
-  const nextProjectIds = data.linkedProjectIds ? uniqueIds(data.linkedProjectIds) : existing.projects.map((project) => project.id);
+  const nextProjectIds = data.linkedProjectIds
+    ? uniqueIds(data.linkedProjectIds)
+    : existing.projects.map((project) => project.id);
 
   await assertOwnedIds(userId, nextHabitIds, 'habit');
   await assertOwnedIds(userId, nextTaskIds, 'task');
@@ -361,18 +361,18 @@ export async function updateGoal(userId: string, goalId: string, data: UpdateGoa
         habits: nextHabitIds,
         tasks: nextTaskIds,
         projects: nextProjectIds,
-      },
+      }
     );
 
     return tx.goal.findUnique({
       where: { id: goalId },
       include: {
-      habits: { select: { id: true, goalId: true, targetPerWeek: true, completions: { select: { date: true } } } },
-      tasks: { select: { id: true, goalId: true, status: true } },
-      projects: { select: { id: true, goalId: true, progress: true } },
-      milestones: { orderBy: [{ sortOrder: 'asc' }, { dueDate: 'asc' }, { createdAt: 'asc' }] },
-    },
-  });
+        habits: { select: { id: true, goalId: true, targetPerWeek: true, completions: { select: { date: true } } } },
+        tasks: { select: { id: true, goalId: true, status: true } },
+        projects: { select: { id: true, goalId: true, progress: true } },
+        milestones: { orderBy: [{ sortOrder: 'asc' }, { dueDate: 'asc' }, { createdAt: 'asc' }] },
+      },
+    });
   });
 
   if (!goal) throw createError(500, 'GOAL_UPDATE_FAILED', 'Goal update failed');
@@ -414,7 +414,7 @@ export async function deleteGoal(userId: string, goalId: string, options: Delete
 
 // Valid Prisma ProjectStatus enum values
 const VALID_PROJECT_STATUSES = ['PLANNING', 'ACTIVE', 'ON_HOLD', 'COMPLETED', 'CANCELLED'] as const;
-type ValidProjectStatus = typeof VALID_PROJECT_STATUSES[number];
+type ValidProjectStatus = (typeof VALID_PROJECT_STATUSES)[number];
 
 /**
  * Maps any incoming status string to a valid ProjectStatus enum value.
@@ -456,7 +456,10 @@ function sanitizeReminderTime(value: string | null | undefined): string | null {
   return /^\d{2}:\d{2}$/.test(trimmed) ? trimmed : null;
 }
 
-export async function createGoalWorkspace(userId: string, plan: GoalPlannerPlanDTO): Promise<GoalWorkspaceCreateResponse> {
+export async function createGoalWorkspace(
+  userId: string,
+  plan: GoalPlannerPlanDTO
+): Promise<GoalWorkspaceCreateResponse> {
   const createdGoal = await prisma.$transaction(async (tx) => {
     const goal = await tx.goal.create({
       data: {
@@ -475,16 +478,19 @@ export async function createGoalWorkspace(userId: string, plan: GoalPlannerPlanD
 
     // Use the first project from the plan as the primary project, or generate a default.
     // NOTE: We do NOT iterate plan.projects again later — this loop covers all projects.
-    const projectsToCreate = plan.projects.length > 0
-      ? plan.projects
-      : [{
-          name: `${goal.title} workspace`,
-          description: 'Primary project for this goal.',
-          status: 'PLANNING' as const,
-          color: goal.color ?? '#4F46E5',
-          startDate: goal.createdAt.toISOString().slice(0, 10),
-          dueDate: goal.targetDate?.toISOString().slice(0, 10) ?? null,
-        }];
+    const projectsToCreate =
+      plan.projects.length > 0
+        ? plan.projects
+        : [
+            {
+              name: `${goal.title} workspace`,
+              description: 'Primary project for this goal.',
+              status: 'PLANNING' as const,
+              color: goal.color ?? '#4F46E5',
+              startDate: goal.createdAt.toISOString().slice(0, 10),
+              dueDate: goal.targetDate?.toISOString().slice(0, 10) ?? null,
+            },
+          ];
 
     // Create all projects; track the first one as primaryProject for task linking.
     let primaryProject: { id: string } | null = null;
@@ -520,25 +526,29 @@ export async function createGoalWorkspace(userId: string, plan: GoalPlannerPlanD
     for (const task of plan.tasks) {
       const taskReminderTime = sanitizeReminderTime(task.reminderTime);
       // Auto-derive reminder 30 min before dueTime if no explicit reminderTime but dueTime exists
-      const derivedReminderTime = taskReminderTime ?? (() => {
-        if (!task.dueTime) return null;
-        const [h, m] = task.dueTime.split(':').map(Number);
-        const total = h * 60 + m - 30;
-        if (total < 0) return null;
-        const rh = Math.floor(total / 60);
-        const rm = total % 60;
-        return `${String(rh).padStart(2, '0')}:${String(rm).padStart(2, '0')}`;
-      })();
+      const derivedReminderTime =
+        taskReminderTime ??
+        (() => {
+          if (!task.dueTime) return null;
+          const [h, m] = task.dueTime.split(':').map(Number);
+          const total = h * 60 + m - 30;
+          if (total < 0) return null;
+          const rh = Math.floor(total / 60);
+          const rm = total % 60;
+          return `${String(rh).padStart(2, '0')}:${String(rm).padStart(2, '0')}`;
+        })();
 
       await tx.task.create({
         data: {
           userId,
           goalId: goal.id,
-          ...(primaryProject ? {
-            projectTasks: {
-              create: { projectId: primaryProject.id, order: 0 },
-            },
-          } : {}),
+          ...(primaryProject
+            ? {
+                projectTasks: {
+                  create: { projectId: primaryProject.id, order: 0 },
+                },
+              }
+            : {}),
           title: task.title,
           description: task.description ?? null,
           status: 'TODO',
@@ -601,7 +611,11 @@ export async function listGoalMilestones(userId: string, goalId: string): Promis
   return milestones.map(toMilestoneDTO);
 }
 
-export async function createGoalMilestone(userId: string, goalId: string, data: CreateGoalMilestoneRequest): Promise<GoalMilestoneDTO> {
+export async function createGoalMilestone(
+  userId: string,
+  goalId: string,
+  data: CreateGoalMilestoneRequest
+): Promise<GoalMilestoneDTO> {
   const goal = await prisma.goal.findFirst({ where: { id: goalId, userId }, select: { id: true } });
   if (!goal) throw createError(404, 'GOAL_NOT_FOUND', 'Goal not found');
   const milestone = await prisma.goalMilestone.create({
@@ -619,7 +633,12 @@ export async function createGoalMilestone(userId: string, goalId: string, data: 
   return toMilestoneDTO(milestone);
 }
 
-export async function updateGoalMilestone(userId: string, goalId: string, milestoneId: string, data: UpdateGoalMilestoneRequest): Promise<GoalMilestoneDTO> {
+export async function updateGoalMilestone(
+  userId: string,
+  goalId: string,
+  milestoneId: string,
+  data: UpdateGoalMilestoneRequest
+): Promise<GoalMilestoneDTO> {
   const milestone = await prisma.goalMilestone.findFirst({ where: { id: milestoneId, goalId } });
   if (!milestone) throw createError(404, 'GOAL_MILESTONE_NOT_FOUND', 'Goal milestone not found');
   const updated = await prisma.goalMilestone.update({
@@ -630,7 +649,10 @@ export async function updateGoalMilestone(userId: string, goalId: string, milest
       ...(data.dueDate !== undefined && { dueDate: data.dueDate ? new Date(data.dueDate) : null }),
       ...(data.status !== undefined && { status: data.status }),
       ...(data.sortOrder !== undefined && { sortOrder: data.sortOrder }),
-      ...(data.status !== undefined && { completedAt: data.status === 'COMPLETED' ? new Date() : data.status === 'PENDING' ? null : milestone.completedAt }),
+      ...(data.status !== undefined && {
+        completedAt:
+          data.status === 'COMPLETED' ? new Date() : data.status === 'PENDING' ? null : milestone.completedAt,
+      }),
     },
   });
   await recomputeGoalProgress(goalId).catch(() => undefined);

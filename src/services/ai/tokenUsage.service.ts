@@ -135,9 +135,7 @@ export async function getTokenUsage(userId: string): Promise<TokenUsageSnapshot>
     });
   }
 
-  const fresh = needsStaleUpdate
-    ? await prisma.aIPreference.findUnique({ where: { userId } })
-    : pref;
+  const fresh = needsStaleUpdate ? await prisma.aIPreference.findUnique({ where: { userId } }) : pref;
 
   return {
     tokensToday: fresh?.tokensToday ?? 0,

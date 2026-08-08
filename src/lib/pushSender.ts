@@ -12,11 +12,7 @@ function configureVapid(): boolean {
 
   if (env.VAPID_PUBLIC_KEY && env.VAPID_PRIVATE_KEY) {
     try {
-      webpush.setVapidDetails(
-        env.VAPID_EMAIL,
-        env.VAPID_PUBLIC_KEY,
-        env.VAPID_PRIVATE_KEY
-      );
+      webpush.setVapidDetails(env.VAPID_EMAIL, env.VAPID_PUBLIC_KEY, env.VAPID_PRIVATE_KEY);
       vapidConfigured = true;
       console.info('🔌  Web Push VAPID keys configured successfully.');
       return true;

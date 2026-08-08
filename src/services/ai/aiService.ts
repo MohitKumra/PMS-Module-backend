@@ -8,7 +8,12 @@ import { extractDueDateFromText, getLocalDateContext } from './taskDateParser';
 import { INSIGHT_SYSTEM_PROMPT, buildInsightUserPrompt } from './prompts/insightPrompts';
 import { COACH_SYSTEM_PROMPT, buildCoachUserPrompt } from './prompts/coachPrompts';
 import { DAILY_BRIEF_SYSTEM_PROMPT, buildDailyBriefUserPrompt } from './prompts/dailyBriefPrompts';
-import { JOURNAL_ANALYSIS_SYSTEM_PROMPT, JOURNAL_WEEKLY_SYSTEM_PROMPT, buildJournalEntryPrompt, buildJournalWeeklyPrompt } from './prompts/journalPrompts';
+import {
+  JOURNAL_ANALYSIS_SYSTEM_PROMPT,
+  JOURNAL_WEEKLY_SYSTEM_PROMPT,
+  buildJournalEntryPrompt,
+  buildJournalWeeklyPrompt,
+} from './prompts/journalPrompts';
 import type { InsightDTO, GoalPlannerPlanDTO } from '../../types';
 
 // ─── Status ───────────────────────────────────────────────────────────────────
@@ -35,7 +40,10 @@ export interface AIInsightResult {
   usage?: { promptTokens: number; completionTokens: number; totalTokens: number };
 }
 
-export async function generateAIInsights(userId: string, data: Parameters<typeof buildInsightUserPrompt>[0]): Promise<AIInsightResult> {
+export async function generateAIInsights(
+  userId: string,
+  data: Parameters<typeof buildInsightUserPrompt>[0]
+): Promise<AIInsightResult> {
   if (!isAIAvailable()) {
     return { insights: [], source: 'fallback' };
   }
@@ -79,9 +87,18 @@ export interface AICoachResult {
   source: 'ai' | 'fallback';
 }
 
-export async function generateAICoach(userId: string, data: Parameters<typeof buildCoachUserPrompt>[0]): Promise<AICoachResult> {
+export async function generateAICoach(
+  userId: string,
+  data: Parameters<typeof buildCoachUserPrompt>[0]
+): Promise<AICoachResult> {
   if (!isAIAvailable()) {
-    return { title: '', message: '', suggestion: { text: '', actionLabel: '' }, mood: 'encouraging', source: 'fallback' };
+    return {
+      title: '',
+      message: '',
+      suggestion: { text: '', actionLabel: '' },
+      mood: 'encouraging',
+      source: 'fallback',
+    };
   }
 
   const response = await complete({
@@ -93,7 +110,13 @@ export async function generateAICoach(userId: string, data: Parameters<typeof bu
   });
 
   if (!response) {
-    return { title: '', message: '', suggestion: { text: '', actionLabel: '' }, mood: 'encouraging', source: 'fallback' };
+    return {
+      title: '',
+      message: '',
+      suggestion: { text: '', actionLabel: '' },
+      mood: 'encouraging',
+      source: 'fallback',
+    };
   }
 
   try {
@@ -108,7 +131,13 @@ export async function generateAICoach(userId: string, data: Parameters<typeof bu
     };
   } catch (e) {
     console.warn('[AI] Failed to parse coach JSON:', e);
-    return { title: '', message: '', suggestion: { text: '', actionLabel: '' }, mood: 'encouraging', source: 'fallback' };
+    return {
+      title: '',
+      message: '',
+      suggestion: { text: '', actionLabel: '' },
+      mood: 'encouraging',
+      source: 'fallback',
+    };
   }
 }
 
@@ -123,7 +152,10 @@ export interface AIDailyBriefResult {
   source: 'ai' | 'fallback';
 }
 
-export async function generateDailyBrief(userId: string, data: Parameters<typeof buildDailyBriefUserPrompt>[0]): Promise<AIDailyBriefResult> {
+export async function generateDailyBrief(
+  userId: string,
+  data: Parameters<typeof buildDailyBriefUserPrompt>[0]
+): Promise<AIDailyBriefResult> {
   if (!isAIAvailable()) {
     return {
       greeting: 'Good day',
@@ -254,7 +286,10 @@ export interface AIJournalWeeklyResult {
   source: 'ai' | 'fallback';
 }
 
-export async function analyzeJournalWeek(userId: string, entries: Array<{ date: string; content: string; mood?: string }>): Promise<AIJournalWeeklyResult> {
+export async function analyzeJournalWeek(
+  userId: string,
+  entries: Array<{ date: string; content: string; mood?: string }>
+): Promise<AIJournalWeeklyResult> {
   if (!isAIAvailable() || entries.length === 0) {
     return {
       overallMood: 'neutral',
@@ -400,9 +435,7 @@ export function fallbackGoalPlan(prompt: string, todayDateStr?: string): GoalPla
   const baseDescription = trimmed.length > 280 ? `${trimmed.slice(0, 277).trimEnd()}...` : trimmed;
 
   // Use the provided today date (user's local date) if available, otherwise fall back to server UTC
-  const todayBase = todayDateStr
-    ? new Date(`${todayDateStr}T00:00:00Z`)
-    : new Date();
+  const todayBase = todayDateStr ? new Date(`${todayDateStr}T00:00:00Z`) : new Date();
 
   const addDays = (days: number) => {
     const next = new Date(todayBase);
@@ -423,23 +456,96 @@ export function fallbackGoalPlan(prompt: string, todayDateStr?: string): GoalPla
     },
     summary: `Workspace generated from: ${title}`,
     milestones: [
-      { title: 'Define scope', description: 'Clarify the outcome and success criteria.', dueDate: addDays(7), sortOrder: 0 },
-      { title: 'Build momentum', description: 'Complete the first execution block.', dueDate: addDays(21), sortOrder: 1 },
-      { title: 'Validate progress', description: 'Review blockers and adjust the plan.', dueDate: addDays(35), sortOrder: 2 },
-      { title: 'Finish strong', description: 'Deliver the final result and close the loop.', dueDate: addDays(45), sortOrder: 3 },
+      {
+        title: 'Define scope',
+        description: 'Clarify the outcome and success criteria.',
+        dueDate: addDays(7),
+        sortOrder: 0,
+      },
+      {
+        title: 'Build momentum',
+        description: 'Complete the first execution block.',
+        dueDate: addDays(21),
+        sortOrder: 1,
+      },
+      {
+        title: 'Validate progress',
+        description: 'Review blockers and adjust the plan.',
+        dueDate: addDays(35),
+        sortOrder: 2,
+      },
+      {
+        title: 'Finish strong',
+        description: 'Deliver the final result and close the loop.',
+        dueDate: addDays(45),
+        sortOrder: 3,
+      },
     ],
     tasks: [
-      { title: 'Break down the work', description: 'Turn the goal into clear execution steps.', priority: 'HIGH', dueDate: addDays(2), dueTime: '10:00', reminderTime: '09:30', reminderMessage: 'Time to plan — break the goal into steps.', estimatedDuration: 45 },
-      { title: 'Gather required inputs', description: 'Collect notes, assets, or stakeholders needed to move forward.', priority: 'MEDIUM', dueDate: addDays(5), dueTime: null, reminderTime: null, reminderMessage: null, estimatedDuration: 60 },
-      { title: 'Execute the first milestone', description: 'Make measurable progress on the plan.', priority: 'HIGH', dueDate: addDays(12), dueTime: '09:00', reminderTime: '08:30', reminderMessage: "Time to work on your milestone — let's do this.", estimatedDuration: 90 },
-      { title: 'Review and refine', description: 'Check quality and tighten the plan.', priority: 'MEDIUM', dueDate: addDays(28), dueTime: null, reminderTime: null, reminderMessage: null, estimatedDuration: 45 },
+      {
+        title: 'Break down the work',
+        description: 'Turn the goal into clear execution steps.',
+        priority: 'HIGH',
+        dueDate: addDays(2),
+        dueTime: '10:00',
+        reminderTime: '09:30',
+        reminderMessage: 'Time to plan — break the goal into steps.',
+        estimatedDuration: 45,
+      },
+      {
+        title: 'Gather required inputs',
+        description: 'Collect notes, assets, or stakeholders needed to move forward.',
+        priority: 'MEDIUM',
+        dueDate: addDays(5),
+        dueTime: null,
+        reminderTime: null,
+        reminderMessage: null,
+        estimatedDuration: 60,
+      },
+      {
+        title: 'Execute the first milestone',
+        description: 'Make measurable progress on the plan.',
+        priority: 'HIGH',
+        dueDate: addDays(12),
+        dueTime: '09:00',
+        reminderTime: '08:30',
+        reminderMessage: "Time to work on your milestone — let's do this.",
+        estimatedDuration: 90,
+      },
+      {
+        title: 'Review and refine',
+        description: 'Check quality and tighten the plan.',
+        priority: 'MEDIUM',
+        dueDate: addDays(28),
+        dueTime: null,
+        reminderTime: null,
+        reminderMessage: null,
+        estimatedDuration: 45,
+      },
     ],
     habits: [
-      { title: 'Review goal progress', reminderTime: '08:00', reminderMessage: 'Take 5 minutes to review your goal progress.', targetPerWeek: 5 },
-      { title: 'Deep work session', reminderTime: '09:00', reminderMessage: 'Protect this hour — focused work moves goals forward.', targetPerWeek: 4 },
+      {
+        title: 'Review goal progress',
+        reminderTime: '08:00',
+        reminderMessage: 'Take 5 minutes to review your goal progress.',
+        targetPerWeek: 5,
+      },
+      {
+        title: 'Deep work session',
+        reminderTime: '09:00',
+        reminderMessage: 'Protect this hour — focused work moves goals forward.',
+        targetPerWeek: 4,
+      },
     ],
     projects: [
-      { name: `${title} workspace`, description: 'Primary project for this goal.', status: 'PLANNING', color: '#4F46E5', startDate: addDays(0), dueDate: addDays(45) },
+      {
+        name: `${title} workspace`,
+        description: 'Primary project for this goal.',
+        status: 'PLANNING',
+        color: '#4F46E5',
+        startDate: addDays(0),
+        dueDate: addDays(45),
+      },
     ],
     source: 'fallback',
   };
@@ -462,22 +568,27 @@ function buildGoalPlannerPrompt(ctx: GoalPlanDateContext): string {
     return d.toISOString().slice(0, 10);
   };
 
-  return GOAL_PLANNER_SYSTEM_PROMPT
-    .replace(/\{\{TODAY_DATE\}\}/g, ctx.todayDate)
+  return GOAL_PLANNER_SYSTEM_PROMPT.replace(/\{\{TODAY_DATE\}\}/g, ctx.todayDate)
     .replace(/\{\{DAY_NAME\}\}/g, ctx.dayName)
     .replace(/\{\{TIMEZONE\}\}/g, ctx.timezone)
     .replace(/\{\{TODAY_PLUS_2\}\}/g, addDaysToDateStr(ctx.todayDate, 2))
     .replace(/\{\{TODAY_PLUS_7\}\}/g, addDaysToDateStr(ctx.todayDate, 7));
 }
 
-export async function generateGoalPlan(userId: string, prompt: string, dateCtx?: GoalPlanDateContext): Promise<GoalPlannerPlanDTO> {
+export async function generateGoalPlan(
+  userId: string,
+  prompt: string,
+  dateCtx?: GoalPlanDateContext
+): Promise<GoalPlannerPlanDTO> {
   // Build a date context anchored to today if not provided (server's local date as fallback)
-  const resolvedCtx: GoalPlanDateContext = dateCtx ?? (() => {
-    const now = new Date();
-    const todayDate = now.toISOString().slice(0, 10);
-    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-    return { todayDate, dayName: dayNames[now.getUTCDay()], timezone: 'UTC' };
-  })();
+  const resolvedCtx: GoalPlanDateContext =
+    dateCtx ??
+    (() => {
+      const now = new Date();
+      const todayDate = now.toISOString().slice(0, 10);
+      const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+      return { todayDate, dayName: dayNames[now.getUTCDay()], timezone: 'UTC' };
+    })();
 
   if (!isAIAvailable()) {
     return fallbackGoalPlan(prompt, resolvedCtx.todayDate);
@@ -508,17 +619,20 @@ export async function generateGoalPlan(userId: string, prompt: string, dateCtx?:
     const clampedGoal = parsed.goal ?? {};
     if (clampedGoal.targetDate) clampedGoal.targetDate = clampDate(clampedGoal.targetDate);
 
-    const clampedMilestones = Array.isArray(parsed.milestones) && parsed.milestones.length > 0
-      ? parsed.milestones.map((m: any) => ({ ...m, dueDate: clampDate(m.dueDate) }))
-      : fallback.milestones;
+    const clampedMilestones =
+      Array.isArray(parsed.milestones) && parsed.milestones.length > 0
+        ? parsed.milestones.map((m: any) => ({ ...m, dueDate: clampDate(m.dueDate) }))
+        : fallback.milestones;
 
-    const clampedTasks = Array.isArray(parsed.tasks) && parsed.tasks.length > 0
-      ? parsed.tasks.map((t: any) => ({ ...t, dueDate: clampDate(t.dueDate) }))
-      : fallback.tasks;
+    const clampedTasks =
+      Array.isArray(parsed.tasks) && parsed.tasks.length > 0
+        ? parsed.tasks.map((t: any) => ({ ...t, dueDate: clampDate(t.dueDate) }))
+        : fallback.tasks;
 
-    const clampedProjects = Array.isArray(parsed.projects) && parsed.projects.length > 0
-      ? parsed.projects.map((p: any) => ({ ...p, startDate: clampDate(p.startDate), dueDate: clampDate(p.dueDate) }))
-      : fallback.projects;
+    const clampedProjects =
+      Array.isArray(parsed.projects) && parsed.projects.length > 0
+        ? parsed.projects.map((p: any) => ({ ...p, startDate: clampDate(p.startDate), dueDate: clampDate(p.dueDate) }))
+        : fallback.projects;
 
     void recordTokenUsage(userId, response.usage?.totalTokens ?? 0);
     return {
@@ -612,7 +726,7 @@ function limitDescription(description: string | null | undefined): string | unde
 export async function parseTaskFromNaturalLanguage(
   userId: string,
   input: string,
-  options?: { timezone?: string },
+  options?: { timezone?: string }
 ): Promise<AITaskParseResult> {
   const timezone = options?.timezone || 'UTC';
   const parsedDueDate = extractDueDateFromText(input, timezone);
@@ -665,9 +779,10 @@ export async function parseTaskFromNaturalLanguage(
       estimatedDuration: typeof parsed.estimatedDuration === 'number' ? parsed.estimatedDuration : undefined,
       status: validStatuses.includes(parsed.status) ? parsed.status : undefined,
       recurrence: validRecurrences.includes(parsed.recurrence) ? parsed.recurrence : undefined,
-      subTasks: Array.isArray(parsed.subTasks) && parsed.subTasks.length > 0
-        ? parsed.subTasks.map((s: any) => ({ title: String(s.title || s) })).filter((s: any) => s.title)
-        : undefined,
+      subTasks:
+        Array.isArray(parsed.subTasks) && parsed.subTasks.length > 0
+          ? parsed.subTasks.map((s: any) => ({ title: String(s.title || s) })).filter((s: any) => s.title)
+          : undefined,
       source: 'ai',
     };
   } catch (e) {

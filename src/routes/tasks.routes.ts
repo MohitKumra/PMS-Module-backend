@@ -53,13 +53,27 @@ const createSchema = z.object({
   description: z.string().max(5000).optional(),
   status: z.enum(['TODO', 'IN_PROGRESS', 'DONE', 'CANCELLED']).optional(),
   priority: z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']).optional(),
-  dueDate: z.string().optional().refine(val => !val || /^\d{4}-\d{2}-\d{2}$/.test(val), 'Invalid date format'),
-  dueTime: z.string().optional().nullable().refine(val => val == null || /^\d{2}:\d{2}$/.test(val), 'Invalid time format'),
-  reminderTime: z.string().optional().nullable().refine(val => val == null || /^\d{2}:\d{2}$/.test(val), 'Invalid time format'),
+  dueDate: z
+    .string()
+    .optional()
+    .refine((val) => !val || /^\d{4}-\d{2}-\d{2}$/.test(val), 'Invalid date format'),
+  dueTime: z
+    .string()
+    .optional()
+    .nullable()
+    .refine((val) => val == null || /^\d{2}:\d{2}$/.test(val), 'Invalid time format'),
+  reminderTime: z
+    .string()
+    .optional()
+    .nullable()
+    .refine((val) => val == null || /^\d{2}:\d{2}$/.test(val), 'Invalid time format'),
   reminderMessage: z.string().max(500).nullable().optional(),
   projectId: z.string().nullable().optional(),
   recurrenceRule: z.string().max(200).optional(),
-  recurrenceEndDate: z.string().optional().refine(val => !val || /^\d{4}-\d{2}-\d{2}$/.test(val), 'Invalid date format'),
+  recurrenceEndDate: z
+    .string()
+    .optional()
+    .refine((val) => !val || /^\d{4}-\d{2}-\d{2}$/.test(val), 'Invalid date format'),
   recurrenceConfig: recurrenceConfigSchema.optional(),
   skipDates: z.array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format')).optional(),
   parentTaskId: z.string().optional(),
@@ -72,12 +86,28 @@ const createSchema = z.object({
 const updateSchema = createSchema.partial().extend({
   status: z.enum(['TODO', 'IN_PROGRESS', 'DONE', 'CANCELLED']).optional(),
   priority: z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']).optional(),
-  dueDate: z.string().nullable().optional().refine(val => val === null || !val || /^\d{4}-\d{2}-\d{2}$/.test(val), 'Invalid date format'),
-  dueTime: z.string().nullable().optional().refine(val => val === null || !val || /^\d{2}:\d{2}$/.test(val), 'Invalid time format'),
-  reminderTime: z.string().nullable().optional().refine(val => val === null || !val || /^\d{2}:\d{2}$/.test(val), 'Invalid time format'),
+  dueDate: z
+    .string()
+    .nullable()
+    .optional()
+    .refine((val) => val === null || !val || /^\d{4}-\d{2}-\d{2}$/.test(val), 'Invalid date format'),
+  dueTime: z
+    .string()
+    .nullable()
+    .optional()
+    .refine((val) => val === null || !val || /^\d{2}:\d{2}$/.test(val), 'Invalid time format'),
+  reminderTime: z
+    .string()
+    .nullable()
+    .optional()
+    .refine((val) => val === null || !val || /^\d{2}:\d{2}$/.test(val), 'Invalid time format'),
   reminderMessage: z.string().max(500).nullable().optional(),
   recurrenceRule: z.string().max(200).nullable().optional(),
-  recurrenceEndDate: z.string().nullable().optional().refine(val => val === null || !val || /^\d{4}-\d{2}-\d{2}$/.test(val), 'Invalid date format'),
+  recurrenceEndDate: z
+    .string()
+    .nullable()
+    .optional()
+    .refine((val) => val === null || !val || /^\d{4}-\d{2}-\d{2}$/.test(val), 'Invalid date format'),
   recurrenceConfig: recurrenceConfigSchema.nullable().optional(),
   skipDates: z.array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format')).optional(),
   attachmentUrl: z.string().min(1).max(2048).nullable().optional(),
@@ -91,20 +121,28 @@ const taskIdParams = z.object({ taskId: z.string() });
 const subTaskIdParams = z.object({ taskId: z.string(), subTaskId: z.string() });
 
 // Task routes
-router.get('/',    ctrl.list);
+router.get('/', ctrl.list);
 router.get('/:id', validate({ params: idParams }), ctrl.getOne);
-router.post('/',   validate({ body: createSchema }), ctrl.create);
+router.post('/', validate({ body: createSchema }), ctrl.create);
 router.patch('/:id', validate({ params: idParams, body: updateSchema }), ctrl.update);
 router.delete('/:id', validate({ params: idParams }), ctrl.remove);
 
 // Subtask routes
 router.get('/:taskId/subtasks', validate({ params: taskIdParams }), ctrl.listSubTasks);
 router.post('/:taskId/subtasks', validate({ params: taskIdParams, body: createSubTaskSchema }), ctrl.createSubTask);
-router.patch('/:taskId/subtasks/:subTaskId', validate({ params: subTaskIdParams, body: updateSubTaskSchema }), ctrl.updateSubTask);
+router.patch(
+  '/:taskId/subtasks/:subTaskId',
+  validate({ params: subTaskIdParams, body: updateSubTaskSchema }),
+  ctrl.updateSubTask
+);
 router.delete('/:taskId/subtasks/:subTaskId', validate({ params: subTaskIdParams }), ctrl.deleteSubTask);
 
 // Time entry routes
-router.post('/:taskId/time-entries', validate({ params: taskIdParams, body: createTimeEntrySchema }), ctrl.createTimeEntry);
+router.post(
+  '/:taskId/time-entries',
+  validate({ params: taskIdParams, body: createTimeEntrySchema }),
+  ctrl.createTimeEntry
+);
 
 // Media routes
 router.post('/:taskId/media', validate({ params: taskIdParams }), ctrl.addMedia);

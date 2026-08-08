@@ -19,7 +19,7 @@ function isOldOrphanedUrl(url: string | null | undefined): boolean {
   // New database URLs start with /api/media/file/
   if (url.includes('/api/media/file/')) return false;
   // Check if it matches old patterns
-  return OLD_URL_PATTERNS.some(pattern => url.includes(pattern));
+  return OLD_URL_PATTERNS.some((pattern) => url.includes(pattern));
 }
 
 async function main() {
@@ -28,20 +28,17 @@ async function main() {
   // Check Notes
   const notesWithOrphans = await prisma.note.findMany({
     where: {
-      OR: [
-        { attachmentUrl: { not: null } },
-        { voiceNoteUrl: { not: null } },
-      ],
+      OR: [{ attachmentUrl: { not: null } }, { voiceNoteUrl: { not: null } }],
     },
     select: { id: true, attachmentUrl: true, voiceNoteUrl: true, title: true },
   });
 
   const orphanedNotes = notesWithOrphans.filter(
-    n => isOldOrphanedUrl(n.attachmentUrl) || isOldOrphanedUrl(n.voiceNoteUrl)
+    (n) => isOldOrphanedUrl(n.attachmentUrl) || isOldOrphanedUrl(n.voiceNoteUrl)
   );
 
   console.log(`Notes with orphaned files: ${orphanedNotes.length}`);
-  orphanedNotes.forEach(n => {
+  orphanedNotes.forEach((n) => {
     console.log(`  - ${n.id} (${n.title || 'untitled'}):`);
     if (isOldOrphanedUrl(n.attachmentUrl)) console.log(`      attachmentUrl: ${n.attachmentUrl}`);
     if (isOldOrphanedUrl(n.voiceNoteUrl)) console.log(`      voiceNoteUrl: ${n.voiceNoteUrl}`);
@@ -50,20 +47,17 @@ async function main() {
   // Check Tasks
   const tasksWithOrphans = await prisma.task.findMany({
     where: {
-      OR: [
-        { attachmentUrl: { not: null } },
-        { voiceNoteUrl: { not: null } },
-      ],
+      OR: [{ attachmentUrl: { not: null } }, { voiceNoteUrl: { not: null } }],
     },
     select: { id: true, attachmentUrl: true, voiceNoteUrl: true, title: true },
   });
 
   const orphanedTasks = tasksWithOrphans.filter(
-    t => isOldOrphanedUrl(t.attachmentUrl) || isOldOrphanedUrl(t.voiceNoteUrl)
+    (t) => isOldOrphanedUrl(t.attachmentUrl) || isOldOrphanedUrl(t.voiceNoteUrl)
   );
 
   console.log(`\nTasks with orphaned files: ${orphanedTasks.length}`);
-  orphanedTasks.forEach(t => {
+  orphanedTasks.forEach((t) => {
     console.log(`  - ${t.id} (${t.title || 'untitled'}):`);
     if (isOldOrphanedUrl(t.attachmentUrl)) console.log(`      attachmentUrl: ${t.attachmentUrl}`);
     if (isOldOrphanedUrl(t.voiceNoteUrl)) console.log(`      voiceNoteUrl: ${t.voiceNoteUrl}`);
@@ -72,20 +66,17 @@ async function main() {
   // Check Projects
   const projectsWithOrphans = await prisma.project.findMany({
     where: {
-      OR: [
-        { attachmentUrl: { not: null } },
-        { voiceNoteUrl: { not: null } },
-      ],
+      OR: [{ attachmentUrl: { not: null } }, { voiceNoteUrl: { not: null } }],
     },
     select: { id: true, attachmentUrl: true, voiceNoteUrl: true, name: true },
   });
 
   const orphanedProjects = projectsWithOrphans.filter(
-    p => isOldOrphanedUrl(p.attachmentUrl) || isOldOrphanedUrl(p.voiceNoteUrl)
+    (p) => isOldOrphanedUrl(p.attachmentUrl) || isOldOrphanedUrl(p.voiceNoteUrl)
   );
 
   console.log(`\nProjects with orphaned files: ${orphanedProjects.length}`);
-  orphanedProjects.forEach(p => {
+  orphanedProjects.forEach((p) => {
     console.log(`  - ${p.id} (${p.name || 'untitled'}):`);
     if (isOldOrphanedUrl(p.attachmentUrl)) console.log(`      attachmentUrl: ${p.attachmentUrl}`);
     if (isOldOrphanedUrl(p.voiceNoteUrl)) console.log(`      voiceNoteUrl: ${p.voiceNoteUrl}`);
@@ -97,10 +88,10 @@ async function main() {
     select: { id: true, avatarUrl: true, email: true },
   });
 
-  const orphanedUsers = usersWithOrphans.filter(u => isOldOrphanedUrl(u.avatarUrl));
+  const orphanedUsers = usersWithOrphans.filter((u) => isOldOrphanedUrl(u.avatarUrl));
 
   console.log(`\nUsers with orphaned avatars: ${orphanedUsers.length}`);
-  orphanedUsers.forEach(u => {
+  orphanedUsers.forEach((u) => {
     console.log(`  - ${u.id} (${u.email}): avatarUrl: ${u.avatarUrl}`);
   });
 
@@ -165,7 +156,7 @@ async function main() {
   await prisma.$disconnect();
 }
 
-main().catch(e => {
+main().catch((e) => {
   console.error(e);
   prisma.$disconnect();
   process.exit(1);

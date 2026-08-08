@@ -67,10 +67,7 @@ function decryptSecret(value: string | null | undefined): string | null {
   if (version !== 'v1' || !ivB64 || !encryptedB64 || !tagB64) return value;
   const decipher = crypto.createDecipheriv('aes-256-gcm', encryptionKey(), Buffer.from(ivB64, 'base64'));
   decipher.setAuthTag(Buffer.from(tagB64, 'base64'));
-  const decrypted = Buffer.concat([
-    decipher.update(Buffer.from(encryptedB64, 'base64')),
-    decipher.final(),
-  ]);
+  const decrypted = Buffer.concat([decipher.update(Buffer.from(encryptedB64, 'base64')), decipher.final()]);
   return decrypted.toString('utf8');
 }
 
@@ -188,7 +185,11 @@ function toUserDTO(user: {
   };
 }
 
-export async function handleGoogleAuthCallback(code: string, state: string, currentUserId?: string): Promise<{
+export async function handleGoogleAuthCallback(
+  code: string,
+  state: string,
+  currentUserId?: string
+): Promise<{
   user: UserDTO;
   accessToken: string;
   refreshToken: string;
@@ -305,26 +306,34 @@ async function getValidAccessToken(
     expiresAt: Date | null;
     googleAccountId: string;
   },
-  persistRefresh?: boolean,
+  persistRefresh?: boolean
 ): Promise<string> {
   console.log(`[Google Calendar] Checking access token validity for user ${connection.userId}`);
-  
+
   const accessToken = decryptSecret(connection.accessToken);
   if (accessToken && connection.expiresAt && connection.expiresAt.getTime() > Date.now() + 60_000) {
-    console.log(`[Google Calendar] Using existing access token (expires in ${Math.round((connection.expiresAt.getTime() - Date.now()) / 60000)} minutes)`);
+    console.log(
+      `[Google Calendar] Using existing access token (expires in ${Math.round((connection.expiresAt.getTime() - Date.now()) / 60000)} minutes)`
+    );
     return accessToken;
   }
 
   console.log(`[Google Calendar] Access token expired or missing, refreshing token`);
-  
+
   const refreshToken = decryptSecret(connection.refreshToken);
   if (!refreshToken) {
     console.warn(`[Google Calendar] Refresh token missing for user ${connection.userId}. Deactivating connection.`);
-    await prisma.googleCalendarConnection.update({
-      where: { userId: connection.userId },
-      data: { isActive: false, revokedAt: new Date(), accessToken: null },
-    }).catch(() => {});
-    throw createError(401, 'GOOGLE_CALENDAR_REAUTH_REQUIRED', 'Google Calendar refresh token missing. Please reconnect in Settings.');
+    await prisma.googleCalendarConnection
+      .update({
+        where: { userId: connection.userId },
+        data: { isActive: false, revokedAt: new Date(), accessToken: null },
+      })
+      .catch(() => {});
+    throw createError(
+      401,
+      'GOOGLE_CALENDAR_REAUTH_REQUIRED',
+      'Google Calendar refresh token missing. Please reconnect in Settings.'
+    );
   }
 
   try {
@@ -350,15 +359,19 @@ async function getValidAccessToken(
       error?.code === 'GOOGLE_REFRESH_FAILED';
 
     if (isInvalidGrant) {
-      console.warn(`[Google Calendar] Refresh token for user ${connection.userId} is expired or revoked. Deactivating connection.`);
-      await prisma.googleCalendarConnection.update({
-        where: { userId: connection.userId },
-        data: {
-          isActive: false,
-          revokedAt: new Date(),
-          accessToken: null,
-        },
-      }).catch((dbErr) => console.error(`[Google Calendar] Failed to update connection state:`, dbErr));
+      console.warn(
+        `[Google Calendar] Refresh token for user ${connection.userId} is expired or revoked. Deactivating connection.`
+      );
+      await prisma.googleCalendarConnection
+        .update({
+          where: { userId: connection.userId },
+          data: {
+            isActive: false,
+            revokedAt: new Date(),
+            accessToken: null,
+          },
+        })
+        .catch((dbErr) => console.error(`[Google Calendar] Failed to update connection state:`, dbErr));
 
       throw createError(
         401,
@@ -390,13 +403,13 @@ async function callGoogleCalendarApi(
   method: 'POST' | 'PATCH' | 'DELETE',
   path: string,
   accessToken: string,
-  body?: Record<string, unknown>,
+  body?: Record<string, unknown>
 ): Promise<{ ok: boolean; status: number; json?: any }> {
   console.log(`[Google Calendar API] ${method} ${path}`);
   if (body) {
     console.log(`[Google Calendar API] Request body:`, JSON.stringify(body, null, 2));
   }
-  
+
   const response = await fetch(`https://www.googleapis.com/calendar/v3${path}`, {
     method,
     headers: {
@@ -407,23 +420,32 @@ async function callGoogleCalendarApi(
   });
 
   const text = await response.text();
-  const json = text ? (() => {
-    try { return JSON.parse(text); } catch { return text; }
-  })() : undefined;
-  
+  const json = text
+    ? (() => {
+        try {
+          return JSON.parse(text);
+        } catch {
+          return text;
+        }
+      })()
+    : undefined;
+
   if (!response.ok) {
-    console.error(`[Google Calendar API] ${method} ${path} failed with status ${response.status}:`, JSON.stringify(json, null, 2));
+    console.error(
+      `[Google Calendar API] ${method} ${path} failed with status ${response.status}:`,
+      JSON.stringify(json, null, 2)
+    );
     console.error(`[Google Calendar API] Response headers:`, Object.fromEntries(response.headers.entries()));
   } else {
     console.log(`[Google Calendar API] ${method} ${path} succeeded (${response.status})`);
   }
-  
+
   return { ok: response.ok, status: response.status, json };
 }
 
 export async function syncGoogleCalendarTasks(userId: string): Promise<GoogleCalendarSyncResponse> {
   console.log(`[Google Calendar] Starting sync for user ${userId}`);
-  
+
   const user = await prisma.user.findUnique({
     where: { id: userId },
     include: { notificationPreferences: true },
@@ -461,12 +483,12 @@ export async function syncGoogleCalendarTasks(userId: string): Promise<GoogleCal
     where: { userId, dueDate: { not: null } },
     include: {
       subTasks: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] },
-      projectTasks: { 
-        include: { 
-          project: { 
-            select: { id: true, name: true, color: true } 
-          } 
-        } 
+      projectTasks: {
+        include: {
+          project: {
+            select: { id: true, name: true, color: true },
+          },
+        },
       },
     },
     orderBy: { dueDate: 'asc' },
@@ -492,25 +514,25 @@ export async function syncGoogleCalendarTasks(userId: string): Promise<GoogleCal
 
     const existing = syncByTaskId.get(task.id);
     const date = formatDateInTimeZone(task.dueDate, user.timezone || 'UTC');
-    
+
     // Build rich description with useful information
     const descriptionParts = [];
-    
+
     // Add task description if present
     if (task.description) {
       descriptionParts.push(task.description);
       descriptionParts.push(''); // Empty line for spacing
     }
-    
+
     // Add task metadata
     descriptionParts.push('📋 Task Details:');
     descriptionParts.push(`Status: ${task.status}`);
     descriptionParts.push(`Priority: ${task.priority}`);
-    
+
     if (task.estimatedDuration) {
       descriptionParts.push(`Estimated Time: ${task.estimatedDuration} minutes`);
     }
-    
+
     // Add subtasks if present
     const subTasks = Array.isArray(task.subTasks) ? task.subTasks : [];
     if (subTasks.length > 0) {
@@ -521,7 +543,7 @@ export async function syncGoogleCalendarTasks(userId: string): Promise<GoogleCal
         descriptionParts.push(`${checkmark} ${st.title}`);
       });
     }
-    
+
     // Add projects if task is linked to any
     const projectTasks = Array.isArray(task.projectTasks) ? task.projectTasks : [];
     if (projectTasks.length > 0) {
@@ -531,34 +553,34 @@ export async function syncGoogleCalendarTasks(userId: string): Promise<GoogleCal
         descriptionParts.push(`• ${pt.project?.name || 'Unnamed Project'}`);
       });
     }
-    
+
     // Add timestamps
     descriptionParts.push('');
     descriptionParts.push(`Created: ${task.createdAt.toLocaleString()}`);
     if (task.inProgressAt) {
       descriptionParts.push(`Started: ${task.inProgressAt.toLocaleString()}`);
     }
-    
+
     // Add direct link to open task in the app
     const taskUrl = `${env.FRONTEND_URL}/tasks/${task.id}`;
     descriptionParts.push('');
     descriptionParts.push('🔗 Open in FlowSpace:');
     descriptionParts.push(taskUrl);
-    
+
     // Status emoji for the title
-    const statusEmoji = task.status === 'DONE' ? '✅' : 
-                       task.status === 'IN_PROGRESS' ? '🔄' : 
-                       task.status === 'CANCELLED' ? '❌' : '📝';
-    
+    const statusEmoji =
+      task.status === 'DONE' ? '✅' : task.status === 'IN_PROGRESS' ? '🔄' : task.status === 'CANCELLED' ? '❌' : '📝';
+
     // Priority emoji for the title
-    const priorityEmoji = task.priority === 'HIGH' ? '🔴' : 
-                         task.priority === 'MEDIUM' ? '🟠' : '🟢';
-    
+    const priorityEmoji = task.priority === 'HIGH' ? '🔴' : task.priority === 'MEDIUM' ? '🟠' : '🟢';
+
     const payload = {
       summary: `${statusEmoji} ${task.title} ${priorityEmoji}`,
       description: descriptionParts.join('\n'),
       start: { date },
-      end: { date: formatDateInTimeZone(new Date(task.dueDate.getTime() + 24 * 60 * 60 * 1000), user.timezone || 'UTC') },
+      end: {
+        date: formatDateInTimeZone(new Date(task.dueDate.getTime() + 24 * 60 * 60 * 1000), user.timezone || 'UTC'),
+      },
       source: {
         title: 'FlowSpace Task',
         url: taskUrl,
@@ -571,7 +593,7 @@ export async function syncGoogleCalendarTasks(userId: string): Promise<GoogleCal
         'PATCH',
         `/calendars/${encodeURIComponent(existing.calendarId || targetCalendarId)}/events/${encodeURIComponent(existing.googleEventId)}`,
         accessToken,
-        payload,
+        payload
       );
 
       if (result.ok) {
@@ -585,7 +607,7 @@ export async function syncGoogleCalendarTasks(userId: string): Promise<GoogleCal
         skipped += 1;
         continue;
       }
-      
+
       console.log(`[Google Calendar] Event not found (404), will create new event for task "${task.title}"`);
     }
 
@@ -596,7 +618,7 @@ export async function syncGoogleCalendarTasks(userId: string): Promise<GoogleCal
       {
         ...payload,
         reminders: { useDefault: true },
-      },
+      }
     );
 
     if (!result.ok || !result.json?.id) {
@@ -638,7 +660,7 @@ export async function syncGoogleCalendarTasks(userId: string): Promise<GoogleCal
     const result = await callGoogleCalendarApi(
       'DELETE',
       `/calendars/${encodeURIComponent(stale.calendarId || targetCalendarId)}/events/${encodeURIComponent(stale.googleEventId)}`,
-      accessToken,
+      accessToken
     );
     if (result.ok || result.status === 404) {
       deleted += 1;
@@ -670,7 +692,7 @@ export async function syncGoogleCalendarTasks(userId: string): Promise<GoogleCal
       userId,
       'Google Calendar synced',
       `Synced ${created + updated + deleted} calendar item${created + updated + deleted === 1 ? '' : 's'}.`,
-      ['BROWSER_PUSH'],
+      ['BROWSER_PUSH']
     );
   }
 
@@ -699,7 +721,7 @@ export async function deleteGoogleCalendarEvents(userId: string, taskIds: string
       const result = await callGoogleCalendarApi(
         'DELETE',
         `/calendars/${encodeURIComponent(item.calendarId || targetCalendarId)}/events/${encodeURIComponent(item.googleEventId)}`,
-        accessToken,
+        accessToken
       );
       if (result.ok || result.status === 404) {
         await prisma.googleCalendarSyncItem.delete({ where: { id: item.id } });
@@ -729,7 +751,7 @@ export async function disconnectGoogleCalendar(userId: string): Promise<void> {
       await callGoogleCalendarApi(
         'DELETE',
         `/calendars/${encodeURIComponent(connection.calendarId || 'primary')}/events/${encodeURIComponent(item.googleEventId)}`,
-        accessToken,
+        accessToken
       );
     }
     if (connection.refreshToken) {

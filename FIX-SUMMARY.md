@@ -17,10 +17,10 @@ This mismatch caused the deletion logic to silently fail every time, leaving old
 ```typescript
 export async function deleteStoredFile(publicPath?: string | null): Promise<void> {
   if (!publicPath) return;
-  
+
   // Handle both full URLs and relative paths
   let pathToDelete = publicPath;
-  
+
   // If it's a full URL, extract just the path portion
   if (publicPath.startsWith('http://') || publicPath.startsWith('https://')) {
     try {
@@ -30,14 +30,15 @@ export async function deleteStoredFile(publicPath?: string | null): Promise<void
       return; // Invalid URL format
     }
   }
-  
+
   if (!pathToDelete.startsWith('/uploads/')) return;
-  
+
   // ... rest of deletion logic
 }
 ```
 
 **What it does:**
+
 - Accepts both `http://localhost:3001/uploads/avatars/...` and `/uploads/avatars/...`
 - Extracts the pathname from full URLs using the URL API
 - Maintains all existing security checks
@@ -46,6 +47,7 @@ export async function deleteStoredFile(publicPath?: string | null): Promise<void
 ### 2. `backend/src/controllers/users.controller.ts`
 
 **No changes needed.** The existing logic was already correct:
+
 1. Upload new avatar
 2. Update database with new URL
 3. Delete old avatar file
@@ -55,6 +57,7 @@ The issue was in the deletion function itself, not in how it was called.
 ### 3. `backend/src/services/google.service.ts`
 
 **Reverted changes.** Google OAuth doesn't need avatar cleanup since:
+
 - Google profile pictures are external URLs (not local files)
 - They're hosted by Google, not stored in our uploads folder
 - The deletion function already handles external URLs correctly (skips them)
@@ -62,6 +65,7 @@ The issue was in the deletion function itself, not in how it was called.
 ## Testing the Fix
 
 ### Before Fix
+
 ```
 GET users from database:
 - avatarUrl: "http://localhost:3001/uploads/avatars/user-id/old-file.png"
@@ -76,6 +80,7 @@ Result: Both old-file.png and new-file.png exist on disk
 ```
 
 ### After Fix
+
 ```
 User uploads new avatar:
 - New file created: "http://localhost:3001/uploads/avatars/user-id/new-file.png"
@@ -126,6 +131,7 @@ npx tsx scripts/cleanup-orphaned-avatars.ts --execute
 ### Why were URLs stored as full URLs?
 
 Looking at `storeBase64File` in `fileStorage.ts`:
+
 ```typescript
 return {
   url: `${env.BACKEND_URL}${publicPath}`, // Constructs full URL
@@ -137,6 +143,7 @@ The function was designed to return full URLs for use in the frontend, which mak
 ### Why not change the storage format?
 
 Changing the URL format would require:
+
 1. Database migration to update all existing URLs
 2. API changes that might break the frontend
 3. More extensive testing

@@ -91,7 +91,6 @@ async function checkSetup() {
       where: { localType: 'TASK' },
     });
     console.log(`   ℹ️  ${syncedCount} task(s) have been synced to Google Calendar`);
-
   } catch (error) {
     console.error('   ❌ Database connection failed:', error);
     issues++;
@@ -121,7 +120,7 @@ async function checkSetup() {
     const response = await fetch('https://www.googleapis.com/calendar/v3/', {
       method: 'GET',
     });
-    
+
     if (response.status === 401) {
       console.log('   ✓ Google Calendar API is reachable (401 = authentication required, which is expected)');
     } else {
@@ -153,7 +152,7 @@ async function checkSetup() {
     console.log('\nRefer to GOOGLE_CALENDAR_TROUBLESHOOTING.md for detailed solutions.\n');
   }
 
-  console.log('To test a specific user\'s connection, run:');
+  console.log("To test a specific user's connection, run:");
   console.log('  npx tsx src/scripts/diagnose-calendar.ts <userId>\n');
 }
 

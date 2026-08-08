@@ -42,12 +42,15 @@ async function serveFile(req: any, res: any) {
       const parts = range.replace(/bytes=/, '').split('-');
       const start = parseInt(parts[0], 10);
       const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-      const chunkSize = (end - start) + 1;
+      const chunkSize = end - start + 1;
 
       if (start >= fileSize || end >= fileSize) {
-        res.status(416).set({
-          'Content-Range': `bytes */${fileSize}`,
-        }).end();
+        res
+          .status(416)
+          .set({
+            'Content-Range': `bytes */${fileSize}`,
+          })
+          .end();
         return;
       }
 

@@ -11,7 +11,7 @@ async function checkOAuthConfig() {
 
   // 1. Check environment variables
   console.log('1. Environment Variables:\n');
-  
+
   if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) {
     console.error('❌ Google OAuth is not configured in .env file');
     console.log('\nAdd these to your .env:');
@@ -39,7 +39,7 @@ async function checkOAuthConfig() {
   console.log('  - openid');
   console.log('  - email');
   console.log('  - profile');
-  
+
   console.log('\nFor CALENDAR SYNC (calendar-connect purpose):');
   console.log('  - openid');
   console.log('  - email');
@@ -48,7 +48,7 @@ async function checkOAuthConfig() {
 
   // 4. Check user connections
   console.log('\n4. User Connections:\n');
-  
+
   const connections = await prisma.googleCalendarConnection.findMany({
     include: {
       user: { select: { email: true } },
@@ -72,11 +72,12 @@ async function checkOAuthConfig() {
     console.log(`${i + 1}. ${conn.user.email}`);
     console.log(`   Connected: ${conn.connectedAt.toISOString()}`);
     console.log(`   Scopes granted: ${conn.scope}`);
-    
+
     // Check if calendar.events scope is present
-    const hasCalendarScope = conn.scope.includes('https://www.googleapis.com/auth/calendar.events') ||
-                             conn.scope.includes('https://www.googleapis.com/auth/calendar');
-    
+    const hasCalendarScope =
+      conn.scope.includes('https://www.googleapis.com/auth/calendar.events') ||
+      conn.scope.includes('https://www.googleapis.com/auth/calendar');
+
     if (!hasCalendarScope) {
       console.error(`   ❌ MISSING CALENDAR SCOPE!`);
       console.log(`   \nThis is why tasks aren't syncing!`);
@@ -87,7 +88,7 @@ async function checkOAuthConfig() {
     } else {
       console.log(`   ✓ Has calendar scope`);
     }
-    
+
     console.log(`   Active: ${conn.isActive ? '✓' : '✗'}`);
     console.log(`   Sync enabled: ${conn.syncTasks ? '✓' : '✗'}`);
     console.log('');
@@ -95,19 +96,19 @@ async function checkOAuthConfig() {
 
   // 5. Test OAuth URL generation
   console.log('5. Testing OAuth URL Generation:\n');
-  
+
   console.log('For calendar connection, the OAuth URL should include:');
   console.log('  - scope=openid%20email%20profile%20https://www.googleapis.com/auth/calendar.events');
   console.log('  - access_type=offline');
   console.log('  - prompt=consent');
-  
+
   console.log('\nTo test, visit this in your browser (as a logged-in user):');
   console.log(`${env.BACKEND_URL}/api/settings/google-calendar/start`);
   console.log('\nThis should redirect to Google OAuth with the correct scopes.\n');
 
   // 6. Google Cloud Console checklist
   console.log('6. Google Cloud Console Checklist:\n');
-  
+
   console.log('□ Go to: https://console.cloud.google.com');
   console.log('□ Select your project');
   console.log('□ Go to: APIs & Services → Credentials');
@@ -122,19 +123,19 @@ async function checkOAuthConfig() {
   console.log('    .../auth/calendar.events ← MOST IMPORTANT');
   console.log('\n□ Go to: APIs & Services → Library');
   console.log('□ Search "Google Calendar API"');
-  console.log('□ Make sure it\'s ENABLED\n');
+  console.log("□ Make sure it's ENABLED\n");
 
   // 7. Common issues
   console.log('7. Common Issues:\n');
-  
+
   console.log('❌ Issue: "Insufficient Permission" error');
   console.log('   Cause: Missing calendar.events scope');
   console.log('   Fix: Add scope to OAuth consent screen, then reconnect\n');
-  
+
   console.log('❌ Issue: Tasks sync for some users but not others');
   console.log('   Cause: Users connected before scope was added');
   console.log('   Fix: All users must disconnect and reconnect\n');
-  
+
   console.log('❌ Issue: OAuth consent shows "This app hasn\'t been verified"');
   console.log('   Cause: App is in testing mode');
   console.log('   Fix: Either publish the app OR add test users\n');

@@ -1,5 +1,5 @@
 // backend/src/controllers/notifications.controller.ts
-import { Request, Response, NextFunction } from 'express';
+import type { Request, Response, NextFunction } from 'express';
 import * as notifService from '../services/notification.service';
 import * as activityFeedService from '../services/activityFeed.service';
 import { env } from '../config/env';
@@ -7,35 +7,45 @@ import { env } from '../config/env';
 export async function getVapidKey(req: Request, res: Response, next: NextFunction) {
   try {
     res.json({ publicKey: env.VAPID_PUBLIC_KEY || null });
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 }
 
 export async function subscribe(req: Request, res: Response, next: NextFunction) {
   try {
     await notifService.registerPushSubscription(req.user!.sub, req.body);
     res.json({ success: true, message: 'Push subscription registered successfully' });
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 }
 
 export async function unsubscribe(req: Request, res: Response, next: NextFunction) {
   try {
     await notifService.unregisterPushSubscription(req.user!.sub);
     res.json({ success: true, message: 'Push subscription removed successfully' });
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 }
 
 export async function getLogs(req: Request, res: Response, next: NextFunction) {
   try {
     const logs = await notifService.getLogs(req.user!.sub);
     res.json(logs);
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 }
 
 export async function markAsRead(req: Request, res: Response, next: NextFunction) {
   try {
     await notifService.markAllAsRead(req.user!.sub);
     res.json({ success: true });
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 }
 
 export async function sendTestNotification(req: Request, res: Response, next: NextFunction) {
@@ -48,35 +58,37 @@ export async function sendTestNotification(req: Request, res: Response, next: Ne
       channels || ['BROWSER_PUSH', 'EMAIL']
     );
     res.json({ success: true, message: 'Test notification sent' });
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 }
 
 export async function getActivityFeed(req: Request, res: Response, next: NextFunction) {
   try {
     const page = parseInt(req.query.page as string) || 1;
     const pageSize = parseInt(req.query.pageSize as string) || 15;
-    
+
     // Validate pagination parameters
     if (page < 1) {
-      return res.status(400).json({ 
-        error: { 
-          code: 'INVALID_PAGE', 
-          message: 'Page must be greater than 0' 
-        } 
+      return res.status(400).json({
+        error: {
+          code: 'INVALID_PAGE',
+          message: 'Page must be greater than 0',
+        },
       });
     }
     if (pageSize < 1 || pageSize > 100) {
-      return res.status(400).json({ 
-        error: { 
-          code: 'INVALID_PAGE_SIZE', 
-          message: 'Page size must be between 1 and 100' 
-        } 
+      return res.status(400).json({
+        error: {
+          code: 'INVALID_PAGE_SIZE',
+          message: 'Page size must be between 1 and 100',
+        },
       });
     }
 
     const feed = await activityFeedService.getActivityFeed(req.user!.sub, page, pageSize);
     res.json(feed);
-  } catch (err) { 
-    next(err); 
+  } catch (err) {
+    next(err);
   }
 }

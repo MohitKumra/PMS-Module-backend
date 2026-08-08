@@ -15,7 +15,7 @@ interface ProviderConfig {
 const PROVIDER_MAP: Record<string, ProviderConfig> = {
   groq: {
     baseURL: 'https://api.groq.com/openai/v1',
-    defaultModel: 'llama-3.1-8b-instant' //Fast, free-tier model on Groq
+    defaultModel: 'llama-3.1-8b-instant', //Fast, free-tier model on Groq
   },
   openai: {
     baseURL: 'https://api.openai.com/v1',
@@ -135,9 +135,7 @@ export async function complete(options: AIRequestOptions): Promise<AIResponse | 
       messages,
       max_completion_tokens: maxTokens,
       temperature,
-      ...(options.responseFormat === 'json_object'
-        ? { response_format: { type: 'json_object' as const } }
-        : {}),
+      ...(options.responseFormat === 'json_object' ? { response_format: { type: 'json_object' as const } } : {}),
     });
 
     const choice = completion.choices[0];

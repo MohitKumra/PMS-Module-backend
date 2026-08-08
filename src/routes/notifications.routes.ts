@@ -22,12 +22,12 @@ const testSchema = z.object({
   channels: z.array(z.enum(['BROWSER_PUSH', 'EMAIL', 'NATIVE_LOCAL'])).optional(),
 });
 
-router.get('/vapid-key',   ctrl.getVapidKey);
-router.post('/subscribe',   validate({ body: subscribeSchema }), ctrl.subscribe);
+router.get('/vapid-key', ctrl.getVapidKey);
+router.post('/subscribe', validate({ body: subscribeSchema }), ctrl.subscribe);
 router.post('/unsubscribe', ctrl.unsubscribe);
-router.get('/logs',         ctrl.getLogs);
-router.post('/read',        ctrl.markAsRead);
-router.post('/test',        validate({ body: testSchema }), ctrl.sendTestNotification);
+router.get('/logs', ctrl.getLogs);
+router.post('/read', ctrl.markAsRead);
+router.post('/test', validate({ body: testSchema }), ctrl.sendTestNotification);
 router.get('/activity-feed', ctrl.getActivityFeed);
 
 export default router;

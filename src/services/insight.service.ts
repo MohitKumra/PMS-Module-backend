@@ -31,7 +31,13 @@ interface InsightBuilderContext {
   summary: Awaited<ReturnType<typeof getSummary>>;
   weeklyProgress: Awaited<ReturnType<typeof getWeeklyProgress>>;
   upcomingDeadlines: Awaited<ReturnType<typeof getUpcomingDeadlines>>;
-  habits: Array<{ id: string; title: string; currentStreak: number; completionsThisWeek: number; completionsLastWeek: number }>;
+  habits: Array<{
+    id: string;
+    title: string;
+    currentStreak: number;
+    completionsThisWeek: number;
+    completionsLastWeek: number;
+  }>;
   focusSessions: Array<{ startedAt: Date; durationMin: number }>;
   notes: Array<{ createdAt: Date; isJournal: boolean }>;
   tasksOverdue: number;
@@ -349,7 +355,10 @@ function buildDeadlineInsight(ctx: InsightBuilderContext): InsightDTO | null {
   const later = upcomingDeadlines.filter((d) => d.daysUntilDue > 3);
 
   if (urgent.length > 0) {
-    const names = urgent.slice(0, 2).map((d) => `"${d.title}"`).join(', ');
+    const names = urgent
+      .slice(0, 2)
+      .map((d) => `"${d.title}"`)
+      .join(', ');
     const suffix = urgent.length > 2 ? ` and ${urgent.length - 2} more` : '';
     return {
       id: 'deadline-urgent',
@@ -537,7 +546,10 @@ export async function generateInsights(userId: string): Promise<InsightDTO[]> {
         for (let i = 1; i < uniqueDates.length; i++) {
           const prev = new Date(`${uniqueDates[i]}T00:00:00.000Z`);
           const diff = (cursor.getTime() - prev.getTime()) / (1000 * 60 * 60 * 24);
-          if (diff === 1) { currentStreak++; cursor = prev; } else break;
+          if (diff === 1) {
+            currentStreak++;
+            cursor = prev;
+          } else break;
         }
       }
     }

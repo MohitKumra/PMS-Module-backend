@@ -1,4 +1,4 @@
-import { Request, Response, NextFunction } from 'express';
+import type { Request, Response, NextFunction } from 'express';
 import * as calendarService from '../services/calendar.service';
 
 export async function overview(req: Request, res: Response, next: NextFunction) {

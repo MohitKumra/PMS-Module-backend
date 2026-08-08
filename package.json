@@ -4,16 +4,29 @@
   "description": "Personal Productivity SaaS — Express + TypeScript + Prisma backend",
   "main": "dist/server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "node --watch -r ts-node/register src/server.ts",
     "build": "prisma generate --config=prisma.config.ts && tsc",
     "start": "node dist/server.js",
-    "prisma:generate": "prisma generate --schema=./prisma",
+    "start:smoke": "node scripts/smoke-test.mjs",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:unit": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration",
+    "prisma:validate": "prisma validate --config=prisma.config.ts",
+    "prisma:generate": "prisma generate --config=prisma.config.ts",
     "prisma:migrate": "prisma migrate dev --schema=./prisma",
     "prisma:deploy": "prisma migrate deploy --schema=./prisma",
     "prisma:push": "prisma db push --schema=./prisma",
     "prisma:studio": "prisma studio --schema=./prisma",
-    "prisma:format": "prisma format --schema=./prisma"
+    "prisma:format": "prisma format --schema=./prisma",
+    "migration:test": "ts-node --transpile-only scripts/test-migrations.ts",
+    "migration:consistency": "ts-node --transpile-only scripts/check-migration-consistency.ts",
+    "migration:destructive": "ts-node --transpile-only scripts/check-destructive-migrations.ts",
+    "security:audit": "npm audit --audit-level=high",
+    "verify": "npm run format:check && npm run lint && npm run typecheck && npm run prisma:validate && npm run prisma:generate && npm run test && npm run build && npm run security:audit"
   },
   "keywords": [],
   "author": "",
@@ -50,9 +63,20 @@
     "@types/pg": "^8.20.0",
     "@types/rrule": "^2.1.7",
     "@types/web-push": "^3.3.2",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "eslint": "^9.0.0",
+    "eslint-config-prettier": "^10.0.0",
     "nodemon": "^3.1.0",
+    "prettier": "^3.5.0",
     "prisma": "^7.8.0",
+    "supertest": "^7.0.0",
+    "@types/supertest": "^6.0.2",
     "ts-node": "^10.9.2",
-    "typescript": "^5.4.3"
+    "typescript": "^5.4.3",
+    "vitest": "^2.1.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
   }
 }

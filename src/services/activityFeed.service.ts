@@ -3,10 +3,7 @@
 // for the in-app notification center
 
 import { prisma } from '../lib/prismaClient';
-import type {
-  InAppNotificationDTO,
-  ActivityFeedResponse,
-} from '../types';
+import type { InAppNotificationDTO, ActivityFeedResponse } from '../types';
 
 /**
  * Get unified activity feed for a user combining:
@@ -228,13 +225,12 @@ export async function getActivityFeed(
   // Completed tasks (deduplicate with task activities by checking timestamps)
   completedTasks.forEach((task) => {
     if (!task.completedAt) return;
-    
+
     // Check if we already have an activity for this completion
     const existingActivity = taskActivities.find(
-      (a) => a.taskId === task.id && 
-      Math.abs(a.createdAt.getTime() - task.completedAt!.getTime()) < 5000 // 5 second window
+      (a) => a.taskId === task.id && Math.abs(a.createdAt.getTime() - task.completedAt!.getTime()) < 5000 // 5 second window
     );
-    
+
     if (!existingActivity) {
       notifications.push({
         id: `task-completed-${task.id}`,
@@ -270,7 +266,7 @@ export async function getActivityFeed(
   // Focus sessions
   focusSessions.forEach((session) => {
     if (session.isBreak) return; // Skip break sessions
-    
+
     notifications.push({
       id: session.id,
       type: 'FOCUS_SESSION_COMPLETED',
@@ -286,7 +282,8 @@ export async function getActivityFeed(
   // Project updates (only include significant changes)
   projectUpdates.forEach((project) => {
     // Skip if created recently (we'll show that instead)
-    const isNewlyCreated = project.createdAt.getTime() === project.updatedAt.getTime() ||
+    const isNewlyCreated =
+      project.createdAt.getTime() === project.updatedAt.getTime() ||
       Math.abs(project.createdAt.getTime() - project.updatedAt.getTime()) < 1000;
 
     if (isNewlyCreated) {
@@ -329,11 +326,9 @@ export async function getActivityFeed(
   // Actionable: Overdue tasks
   overdueTasks.forEach((task) => {
     if (!task.dueDate) return;
-    
-    const daysOverdue = Math.floor(
-      (now.getTime() - task.dueDate.getTime()) / (1000 * 60 * 60 * 24)
-    );
-    
+
+    const daysOverdue = Math.floor((now.getTime() - task.dueDate.getTime()) / (1000 * 60 * 60 * 24));
+
     notifications.push({
       id: `overdue-${task.id}`,
       type: 'TASK_OVERDUE',
@@ -353,18 +348,14 @@ export async function getActivityFeed(
   // Actionable: Tasks due soon
   tasksDueSoon.forEach((task) => {
     if (!task.dueDate) return;
-    
-    const daysUntilDue = Math.ceil(
-      (task.dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
-    );
-    
+
+    const daysUntilDue = Math.ceil((task.dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+
     notifications.push({
       id: `due-soon-${task.id}`,
       type: 'TASK_DUE_SOON',
       title: `Due soon: ${task.title}`,
-      description: daysUntilDue === 0 
-        ? 'Due today' 
-        : `Due in ${daysUntilDue} day${daysUntilDue !== 1 ? 's' : ''}`,
+      description: daysUntilDue === 0 ? 'Due today' : `Due in ${daysUntilDue} day${daysUntilDue !== 1 ? 's' : ''}`,
       timestamp: task.dueDate.toISOString(),
       entityType: 'task',
       entityId: task.id,
@@ -396,26 +387,22 @@ export async function getActivityFeed(
     // Actionable items first
     if (a.isActionable && !b.isActionable) return -1;
     if (!a.isActionable && b.isActionable) return 1;
-    
+
     // Then by timestamp
     return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
   });
 
   // Apply pagination
   const total = notifications.length;
-  const totalActionable = notifications.reduce(
-    (acc, n) => (n.isActionable ? acc + 1 : acc),
-    0
-  );
+  const totalActionable = notifications.reduce((acc, n) => (n.isActionable ? acc + 1 : acc), 0);
   const totalActivity = total - totalActionable;
 
   const paginatedData = notifications.slice(offset, offset + pageSize);
   const hasMore = offset + pageSize < total;
-  
+
   // Generate next cursor (timestamp of last item in current page)
-  const nextCursor = paginatedData.length > 0 && hasMore
-    ? paginatedData[paginatedData.length - 1].timestamp
-    : undefined;
+  const nextCursor =
+    paginatedData.length > 0 && hasMore ? paginatedData[paginatedData.length - 1].timestamp : undefined;
 
   return {
     data: paginatedData,

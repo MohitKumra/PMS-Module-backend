@@ -1,111 +1,235 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>T-minus 24 hours</title>
-<style>
-  body { margin:0; padding:0; background:#F5F5F8; -webkit-text-size-adjust:100%; }
-  .container { max-width:560px; margin:0 auto; }
-  @media only screen and (max-width:600px){
-    .pad { padding-left:24px !important; padding-right:24px !important; }
-  }
-</style>
-</head>
-<body>
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F5F5F8;">
-<tr><td align="center" style="padding:40px 16px;">
-<table role="presentation" class="container" width="560" cellpadding="0" cellspacing="0" style="width:560px; max-width:560px;">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>T-minus 24 hours</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        background: #f5f5f8;
+        -webkit-text-size-adjust: 100%;
+      }
+      .container {
+        max-width: 560px;
+        margin: 0 auto;
+      }
+      @media only screen and (max-width: 600px) {
+        .pad {
+          padding-left: 24px !important;
+          padding-right: 24px !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background: #f5f5f8">
+      <tr>
+        <td align="center" style="padding: 40px 16px">
+          <table
+            role="presentation"
+            class="container"
+            width="560"
+            cellpadding="0"
+            cellspacing="0"
+            style="width: 560px; max-width: 560px"
+          >
+            <tr>
+              <td style="padding: 0 4px 18px 4px">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                  <tr>
+                    <td
+                      style="
+                        font-family: Georgia, 'Times New Roman', serif;
+                        font-size: 16px;
+                        font-weight: 700;
+                        color: #1b1a1f;
+                        letter-spacing: 0.2px;
+                      "
+                    >
+                      Finamite
+                    </td>
+                    <td
+                      align="right"
+                      style="
+                        font-family: Helvetica, Arial, sans-serif;
+                        font-size: 11px;
+                        font-weight: 600;
+                        color: #9793a3;
+                        letter-spacing: 0.8px;
+                        text-transform: uppercase;
+                      "
+                    >
+                      Project alert
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
 
-  <tr>
-    <td style="padding:0 4px 18px 4px;">
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-        <tr>
-          <td style="font-family:Georgia,'Times New Roman',serif; font-size:16px; font-weight:700; color:#1B1A1F; letter-spacing:0.2px;">Finamite</td>
-          <td align="right" style="font-family:Helvetica,Arial,sans-serif; font-size:11px; font-weight:600; color:#9793A3; letter-spacing:0.8px; text-transform:uppercase;">Project alert</td>
-        </tr>
-      </table>
-    </td>
-  </tr>
+            <tr>
+              <td
+                style="background: #5b4fcf; height: 6px; line-height: 6px; font-size: 0; border-radius: 14px 14px 0 0"
+              >
+                &nbsp;
+              </td>
+            </tr>
 
-  <tr>
-    <td style="background:#5B4FCF; height:6px; line-height:6px; font-size:0; border-radius:14px 14px 0 0;">&nbsp;</td>
-  </tr>
+            <tr>
+              <td
+                style="background: #ffffff; border: 1px solid #e7e5ef; border-top: none; border-radius: 0 0 14px 14px"
+              >
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                  <tr>
+                    <td align="center" style="padding: 38px 40px 0 40px">
+                      <table role="presentation" cellpadding="0" cellspacing="0">
+                        <tr>
+                          <td
+                            width="56"
+                            height="56"
+                            align="center"
+                            valign="middle"
+                            style="background: #ece9fa; border-radius: 50%; font-size: 24px; line-height: 56px"
+                          >
+                            🚀
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
 
-  <tr>
-    <td style="background:#FFFFFF; border:1px solid #E7E5EF; border-top:none; border-radius:0 0 14px 14px;">
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                  <tr>
+                    <td class="pad" style="padding: 20px 40px 0 40px" align="center">
+                      <h1
+                        style="
+                          margin: 0;
+                          font-family: Georgia, 'Times New Roman', serif;
+                          font-size: 23px;
+                          line-height: 1.35;
+                          color: #18171d;
+                          font-weight: 700;
+                          text-align: center;
+                        "
+                      >
+                        {{project.name}}
+                      </h1>
+                      <p
+                        style="
+                          margin: 12px 0 0 0;
+                          font-family: Helvetica, Arial, sans-serif;
+                          font-size: 14.5px;
+                          line-height: 1.65;
+                          color: #605c6c;
+                          text-align: center;
+                        "
+                      >
+                        {{#if project.description}}<strong style="color: #2f2f2f">{{project.description}}</strong>
+                        launches in the next 24 hours.{{else}}Launch window closes in the next 24 hours.{{/if}}
+                      </p>
+                    </td>
+                  </tr>
 
-        <tr>
-          <td align="center" style="padding:38px 40px 0 40px;">
-            <table role="presentation" cellpadding="0" cellspacing="0">
-              <tr>
-                <td width="56" height="56" align="center" valign="middle" style="background:#ECE9FA; border-radius:50%; font-size:24px; line-height:56px;">🚀</td>
-              </tr>
-            </table>
-          </td>
-        </tr>
+                  <tr>
+                    <td style="padding: 26px 40px 0 40px">
+                      <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                        <tr>
+                          <td style="border-top: 1px solid #efedf5; font-size: 0; line-height: 0">&nbsp;</td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
 
-        <tr>
-          <td class="pad" style="padding:20px 40px 0 40px;" align="center">
-            <h1 style="margin:0; font-family:Georgia,'Times New Roman',serif; font-size:23px; line-height:1.35; color:#18171D; font-weight:700; text-align:center;">
-              {{project.name}}
-            </h1>
-            <p style="margin:12px 0 0 0; font-family:Helvetica,Arial,sans-serif; font-size:14.5px; line-height:1.65; color:#605C6C; text-align:center;">
-              {{#if project.description}}<strong style="color:#2F2F2F;">{{project.description}}</strong> launches in the next 24 hours.{{else}}Launch window closes in the next 24 hours.{{/if}}
-            </p>
-          </td>
-        </tr>
+                  <tr>
+                    <td class="pad" style="padding: 22px 40px 0 40px">
+                      <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                        <tr>
+                          <td
+                            style="
+                              font-family: Helvetica, Arial, sans-serif;
+                              font-size: 11px;
+                              font-weight: 600;
+                              color: #9793a3;
+                              text-transform: uppercase;
+                              letter-spacing: 0.6px;
+                            "
+                          >
+                            Deadline
+                          </td>
+                          <td
+                            align="right"
+                            style="
+                              font-family: Georgia, 'Times New Roman', serif;
+                              font-size: 14.5px;
+                              font-weight: 700;
+                              color: #18171d;
+                            "
+                          >
+                            {{project.dueDate}}
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
 
-        <tr>
-          <td style="padding:26px 40px 0 40px;">
-            <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td style="border-top:1px solid #EFEDF5; font-size:0; line-height:0;">&nbsp;</td></tr></table>
-          </td>
-        </tr>
+                  <tr>
+                    <td align="center" style="padding: 28px 40px 0 40px">
+                      <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
+                        <tr>
+                          <td align="center" bgcolor="#4A3FC2" style="border-radius: 8px; background: #4a3fc2">
+                            <a
+                              href="{{app.projectUrl}}"
+                              style="
+                                display: block;
+                                padding: 14px 0;
+                                font-family: Helvetica, Arial, sans-serif;
+                                font-size: 14.5px;
+                                font-weight: 700;
+                                color: #ffffff;
+                                text-decoration: none;
+                                text-align: center;
+                              "
+                              >View project</a
+                            >
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
 
-        <tr>
-          <td class="pad" style="padding:22px 40px 0 40px;">
-            <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-              <tr>
-                <td style="font-family:Helvetica,Arial,sans-serif; font-size:11px; font-weight:600; color:#9793A3; text-transform:uppercase; letter-spacing:0.6px;">Deadline</td>
-                <td align="right" style="font-family:Georgia,'Times New Roman',serif; font-size:14.5px; font-weight:700; color:#18171D;">{{project.dueDate}}</td>
-              </tr>
-            </table>
-          </td>
-        </tr>
+                  <tr>
+                    <td class="pad" style="padding: 28px 40px 34px 40px" align="center">
+                      <p
+                        style="
+                          margin: 0;
+                          font-family: Helvetica, Arial, sans-serif;
+                          font-size: 11.5px;
+                          line-height: 1.6;
+                          color: #b3afc0;
+                          text-align: center;
+                        "
+                      >
+                        Sent because project deadline alerts are on &middot;
+                        <a href="{{app.preferencesUrl}}" style="color: #79738d; text-decoration: underline"
+                          >Manage notifications</a
+                        >
+                      </p>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
 
-        <tr>
-          <td align="center" style="padding:28px 40px 0 40px;">
-            <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
-              <tr>
-                <td align="center" bgcolor="#4A3FC2" style="border-radius:8px; background:#4A3FC2;">
-                  <a href="{{app.projectUrl}}" style="display:block; padding:14px 0; font-family:Helvetica,Arial,sans-serif; font-size:14.5px; font-weight:700; color:#FFFFFF; text-decoration:none; text-align:center;">View project</a>
-                </td>
-              </tr>
-            </table>
-          </td>
-        </tr>
-
-        <tr>
-          <td class="pad" style="padding:28px 40px 34px 40px;" align="center">
-            <p style="margin:0; font-family:Helvetica,Arial,sans-serif; font-size:11.5px; line-height:1.6; color:#B3AFC0; text-align:center;">
-              Sent because project deadline alerts are on &middot; <a href="{{app.preferencesUrl}}" style="color:#79738D; text-decoration:underline;">Manage notifications</a>
-            </p>
-          </td>
-        </tr>
-
-      </table>
-    </td>
-  </tr>
-
-  <tr>
-    <td align="center" style="padding:20px 0 0 0;">
-      <p style="margin:0; font-family:Helvetica,Arial,sans-serif; font-size:11.5px; color:#B3AFC0;">Finamite, inc.</p>
-    </td>
-  </tr>
-
-</table>
-</td></tr>
-</table>
-</body>
+            <tr>
+              <td align="center" style="padding: 20px 0 0 0">
+                <p style="margin: 0; font-family: Helvetica, Arial, sans-serif; font-size: 11.5px; color: #b3afc0">
+                  Finamite, inc.
+                </p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
 </html>

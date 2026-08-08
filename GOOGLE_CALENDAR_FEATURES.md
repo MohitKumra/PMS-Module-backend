@@ -7,10 +7,12 @@ Your tasks now sync to Google Calendar with rich, useful information!
 ### Visual Indicators
 
 **Event Title**:
+
 ```
 ✅ Task Title 🔴
 ```
-- **Status emoji**: 
+
+- **Status emoji**:
   - 📝 = To Do
   - 🔄 = In Progress
   - ✅ = Done
@@ -22,6 +24,7 @@ Your tasks now sync to Google Calendar with rich, useful information!
   - 🟢 = Low Priority
 
 **Event Color**:
+
 - 🔴 Red = High Priority tasks
 - 🟡 Yellow = Medium Priority tasks
 - 🟢 Green = Low Priority tasks
@@ -57,11 +60,13 @@ http://localhost:5173/tasks/clx123abc
 Every calendar event includes a clickable link that opens the task directly in FlowSpace!
 
 **In Google Calendar**:
+
 1. Click on the event
 2. Click the link in the description
 3. Task opens in your app
 
 **On Mobile**:
+
 - The link is tappable and opens the task instantly
 
 ### Event Source
@@ -73,6 +78,7 @@ Events show "FlowSpace Task" as the source with a direct link, making it easy to
 ## 🎯 What Information is Synced
 
 ### Always Included:
+
 - ✅ Task title with status and priority emojis
 - ✅ Task description
 - ✅ Status (TODO, IN_PROGRESS, DONE, CANCELLED)
@@ -83,12 +89,14 @@ Events show "FlowSpace Task" as the source with a direct link, making it easy to
 - ✅ Color coding by priority
 
 ### Included When Available:
+
 - ✅ Subtasks with completion status
 - ✅ Estimated duration
 - ✅ Linked projects
 - ✅ Started timestamp (when task is in progress)
 
 ### Not Included (by design):
+
 - ❌ Attachments (Google Calendar API limitation)
 - ❌ Comments/notes (separate feature)
 - ❌ Time entries (tracking data stays in app)
@@ -98,6 +106,7 @@ Events show "FlowSpace Task" as the source with a direct link, making it easy to
 ## 📱 How It Looks
 
 ### Desktop Google Calendar:
+
 ```
 ┌─────────────────────────────────────────┐
 │ ✅ Complete Project Documentation 🔴   │
@@ -127,12 +136,14 @@ Events show "FlowSpace Task" as the source with a direct link, making it easy to
 ```
 
 ### Mobile Google Calendar:
+
 - Event appears with emoji indicators
 - Tap to see full description
 - Tap link to open task in FlowSpace app
 - Color indicates priority at a glance
 
 ### Calendar List View:
+
 ```
 Mon 14  📝 Review PRs 🟡
 Tue 15  🔄 Fix bug #123 🔴
@@ -146,35 +157,43 @@ Wed 16  ✅ Deploy to staging 🟢
 Events automatically update when you:
 
 ### Change Task Title:
+
 - Title updates in calendar with current status emoji
 - Priority emoji updates if priority changed
 
 ### Update Status:
+
 - Emoji changes (📝 → 🔄 → ✅)
 - Timestamp updates (adds "Started" time)
 
 ### Change Priority:
+
 - Priority emoji updates (🔴 → 🟡 → 🟢)
 - Event color changes
 - Calendar view reflects new priority
 
 ### Add/Update Subtasks:
+
 - Subtask list updates in description
 - Checkmarks show completion status
 
 ### Complete Subtasks:
+
 - ☐ changes to ✓
 - You can see progress without opening the app
 
 ### Link to Projects:
+
 - Project names appear in description
 - Easy to see task's project context
 
 ### Change Due Date:
+
 - Event moves to new date in calendar
 - All information stays intact
 
 ### Delete Task:
+
 - Event is removed from calendar
 - Keeps calendar clean and accurate
 
@@ -184,13 +203,14 @@ Events automatically update when you:
 
 Google Calendar supports 11 colors. We use:
 
-| Priority | Color | Google Calendar ID |
-|----------|-------|-------------------|
-| 🔴 HIGH   | Red   | 11 |
-| 🟡 MEDIUM | Yellow | 5 |
-| 🟢 LOW    | Green | 2 |
+| Priority  | Color  | Google Calendar ID |
+| --------- | ------ | ------------------ |
+| 🔴 HIGH   | Red    | 11                 |
+| 🟡 MEDIUM | Yellow | 5                  |
+| 🟢 LOW    | Green  | 2                  |
 
 **Why This Matters**:
+
 - Quick visual scanning of your calendar
 - High priority tasks stand out
 - Easy to see workload distribution
@@ -207,11 +227,13 @@ http://localhost:5173/tasks/<task-id>
 ```
 
 **In Production**:
+
 ```
 https://yourdomain.com/tasks/<task-id>
 ```
 
 **How It Works**:
+
 1. Click the link in the calendar event
 2. Your browser opens FlowSpace
 3. Task detail page opens directly
@@ -219,6 +241,7 @@ https://yourdomain.com/tasks/<task-id>
 5. Changes sync back to calendar
 
 **Benefits**:
+
 - No need to search for the task
 - One-click access from calendar
 - Seamless workflow between calendar and app
@@ -229,28 +252,33 @@ https://yourdomain.com/tasks/<task-id>
 ## 📊 Use Cases
 
 ### Planning Your Day:
+
 - Open Google Calendar
 - See all tasks with priority colors
 - High priority tasks (red) catch your eye
 - Click task to open and start working
 
 ### Reviewing Progress:
+
 - Look at completed tasks (✅)
 - See what's still in progress (🔄)
 - Check subtask completion without opening app
 
 ### Sharing Your Schedule:
+
 - Share calendar with team
 - They see your task commitments
 - Status updates keep everyone informed
 
 ### Mobile Workflow:
+
 - Check calendar on phone
 - Tap task to open in mobile browser
 - Update status on the go
 - Changes sync everywhere
 
 ### Weekly Planning:
+
 - View calendar in week mode
 - Color-coded priorities show workload
 - Identify heavy days (lots of red)
@@ -278,11 +306,13 @@ https://yourdomain.com/tasks/<task-id>
 ```
 
 ### Emoji Encoding:
+
 - Uses Unicode emojis (universal support)
 - Works on all devices and platforms
 - No special fonts required
 
 ### Link Format:
+
 - Standard HTTP/HTTPS links
 - Clickable in all calendar clients
 - Deep linking support for mobile apps
@@ -294,26 +324,32 @@ https://yourdomain.com/tasks/<task-id>
 Potential features for future versions:
 
 ### Time Blocking:
+
 - Add estimated duration as event duration
 - Schedule specific time slots for tasks
 
 ### Bidirectional Sync:
+
 - Edit task title in calendar → updates in app
 - Change due date in calendar → updates in app
 
 ### Recurring Tasks:
+
 - Sync recurring task pattern to calendar
 - Show all future occurrences
 
 ### Event Reminders:
+
 - Custom reminder times per priority
 - Multiple reminders for high-priority tasks
 
 ### Team Calendars:
+
 - Sync to shared team calendars
 - Show assigned user in event title
 
 ### Smart Scheduling:
+
 - Suggest optimal time slots
 - Avoid calendar conflicts
 - Balance workload across days
@@ -323,27 +359,32 @@ Potential features for future versions:
 ## 💡 Tips & Tricks
 
 ### Tip 1: Use Calendar Views
+
 - **Day view**: See detailed task info
 - **Week view**: Plan your weekly workload
 - **Month view**: High-level overview with colors
 - **Agenda view**: List of upcoming tasks
 
 ### Tip 2: Filter by Color
+
 - Filter for red events = See only urgent tasks
 - Hide green events = Focus on high/medium priority
 - Color-based filtering reduces noise
 
 ### Tip 3: Share Specific Calendars
+
 - Keep personal tasks private
 - Share work tasks with team
 - Use multiple Google Calendars
 
 ### Tip 4: Mobile Notifications
+
 - Enable Google Calendar notifications
 - Get reminders for task due dates
 - Customize notification timing
 
 ### Tip 5: Quick Updates
+
 - Click link in calendar
 - Update task in FlowSpace
 - Close tab - changes sync automatically
@@ -363,6 +404,6 @@ With the enhanced Google Calendar integration, you get:
 ✅ **Mobile-Friendly** - Works great on phones and tablets  
 ✅ **Automatic Sync** - Changes update in real-time  
 ✅ **Clean Interface** - Professional, organized calendar view  
-✅ **Universal Access** - Works with any Google Calendar client  
+✅ **Universal Access** - Works with any Google Calendar client
 
 Your calendar is now a powerful task management dashboard! 🚀

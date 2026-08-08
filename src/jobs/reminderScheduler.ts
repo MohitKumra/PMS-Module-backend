@@ -24,7 +24,7 @@ function parseMinutes(time: string | null | undefined): number | null {
 function subtractMinutes(time: string | null | undefined, minutes: number): string | null {
   const total = parseMinutes(time);
   if (total === null) return null;
-  const normalizedTotal = ((total - minutes) % 1440 + 1440) % 1440;
+  const normalizedTotal = (((total - minutes) % 1440) + 1440) % 1440;
   const hours = Math.floor(normalizedTotal / 60);
   const mins = normalizedTotal % 60;
   return `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
@@ -109,17 +109,14 @@ async function checkTaskReminders() {
       const dueDateKey = getLocalDateKey(task.dueDate!, timezone);
       const dueTomorrowKey = shiftDateKey(dueDateKey, -1);
       const dueTime = normalizeTimeString(task.dueTime);
-      const reminderTime = normalizeTimeString(task.reminderTime)
-        ?? subtractMinutes(dueTime, 30);
+      const reminderTime = normalizeTimeString(task.reminderTime) ?? subtractMinutes(dueTime, 30);
       const reminderMinutes = parseMinutes(reminderTime);
       const dueMinutes = parseMinutes(dueTime) ?? 0;
       const dueDateMorningWindow = nowMinutes >= 9 * 60 && nowMinutes < 12 * 60;
       const hasMorningReminder =
-        reminderMinutes !== null &&
-        nowDateKey === dueDateKey &&
-        reminderMinutes >= 6 * 60 &&
-        reminderMinutes < 12 * 60;
-      const dueIsOverdue = nowDateKey > dueDateKey || (dueTime !== null && nowDateKey === dueDateKey && nowMinutes >= dueMinutes);
+        reminderMinutes !== null && nowDateKey === dueDateKey && reminderMinutes >= 6 * 60 && reminderMinutes < 12 * 60;
+      const dueIsOverdue =
+        nowDateKey > dueDateKey || (dueTime !== null && nowDateKey === dueDateKey && nowMinutes >= dueMinutes);
 
       const notifications: Array<{
         key: string;
@@ -181,26 +178,35 @@ async function checkTaskReminders() {
         if (alreadySent) continue;
 
         console.info(`⏰  Task reminder triggered for User ${task.userId}: "${task.title}" -> ${notification.key}`);
-        await notifService.sendNotification(task.userId, notification.title, notification.body, ['BROWSER_PUSH', 'EMAIL'], {
-          templateName: 'task-due-playful',
-          templateVars: {
-            task: {
-              title: task.title,
-              description: task.description,
-              dueDate: formatTaskDate(task.dueDate!, timezone),
-              dueTime: dueTime ?? '00:00',
-              priority: task.priority,
-              bannerLabel:
-                notification.templateKind === 'due_tomorrow' ? 'Due tomorrow' :
-                notification.templateKind === 'due_today' ? 'Due today' :
-                notification.templateKind === 'reminder_time' ? 'Reminder time' :
-                'Overdue',
-              headline: notification.title,
-              supportingCopy: notification.body,
-              alertStyle: notification.templateKind,
+        await notifService.sendNotification(
+          task.userId,
+          notification.title,
+          notification.body,
+          ['BROWSER_PUSH', 'EMAIL'],
+          {
+            templateName: 'task-due-playful',
+            templateVars: {
+              task: {
+                title: task.title,
+                description: task.description,
+                dueDate: formatTaskDate(task.dueDate!, timezone),
+                dueTime: dueTime ?? '00:00',
+                priority: task.priority,
+                bannerLabel:
+                  notification.templateKind === 'due_tomorrow'
+                    ? 'Due tomorrow'
+                    : notification.templateKind === 'due_today'
+                      ? 'Due today'
+                      : notification.templateKind === 'reminder_time'
+                        ? 'Reminder time'
+                        : 'Overdue',
+                headline: notification.title,
+                supportingCopy: notification.body,
+                alertStyle: notification.templateKind,
+              },
             },
-          },
-        });
+          }
+        );
       }
     }
   } catch (err) {
@@ -261,10 +267,12 @@ async function checkProjectDeadlines() {
               project: {
                 name: project.name,
                 description: project.description,
-                dueDate: project.dueDate?.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) ?? 'Today',
+                dueDate:
+                  project.dueDate?.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) ??
+                  'Today',
               },
             },
-          },
+          }
         );
       }
     }
@@ -309,7 +317,9 @@ async function checkHabitReminders() {
       try {
         const skipDayStr = (habit as any).skipDays || '[]';
         let skipIndices: number[] = [];
-        try { skipIndices = JSON.parse(skipDayStr); } catch {}
+        try {
+          skipIndices = JSON.parse(skipDayStr);
+        } catch {}
         if (skipIndices.length > 0) {
           const nowUTC = new Date();
           const dow = (nowUTC.getUTCDay() + 6) % 7; // 0=Mon..6=Sun
@@ -368,7 +378,9 @@ async function checkHabitReminders() {
           const todayYear = todayStartParts.find((p) => p.type === 'year')?.value ?? '0000';
           const todayMonth = todayStartParts.find((p) => p.type === 'month')?.value ?? '01';
           const todayDay = todayStartParts.find((p) => p.type === 'day')?.value ?? '01';
-          const todayStartUtc = new Date(Date.UTC(parseInt(todayYear, 10), parseInt(todayMonth, 10) - 1, parseInt(todayDay, 10)));
+          const todayStartUtc = new Date(
+            Date.UTC(parseInt(todayYear, 10), parseInt(todayMonth, 10) - 1, parseInt(todayDay, 10))
+          );
 
           // Use a dedup key that includes the habitId so it is unique per habit per day
           const dedupKey = `habit-reminder:${habit.id}:${todayYear}-${todayMonth}-${todayDay}`;
@@ -404,7 +416,10 @@ async function checkHabitReminders() {
           );
         }
       } catch (tzErr) {
-        console.error(`❌  Failed timezone calculation for User ${habit.userId} / Timezone ${habit.user.timezone}:`, tzErr);
+        console.error(
+          `❌  Failed timezone calculation for User ${habit.userId} / Timezone ${habit.user.timezone}:`,
+          tzErr
+        );
       }
     }
   } catch (err) {
@@ -487,12 +502,7 @@ async function createNextOccurrences() {
       });
       if (activeOccurrence) continue;
 
-      const nextDate = getNextOccurrence(
-        task.dueDate,
-        task.recurrenceRule,
-        task.recurrenceEndDate,
-        task.skipDates
-      );
+      const nextDate = getNextOccurrence(task.dueDate, task.recurrenceRule, task.recurrenceEndDate, task.skipDates);
       if (!nextDate) continue;
 
       // Check if an occurrence for this exact date already exists in the chain
@@ -523,13 +533,16 @@ async function createNextOccurrences() {
             reminderMessage: task.reminderMessage,
             attachmentUrl: task.attachmentUrl,
             voiceNoteUrl: task.voiceNoteUrl,
-            subTasks: task.subTasks.length > 0 ? {
-              create: task.subTasks.map((st) => ({
-                title: st.title,
-                order: st.order,
-                completed: false,
-              })),
-            } : undefined,
+            subTasks:
+              task.subTasks.length > 0
+                ? {
+                    create: task.subTasks.map((st) => ({
+                      title: st.title,
+                      order: st.order,
+                      completed: false,
+                    })),
+                  }
+                : undefined,
           },
         });
         console.log(`[Recurrence] Created next occurrence for task ${task.id} on ${nextDate.toISOString()}`);

@@ -6,7 +6,7 @@ import { prisma } from '../lib/prismaClient';
 import { createError } from '../middleware/errorHandler';
 import { deleteStoredFile } from '../lib/fileStorage';
 import type { NoteDTO, CreateNoteRequest, UpdateNoteRequest, NoteListFilters } from '../types';
-import { Prisma } from '@prisma/client';
+import type { Prisma } from '@prisma/client';
 
 function normalizeMediaUrl(value: string | null | undefined): string | null {
   if (value === undefined || value === null) return null;
@@ -74,10 +74,10 @@ export async function listNotes(
   // Date range filter
   const dateField = filters?.sortField === 'createdAt' ? 'createdAt' : 'updatedAt';
   if (filters?.dateFrom) {
-    where[dateField] = { ...(where[dateField] as object || {}), gte: new Date(filters.dateFrom) };
+    where[dateField] = { ...((where[dateField] as object) || {}), gte: new Date(filters.dateFrom) };
   }
   if (filters?.dateTo) {
-    where[dateField] = { ...(where[dateField] as object || {}), lte: new Date(filters.dateTo) };
+    where[dateField] = { ...((where[dateField] as object) || {}), lte: new Date(filters.dateTo) };
   }
 
   // Archive filter — default: exclude archived

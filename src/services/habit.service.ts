@@ -25,7 +25,11 @@ function getDayOfWeek(dateStr: string): number {
 
 function parseSkipDays(raw: string | null): number[] {
   if (!raw) return [];
-  try { return JSON.parse(raw); } catch { return []; }
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return [];
+  }
 }
 
 function calcStreak(dates: string[], skipDays: number[]): number {
@@ -48,7 +52,7 @@ function calcStreak(dates: string[], skipDays: number[]): number {
       cursor = prev;
     } else {
       let gapFilledBySkips = true;
-      let checkDate = new Date(prev);
+      const checkDate = new Date(prev);
       checkDate.setUTCDate(checkDate.getUTCDate() + 1);
       while (checkDate < cursor) {
         const checkStr = toDateStr(checkDate);
@@ -58,8 +62,10 @@ function calcStreak(dates: string[], skipDays: number[]): number {
         }
         checkDate.setUTCDate(checkDate.getUTCDate() + 1);
       }
-      if (gapFilledBySkips) { streak++; cursor = prev; }
-      else break;
+      if (gapFilledBySkips) {
+        streak++;
+        cursor = prev;
+      } else break;
     }
   }
   return streak;
@@ -68,23 +74,31 @@ function calcStreak(dates: string[], skipDays: number[]): number {
 function calcBestStreak(dates: string[], skipDays: number[]): number {
   if (dates.length === 0) return 0;
   const sorted = [...new Set(dates)].sort();
-  let best = 1, current = 1;
+  let best = 1,
+    current = 1;
   for (let i = 1; i < sorted.length; i++) {
     const diff = daysBetween(sorted[i - 1], sorted[i]);
-    if (diff === 1) { current++; best = Math.max(best, current); }
-    else {
+    if (diff === 1) {
+      current++;
+      best = Math.max(best, current);
+    } else {
       let gapIsSkip = true;
       const start = new Date(`${sorted[i - 1]}T00:00:00.000Z`);
       const end = new Date(`${sorted[i]}T00:00:00.000Z`);
-      let checkDate = new Date(start);
+      const checkDate = new Date(start);
       checkDate.setUTCDate(checkDate.getUTCDate() + 1);
       while (checkDate < end) {
         const checkStr = toDateStr(checkDate);
-        if (!skipDays.includes(getDayOfWeek(checkStr))) { gapIsSkip = false; break; }
+        if (!skipDays.includes(getDayOfWeek(checkStr))) {
+          gapIsSkip = false;
+          break;
+        }
         checkDate.setUTCDate(checkDate.getUTCDate() + 1);
       }
-      if (gapIsSkip) { current++; best = Math.max(best, current); }
-      else current = 1;
+      if (gapIsSkip) {
+        current++;
+        best = Math.max(best, current);
+      } else current = 1;
     }
   }
   return best;
@@ -136,13 +150,15 @@ interface HabitRow {
   completions: { date: Date }[];
 }
 
-async function toDTO(h: HabitRow & {
-  reminderMessage: string | null;
-  durationDays: number | null;
-  skipDays: string;
-  streakBrokenAt: Date | null;
-  isActive: boolean;
-}): Promise<HabitDTO> {
+async function toDTO(
+  h: HabitRow & {
+    reminderMessage: string | null;
+    durationDays: number | null;
+    skipDays: string;
+    streakBrokenAt: Date | null;
+    isActive: boolean;
+  }
+): Promise<HabitDTO> {
   const dateStrings = h.completions.map((c) => toDateStr(c.date));
   const dateSet = new Set(dateStrings);
   const skipDayIndices = parseSkipDays(h.skipDays);
@@ -157,8 +173,12 @@ async function toDTO(h: HabitRow & {
   const completionsLastWeek = h.completions.filter((c) => c.date >= lastMonday && c.date < monday).length;
 
   return {
-    id: h.id, userId: h.userId, goalId: h.goalId ?? null, title: h.title,
-    targetPerWeek: h.targetPerWeek, reminderTime: h.reminderTime,
+    id: h.id,
+    userId: h.userId,
+    goalId: h.goalId ?? null,
+    title: h.title,
+    targetPerWeek: h.targetPerWeek,
+    reminderTime: h.reminderTime,
     reminderMessage: h.reminderMessage,
     durationDays: h.durationDays,
     skipDays: skipDayIndices,
@@ -178,7 +198,8 @@ async function toDTO(h: HabitRow & {
 }
 
 export async function listHabits(userId: string): Promise<{
-  data: HabitDTO[]; meta: { total: number; weeklyTrend: number };
+  data: HabitDTO[];
+  meta: { total: number; weeklyTrend: number };
 }> {
   const habits = await prisma.habit.findMany({
     where: { userId },
@@ -200,15 +221,15 @@ export async function listHabits(userId: string): Promise<{
     orderBy: { createdAt: 'asc' },
   });
 
-  const data = await Promise.all(
-    habits.map((h) => toDTO(h as any))
-  );
+  const data = await Promise.all(habits.map((h) => toDTO(h as any)));
 
   const thisWeekTotal = data.reduce((sum, h) => sum + h.completionsThisWeek, 0);
   const lastWeekTotal = data.reduce((sum, h) => sum + h.completionsLastWeek, 0);
   const weeklyTrend =
     lastWeekTotal === 0
-      ? (thisWeekTotal > 0 ? 100 : 0)
+      ? thisWeekTotal > 0
+        ? 100
+        : 0
       : Math.round(((thisWeekTotal - lastWeekTotal) / lastWeekTotal) * 1000) / 10;
 
   return { data, meta: { total: data.length, weeklyTrend } };
@@ -239,9 +260,9 @@ export async function createHabit(userId: string, data: CreateHabitRequest): Pro
 }
 
 export async function updateHabit(userId: string, habitId: string, data: UpdateHabitRequest): Promise<HabitDTO> {
-  const existing = await prisma.habit.findFirst({ 
-    where: { id: habitId, userId }, 
-    select: { id: true } 
+  const existing = await prisma.habit.findFirst({
+    where: { id: habitId, userId },
+    select: { id: true },
   });
   if (!existing) throw createError(404, 'HABIT_NOT_FOUND', 'Habit not found');
   if (data.goalId !== undefined && data.goalId !== null) {
@@ -285,10 +306,10 @@ export async function updateHabit(userId: string, habitId: string, data: UpdateH
 }
 
 export async function deleteHabit(userId: string, habitId: string): Promise<void> {
-  const existing = await prisma.habit.findFirst({ 
-    where: { id: habitId, userId }, 
-    select: { id: true, title: true, completions: { select: { id: true } } } 
-  }) as any;
+  const existing = (await prisma.habit.findFirst({
+    where: { id: habitId, userId },
+    select: { id: true, title: true, completions: { select: { id: true } } },
+  })) as any;
   if (!existing) throw createError(404, 'HABIT_NOT_FOUND', 'Habit not found');
 
   // Deduct all XP earned from this habit before deleting
@@ -308,7 +329,7 @@ export async function deleteHabit(userId: string, habitId: string): Promise<void
 }
 
 export async function toggleCompletion(userId: string, habitId: string): Promise<HabitDTO> {
-  const habit = await prisma.habit.findFirst({
+  const habit = (await prisma.habit.findFirst({
     where: { id: habitId, userId },
     select: {
       id: true,
@@ -320,7 +341,7 @@ export async function toggleCompletion(userId: string, habitId: string): Promise
         },
       },
     },
-  }) as any;
+  })) as any;
   if (!habit) throw createError(404, 'HABIT_NOT_FOUND', 'Habit not found');
 
   const today = utcToday();
@@ -330,7 +351,7 @@ export async function toggleCompletion(userId: string, habitId: string): Promise
 
   // If today is a skip day, return the habit as-is — no toggle allowed
   if (skipDayIndices.includes(todayDow)) {
-    const current = await prisma.habit.findUnique({
+    const current = (await prisma.habit.findUnique({
       where: { id: habitId },
       select: {
         id: true,
@@ -347,7 +368,7 @@ export async function toggleCompletion(userId: string, habitId: string): Promise
         streakBrokenAt: true,
         isActive: true,
       },
-    }) as any;
+    })) as any;
     return toDTO(current);
   }
   const existing = await prisma.habitCompletion.findUnique({
@@ -368,14 +389,14 @@ export async function toggleCompletion(userId: string, habitId: string): Promise
     completionId = completion.id;
   }
 
-  const updated = await prisma.habit.findUnique({
+  const updated = (await prisma.habit.findUnique({
     where: { id: habitId },
     select: {
       id: true,
       skipDays: true,
       completions: { select: { date: true } },
     },
-  }) as any;
+  })) as any;
   if (!updated) throw createError(404, 'HABIT_NOT_FOUND', 'Habit not found');
 
   const newStreak = calcStreak(
@@ -416,7 +437,7 @@ export async function toggleCompletion(userId: string, habitId: string): Promise
     });
   }
 
-  const finalHabit = await prisma.habit.findUnique({
+  const finalHabit = (await prisma.habit.findUnique({
     where: { id: habitId },
     select: {
       id: true,
@@ -433,7 +454,7 @@ export async function toggleCompletion(userId: string, habitId: string): Promise
       streakBrokenAt: true,
       isActive: true,
     },
-  }) as any;
+  })) as any;
   if (!finalHabit) throw createError(404, 'HABIT_NOT_FOUND', 'Habit not found');
 
   if (completionId) {
@@ -451,7 +472,7 @@ export async function getBrokenStreaks(userId: string): Promise<HabitStreakBreak
   const now = new Date();
   const recentWindowStart = new Date(now.getTime() - 48 * 60 * 60 * 1000);
 
-  const habits = await prisma.habit.findMany({
+  const habits = (await prisma.habit.findMany({
     where: {
       userId,
       streakBrokenAt: {
@@ -468,7 +489,7 @@ export async function getBrokenStreaks(userId: string): Promise<HabitStreakBreak
     orderBy: {
       streakBrokenAt: 'desc',
     },
-  }) as any[];
+  })) as any[];
 
   return habits.map((h: any) => {
     const previousStreak = calcStreak(

@@ -11,6 +11,7 @@ Previously, the system stored avatar URLs as **full URLs** (e.g., `http://localh
 ## The Solution
 
 The `deleteStoredFile` function in `backend/src/lib/fileStorage.ts` now handles both URL formats:
+
 - Full URLs: `http://localhost:3001/uploads/avatars/...` or `https://domain.com/uploads/avatars/...`
 - Relative paths: `/uploads/avatars/...`
 
@@ -95,6 +96,7 @@ uploads/
 ```
 
 Example:
+
 ```
 uploads/avatars/user-123-abc/1720000000000-profile-picture-a1b2c3d4.jpg
 ```

@@ -34,20 +34,32 @@ function safeExt(fileName: string, mimeType: string): string {
   if (ext && ext.length <= 10) return '.' + ext;
 
   switch (mimeType) {
-    case 'image/jpeg':      return '.jpg';
-    case 'image/png':       return '.png';
-    case 'image/webp':      return '.webp';
-    case 'image/gif':       return '.gif';
-    case 'audio/webm':      return '.webm';
-    case 'audio/ogg':       return '.ogg';
-    case 'audio/mpeg':      return '.mp3';
-    case 'application/pdf': return '.pdf';
-    default:                return '';
+    case 'image/jpeg':
+      return '.jpg';
+    case 'image/png':
+      return '.png';
+    case 'image/webp':
+      return '.webp';
+    case 'image/gif':
+      return '.gif';
+    case 'audio/webm':
+      return '.webm';
+    case 'audio/ogg':
+      return '.ogg';
+    case 'audio/mpeg':
+      return '.mp3';
+    case 'application/pdf':
+      return '.pdf';
+    default:
+      return '';
   }
 }
 
 function safeBaseName(fileName: string): string {
-  const name = fileName.replace(/\.[^.]+$/, '').replace(/[^a-z0-9_-]+/gi, '-').toLowerCase();
+  const name = fileName
+    .replace(/\.[^.]+$/, '')
+    .replace(/[^a-z0-9_-]+/gi, '-')
+    .toLowerCase();
   return name || 'file';
 }
 

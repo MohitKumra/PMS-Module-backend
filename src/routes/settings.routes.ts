@@ -12,7 +12,6 @@ const appearanceSchema = z.object({
   layoutPreference: z.enum(['COMFORTABLE', 'COMPACT', 'EXPANDED']).optional(),
   calendarView: z.enum(['day', 'week', 'month', 'agenda']).optional(),
   taskView: z.enum(['board', 'list']).optional(),
-
 });
 
 const notificationsSchema = z.object({

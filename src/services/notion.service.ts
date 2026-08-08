@@ -70,10 +70,7 @@ function decryptSecret(value: string | null | undefined): string | null {
   if (version !== 'v1' || !ivB64 || !encryptedB64 || !tagB64) return value;
   const decipher = crypto.createDecipheriv('aes-256-gcm', encryptionKey(), Buffer.from(ivB64, 'base64'));
   decipher.setAuthTag(Buffer.from(tagB64, 'base64'));
-  const decrypted = Buffer.concat([
-    decipher.update(Buffer.from(encryptedB64, 'base64')),
-    decipher.final(),
-  ]);
+  const decrypted = Buffer.concat([decipher.update(Buffer.from(encryptedB64, 'base64')), decipher.final()]);
   return decrypted.toString('utf8');
 }
 
@@ -109,9 +106,7 @@ async function exchangeCodeForTokens(code: string): Promise<Record<string, any>>
     throw createError(503, 'NOTION_NOT_CONFIGURED', 'Notion OAuth is not configured');
   }
 
-  const auth = Buffer.from(
-    `${env.NOTION_CLIENT_ID}:${env.NOTION_CLIENT_SECRET}`
-  ).toString('base64');
+  const auth = Buffer.from(`${env.NOTION_CLIENT_ID}:${env.NOTION_CLIENT_SECRET}`).toString('base64');
 
   const response = await fetch('https://api.notion.com/v1/oauth/token', {
     method: 'POST',
@@ -168,7 +163,7 @@ async function queryCollection(
   notion: Client,
   collectionId: string,
   object: 'database' | 'data_source',
-  cursor?: string,
+  cursor?: string
 ): Promise<any> {
   // NOTE: @notionhq/client v5.x removed databases.query() from the SDK.
   // The Notion API v2 has deprecated POST /v1/databases/{id}/query and now
@@ -204,7 +199,7 @@ async function queryCollection(
 async function retrieveCollection(
   notion: Client,
   collectionId: string,
-  object: 'database' | 'data_source',
+  object: 'database' | 'data_source'
 ): Promise<any> {
   if (object === 'database') {
     // Legacy database API — databases.retrieve() exists in SDK v5.x
@@ -237,7 +232,10 @@ function extractPageTitle(page: any, propertyMapping: Record<string, string>): s
     if (systemField === 'title') {
       const prop = props[notionPropName];
       if (prop?.type === 'title' && prop.title) {
-        const t = (prop.title ?? []).map((t: any) => t.plain_text ?? '').join('').trim();
+        const t = (prop.title ?? [])
+          .map((t: any) => t.plain_text ?? '')
+          .join('')
+          .trim();
         if (t) return t;
       }
     }
@@ -247,7 +245,10 @@ function extractPageTitle(page: any, propertyMapping: Record<string, string>): s
   for (const [, prop] of Object.entries(props)) {
     const p = prop as any;
     if (p.type === 'title' && p.title) {
-      const t = (p.title ?? []).map((t: any) => t.plain_text ?? '').join('').trim();
+      const t = (p.title ?? [])
+        .map((t: any) => t.plain_text ?? '')
+        .join('')
+        .trim();
       if (t) return t;
     }
   }
@@ -259,9 +260,7 @@ function extractPageTitle(page: any, propertyMapping: Record<string, string>): s
  * Auto-detect property mapping from Notion database properties to system fields.
  * Matches by property name (case-insensitive) and type.
  */
-export function autoMapProperties(
-  properties: Record<string, NotionDatabaseProperty>,
-): Record<string, string> {
+export function autoMapProperties(properties: Record<string, NotionDatabaseProperty>): Record<string, string> {
   const mapping: Record<string, string> = {};
   const entries = Object.entries(properties);
 
@@ -272,8 +271,7 @@ export function autoMapProperties(
   const findByName = (names: string[], types: string[]): [string, NotionDatabaseProperty] | undefined => {
     const lower = names.map((n) => n.toLowerCase());
     return entries.find(
-      ([name, prop]) =>
-        lower.includes(name.toLowerCase()) && types.includes(prop.type) && !isUsed(name),
+      ([name, prop]) => lower.includes(name.toLowerCase()) && types.includes(prop.type) && !isUsed(name)
     );
   };
 
@@ -300,10 +298,7 @@ export function autoMapProperties(
 
   // 5. Description: name match on rich_text properties
   const descEntry =
-    findByName(
-      ['description', 'text', 'content', 'notes', 'details', 'body', 'comment', 'note'],
-      ['rich_text'],
-    ) ??
+    findByName(['description', 'text', 'content', 'notes', 'details', 'body', 'comment', 'note'], ['rich_text']) ??
     entries.find(([, p]) => p.type === 'rich_text' && !isUsed(p.name));
   if (descEntry && !isUsed(descEntry[0])) mapping[descEntry[0]] = 'description';
 
@@ -314,9 +309,7 @@ export function autoMapProperties(
  * Auto-detect property mapping from Notion database properties for notes/journal.
  * Maps to: title, content, tags
  */
-export function autoMapPropertiesForNotes(
-  properties: Record<string, NotionDatabaseProperty>,
-): Record<string, string> {
+export function autoMapPropertiesForNotes(properties: Record<string, NotionDatabaseProperty>): Record<string, string> {
   const mapping: Record<string, string> = {};
   const entries = Object.entries(properties);
 
@@ -325,8 +318,7 @@ export function autoMapPropertiesForNotes(
   const findByName = (names: string[], types: string[]): [string, NotionDatabaseProperty] | undefined => {
     const lower = names.map((n) => n.toLowerCase());
     return entries.find(
-      ([name, prop]) =>
-        lower.includes(name.toLowerCase()) && types.includes(prop.type) && !isUsed(name),
+      ([name, prop]) => lower.includes(name.toLowerCase()) && types.includes(prop.type) && !isUsed(name)
     );
   };
 
@@ -336,10 +328,7 @@ export function autoMapPropertiesForNotes(
 
   // 2. Content: find rich_text named content, text, description, body, notes, etc.
   const contentEntry =
-    findByName(
-      ['content', 'text', 'description', 'body', 'notes', 'note', 'details', 'entry'],
-      ['rich_text'],
-    ) ??
+    findByName(['content', 'text', 'description', 'body', 'notes', 'note', 'details', 'entry'], ['rich_text']) ??
     entries.find(([, p]) => p.type === 'rich_text' && !isUsed(p.name));
   if (contentEntry && !isUsed(contentEntry[0])) mapping[contentEntry[0]] = 'content';
 
@@ -360,7 +349,7 @@ export async function listPages(
   collectionId: string,
   object: 'database' | 'data_source',
   propertyMapping: Record<string, string>,
-  table: 'task' | 'note' = 'task',
+  table: 'task' | 'note' = 'task'
 ): Promise<NotionPagePreview[]> {
   const accessToken = await getValidAccessToken(userId);
   const notion = createNotionClient(accessToken);
@@ -368,12 +357,14 @@ export async function listPages(
   // Get all notionPageId values already imported
   const model = table === 'task' ? (prisma as any).task : (prisma as any).note;
   const importedPages = new Set(
-    ((await model.findMany({
-      where: { userId, notionPageId: { not: null } },
-      select: { notionPageId: true },
-    })) as { notionPageId: string }[])
+    (
+      (await model.findMany({
+        where: { userId, notionPageId: { not: null } },
+        select: { notionPageId: true },
+      })) as { notionPageId: string }[]
+    )
       .map((t) => t.notionPageId)
-      .filter(Boolean),
+      .filter(Boolean)
   );
 
   const pages: NotionPagePreview[] = [];
@@ -489,10 +480,11 @@ export async function listDatabases(userId: string): Promise<NotionCollectionDTO
 
       if (!db.title) continue;
 
-      const title = (Array.isArray(db.title) ? db.title : [])
-        .map((t: any) => t.plain_text ?? '')
-        .join('')
-        .trim() || 'Untitled';
+      const title =
+        (Array.isArray(db.title) ? db.title : [])
+          .map((t: any) => t.plain_text ?? '')
+          .join('')
+          .trim() || 'Untitled';
 
       let icon: string | null = null;
       if (db.icon?.type === 'emoji') {
@@ -522,7 +514,7 @@ export async function listDatabases(userId: string): Promise<NotionCollectionDTO
 export async function getDatabaseProperties(
   userId: string,
   collectionId: string,
-  object: 'database' | 'data_source',
+  object: 'database' | 'data_source'
 ): Promise<Record<string, NotionDatabaseProperty>> {
   const accessToken = await getValidAccessToken(userId);
   const notion = createNotionClient(accessToken);
@@ -551,7 +543,7 @@ export async function importTasks(
   collectionId: string,
   object: 'database' | 'data_source',
   propertyMapping: Record<string, string>,
-  pageIds?: string[],
+  pageIds?: string[]
 ): Promise<NotionImportResult> {
   const accessToken = await getValidAccessToken(userId);
   const notion = createNotionClient(accessToken);
@@ -647,7 +639,7 @@ export async function importNotes(
   object: 'database' | 'data_source',
   propertyMapping: Record<string, string>,
   isJournal?: boolean,
-  pageIds?: string[],
+  pageIds?: string[]
 ): Promise<NotionImportResult> {
   const accessToken = await getValidAccessToken(userId);
   const notion = createNotionClient(accessToken);
@@ -751,13 +743,20 @@ function mapNotionPageToTask(page: any, mapping: Record<string, string>): Mapped
     switch (systemField) {
       case 'title': {
         if (prop.type === 'title') {
-          result.title = (prop.title ?? []).map((t: any) => t.plain_text ?? '').join('').trim();
+          result.title = (prop.title ?? [])
+            .map((t: any) => t.plain_text ?? '')
+            .join('')
+            .trim();
         }
         break;
       }
       case 'description': {
         if (prop.type === 'rich_text') {
-          result.description = (prop.rich_text ?? []).map((t: any) => t.plain_text ?? '').join('').trim() || null;
+          result.description =
+            (prop.rich_text ?? [])
+              .map((t: any) => t.plain_text ?? '')
+              .join('')
+              .trim() || null;
         }
         break;
       }
@@ -767,9 +766,9 @@ function mapNotionPageToTask(page: any, mapping: Record<string, string>): Mapped
             'not started': 'TODO',
             'to do': 'TODO',
             'in progress': 'IN_PROGRESS',
-            'done': 'DONE',
-            'completed': 'DONE',
-            'cancelled': 'CANCELLED',
+            done: 'DONE',
+            completed: 'DONE',
+            cancelled: 'CANCELLED',
           };
           result.status = statusMap[prop.select.name?.toLowerCase()] ?? 'TODO';
         } else if (prop.type === 'status' && prop.status) {
@@ -777,9 +776,9 @@ function mapNotionPageToTask(page: any, mapping: Record<string, string>): Mapped
             'not started': 'TODO',
             'to do': 'TODO',
             'in progress': 'IN_PROGRESS',
-            'done': 'DONE',
-            'completed': 'DONE',
-            'cancelled': 'CANCELLED',
+            done: 'DONE',
+            completed: 'DONE',
+            cancelled: 'CANCELLED',
           };
           result.status = statusMap[prop.status.name?.toLowerCase()] ?? 'TODO';
         }
@@ -788,11 +787,11 @@ function mapNotionPageToTask(page: any, mapping: Record<string, string>): Mapped
       case 'priority': {
         if (prop.type === 'select' && prop.select) {
           const priorityMap: Record<string, 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'> = {
-            'low': 'LOW',
-            'medium': 'MEDIUM',
-            'high': 'HIGH',
-            'critical': 'CRITICAL',
-            'urgent': 'CRITICAL',
+            low: 'LOW',
+            medium: 'MEDIUM',
+            high: 'HIGH',
+            critical: 'CRITICAL',
+            urgent: 'CRITICAL',
           };
           result.priority = priorityMap[prop.select.name?.toLowerCase()] ?? 'MEDIUM';
         }
@@ -816,11 +815,7 @@ interface MappedNote {
   tags: string[];
 }
 
-async function mapNotionPageToNote(
-  notion: Client,
-  page: any,
-  mapping: Record<string, string>,
-): Promise<MappedNote> {
+async function mapNotionPageToNote(notion: Client, page: any, mapping: Record<string, string>): Promise<MappedNote> {
   const props = page.properties ?? {};
   const result: MappedNote = { title: null, content: '', tags: [] };
 
@@ -831,13 +826,20 @@ async function mapNotionPageToNote(
     switch (systemField) {
       case 'title': {
         if (prop.type === 'title') {
-          result.title = (prop.title ?? []).map((t: any) => t.plain_text ?? '').join('').trim() || null;
+          result.title =
+            (prop.title ?? [])
+              .map((t: any) => t.plain_text ?? '')
+              .join('')
+              .trim() || null;
         }
         break;
       }
       case 'content': {
         if (prop.type === 'rich_text') {
-          result.content = (prop.rich_text ?? []).map((t: any) => t.plain_text ?? '').join('').trim();
+          result.content = (prop.rich_text ?? [])
+            .map((t: any) => t.plain_text ?? '')
+            .join('')
+            .trim();
         }
         break;
       }

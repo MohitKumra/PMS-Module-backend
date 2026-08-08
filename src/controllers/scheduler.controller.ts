@@ -1,4 +1,4 @@
-import { Request, Response, NextFunction } from 'express';
+import type { Request, Response, NextFunction } from 'express';
 import * as schedulerService from '../services/scheduler.service';
 
 export async function getCapacity(req: Request, res: Response, next: NextFunction) {

@@ -3,8 +3,18 @@
 // AI preference toggle before spending tokens; disabled features return
 // a zero-token fallback shape.
 
-import { Request, Response } from 'express';
-import { getAIStatus, generateAIInsights, generateAICoach, generateDailyBrief, analyzeJournalEntry, analyzeJournalWeek, parseTaskFromNaturalLanguage, generateGoalPlan, fallbackGoalPlan } from '../services/ai/aiService';
+import type { Request, Response } from 'express';
+import {
+  getAIStatus,
+  generateAIInsights,
+  generateAICoach,
+  generateDailyBrief,
+  analyzeJournalEntry,
+  analyzeJournalWeek,
+  parseTaskFromNaturalLanguage,
+  generateGoalPlan,
+  fallbackGoalPlan,
+} from '../services/ai/aiService';
 import { getSummary, getWeeklyProgress, getUpcomingDeadlines } from '../services/analytics.service';
 import { prisma } from '../lib/prismaClient';
 import * as goalService from '../services/goal.service';
@@ -24,7 +34,7 @@ async function isAIFeatureEnabled(userId: string, featureKey: AIFeatureKey): Pro
     const aiPref = await prisma.aIPreference.findUnique({ where: { userId } });
     if (!aiPref) return true;
     return aiPref[featureKey] !== false;
-  } catch (e) {
+  } catch {
     return true;
   }
 }
@@ -71,7 +81,7 @@ export async function getInsights(req: Request, res: Response) {
       where: { userId, isJournal: true, createdAt: { gte: weekStart } },
       select: { createdAt: true },
     });
-    const journalDates = new Set(journalEntries.map(n => toDateStr(n.createdAt)));
+    const journalDates = new Set(journalEntries.map((n) => toDateStr(n.createdAt)));
     const journalDaysThisWeek = journalDates.size;
 
     const tomorrow = new Date(today);
@@ -82,12 +92,14 @@ export async function getInsights(req: Request, res: Response) {
 
     const totalProjects = await prisma.project.count({ where: { userId } });
 
-    const weeklyTaskTrend = weeklyProgress.length >= 2
-      ? `${weeklyProgress[1].tasksCompleted > weeklyProgress[0].tasksCompleted ? 'up' : 'down'} from last week`
-      : 'stable';
-    const weeklyFocusTrend = weeklyProgress.length >= 2
-      ? `${weeklyProgress[1].focusMinutes > weeklyProgress[0].focusMinutes ? 'up' : 'down'} from last week`
-      : 'stable';
+    const weeklyTaskTrend =
+      weeklyProgress.length >= 2
+        ? `${weeklyProgress[1].tasksCompleted > weeklyProgress[0].tasksCompleted ? 'up' : 'down'} from last week`
+        : 'stable';
+    const weeklyFocusTrend =
+      weeklyProgress.length >= 2
+        ? `${weeklyProgress[1].focusMinutes > weeklyProgress[0].focusMinutes ? 'up' : 'down'} from last week`
+        : 'stable';
 
     const result = await generateAIInsights(userId, {
       tasksCompleted: summary.tasksCompleted,
@@ -121,7 +133,13 @@ export async function getCoach(req: Request, res: Response) {
   try {
     const enabled = await isAIFeatureEnabled(userId, 'coachEnabled');
     if (!enabled) {
-      res.json({ title: '', message: '', suggestion: { text: '', actionLabel: '' }, mood: 'encouraging', source: 'fallback' });
+      res.json({
+        title: '',
+        message: '',
+        suggestion: { text: '', actionLabel: '' },
+        mood: 'encouraging',
+        source: 'fallback',
+      });
       return;
     }
 
@@ -203,9 +221,7 @@ export async function getDailyBrief(req: Request, res: Response) {
       currentStreak: summary.currentHabitStreak,
       focusMinutesYesterday: summary.focusMinutesTotal,
       topPriorityTask: topPriorityTask?.title || null,
-      upcomingDeadline: nextDeadline
-        ? `${nextDeadline.title} (${nextDeadline.dueDate?.toLocaleDateString()})`
-        : null,
+      upcomingDeadline: nextDeadline ? `${nextDeadline.title} (${nextDeadline.dueDate?.toLocaleDateString()})` : null,
     });
 
     res.json(result);
@@ -226,7 +242,14 @@ export async function postAnalyzeJournal(req: Request, res: Response) {
     const userId = req.user!.sub;
     const enabled = await isAIFeatureEnabled(userId, 'journalAnalysisEnabled');
     if (!enabled) {
-      res.json({ mood: 'neutral', moodLabel: 'Reflective', themes: [], insight: '', reflectionPrompt: '', source: 'fallback' });
+      res.json({
+        mood: 'neutral',
+        moodLabel: 'Reflective',
+        themes: [],
+        insight: '',
+        reflectionPrompt: '',
+        source: 'fallback',
+      });
       return;
     }
     const result = await analyzeJournalEntry(userId, content);
@@ -242,7 +265,15 @@ export async function getJournalWeekly(req: Request, res: Response) {
   try {
     const enabled = await isAIFeatureEnabled(userId, 'journalWeeklyEnabled');
     if (!enabled) {
-      res.json({ overallMood: 'neutral', moodTrend: '', keyThemes: [], summary: '', insight: '', suggestion: '', source: 'fallback' });
+      res.json({
+        overallMood: 'neutral',
+        moodTrend: '',
+        keyThemes: [],
+        summary: '',
+        insight: '',
+        suggestion: '',
+        source: 'fallback',
+      });
       return;
     }
 

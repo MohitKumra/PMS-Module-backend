@@ -299,11 +299,7 @@ export interface GoalWorkspaceCreateResponse {
 
 // ─── Tasks ───────────────────────────────────────────────────────────────────
 
-export type TaskStatus =
-  | 'TODO'
-  | 'IN_PROGRESS'
-  | 'DONE'
-  | 'CANCELLED';
+export type TaskStatus = 'TODO' | 'IN_PROGRESS' | 'DONE' | 'CANCELLED';
 
 export type Priority = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 
@@ -350,7 +346,8 @@ export interface TaskDTO {
   dueTime: string | null; // "HH:mm"
   reminderTime: string | null; // "HH:mm"
   reminderMessage: string | null;
-  recurrenceRule: string | null; // RRULE string
+  recurrenceRule: string | null; // RRULE string (legacy + derived)
+  recurrenceConfig: TaskRecurrenceConfig | null; // full config object
   recurrenceEndDate: string | null; // ISO 8601
   skipDates: string[]; // YYYY-MM-DD
   parentTaskId: string | null;
@@ -418,7 +415,7 @@ export type TaskRecurrenceMissedBehavior = 'skip' | 'overdue' | 'createNext';
 export type TaskRecurrenceGenerateNext = 'onCompletion' | 'onDueDate';
 export type TaskRecurrenceMonthlyMode = 'dayOfMonth' | 'weekdayPattern';
 
-export interface TaskRecurrenceConfig {
+export type TaskRecurrenceConfig = {
   enabled: boolean;
   frequency: TaskRecurrenceFrequency;
   interval: number;
@@ -434,7 +431,7 @@ export interface TaskRecurrenceConfig {
   repeatBasedOn?: TaskRecurrenceRepeatBasedOn;
   missedBehavior?: TaskRecurrenceMissedBehavior;
   generateNext?: TaskRecurrenceGenerateNext;
-}
+};
 
 export interface TaskActivityDTO {
   id: string;
@@ -480,8 +477,8 @@ export interface HabitDTO {
   targetPerWeek: number;
   reminderTime: string | null; // "HH:mm"
   reminderMessage: string | null;
-  durationDays: number | null;  // null = forever
-  skipDays: number[];           // day indices 0-6 (0=Mon..6=Sun)
+  durationDays: number | null; // null = forever
+  skipDays: number[]; // day indices 0-6 (0=Mon..6=Sun)
   streakBrokenAt: string | null;
   isActive: boolean;
   createdAt: string;
@@ -493,16 +490,16 @@ export interface HabitDTO {
   bestStreak: number;
   weekPattern: boolean[]; // Mon..Sun
   completionDates: string[];
-  streakSafeDays: string[];     // dates that were intentionally skipped
-  totalXp: number;              // total XP earned from this habit (15 per completion)
+  streakSafeDays: string[]; // dates that were intentionally skipped
+  totalXp: number; // total XP earned from this habit (15 per completion)
 }
 
 export interface CreateHabitRequest {
   title: string;
   reminderTime?: string;
   reminderMessage?: string;
-  durationDays?: number | null;  // null = forever
-  skipDays?: number[];           // day indices 0-6
+  durationDays?: number | null; // null = forever
+  skipDays?: number[]; // day indices 0-6
   goalId?: string | null;
 }
 
@@ -510,8 +507,8 @@ export interface HabitsListResponse {
   data: HabitDTO[];
   meta: {
     total: number;
-    weeklyTrend: number;         // real % change vs last week, computed server-side
-}
+    weeklyTrend: number; // real % change vs last week, computed server-side
+  };
 }
 
 export interface HabitStreakBreakDTO {
@@ -534,8 +531,8 @@ export interface UpdateHabitRequest {
 // ─── Week Overview ────────────────────────────────────────────────────────────
 
 export interface WeekDayDTO {
-  date: string;   // "YYYY-MM-DD"
-  score: number;  // 0-100
+  date: string; // "YYYY-MM-DD"
+  score: number; // 0-100
   completed: number;
   total: number;
   isFuture: boolean;
@@ -616,8 +613,8 @@ export interface NoteListFilters {
   search?: string;
   tags?: string[];
   mood?: NoteMood;
-  dateFrom?: string;   // ISO date
-  dateTo?: string;     // ISO date
+  dateFrom?: string; // ISO date
+  dateTo?: string; // ISO date
   archived?: boolean;
   isPinned?: boolean;
   sortField?: NoteSortField;
@@ -803,11 +800,18 @@ export interface PushSubscriptionRequest {
 // ─── In-App Activity Feed ─────────────────────────────────────────────────────
 
 export type InAppNotificationType =
-  | 'TASK_CREATED' | 'TASK_COMPLETED' | 'TASK_STATUS_CHANGED'
-  | 'HABIT_COMPLETED' | 'HABIT_STREAK'
+  | 'TASK_CREATED'
+  | 'TASK_COMPLETED'
+  | 'TASK_STATUS_CHANGED'
+  | 'HABIT_COMPLETED'
+  | 'HABIT_STREAK'
   | 'FOCUS_SESSION_COMPLETED'
-  | 'PROJECT_CREATED' | 'PROJECT_COMPLETED' | 'PROJECT_STATUS_CHANGED'
-  | 'TASK_OVERDUE' | 'TASK_DUE_SOON' | 'HABIT_PENDING';
+  | 'PROJECT_CREATED'
+  | 'PROJECT_COMPLETED'
+  | 'PROJECT_STATUS_CHANGED'
+  | 'TASK_OVERDUE'
+  | 'TASK_DUE_SOON'
+  | 'HABIT_PENDING';
 
 export interface InAppNotificationDTO {
   id: string;

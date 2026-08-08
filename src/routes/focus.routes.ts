@@ -28,13 +28,13 @@ const timeLogSchema = z.object({
 
 // ─── Routes ──────────────────────────────────────────────────────────────────
 
-router.get('/',              ctrl.list);
-router.post('/',             validate({ body: createSchema }), ctrl.create);
-router.patch('/:id',         validate({ body: updateSchema }), ctrl.update);
+router.get('/', ctrl.list);
+router.post('/', validate({ body: createSchema }), ctrl.create);
+router.patch('/:id', validate({ body: updateSchema }), ctrl.update);
 router.post('/:id/complete', ctrl.complete);
-router.post('/:id/cancel',   ctrl.cancel);
-router.get('/active',        ctrl.getActive);
-router.post('/time-log',     validate({ body: timeLogSchema }), ctrl.logTime);
-router.get('/time-logs',     ctrl.listTimeLogs);
+router.post('/:id/cancel', ctrl.cancel);
+router.get('/active', ctrl.getActive);
+router.post('/time-log', validate({ body: timeLogSchema }), ctrl.logTime);
+router.get('/time-logs', ctrl.listTimeLogs);
 
 export default router;

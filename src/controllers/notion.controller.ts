@@ -2,7 +2,7 @@
 // Notion integration controller — handles OAuth, database listing, and imports.
 // Supports both legacy Database API and new Data Source API.
 
-import { Request, Response, NextFunction } from 'express';
+import type { Request, Response, NextFunction } from 'express';
 import * as notionService from '../services/notion.service';
 import { createError } from '../middleware/errorHandler';
 
@@ -172,7 +172,14 @@ export async function importNotes(req: Request, res: Response, next: NextFunctio
     }
 
     const collectionObject: 'database' | 'data_source' = object === 'data_source' ? 'data_source' : 'database';
-    const result = await notionService.importNotes(userId, databaseId, collectionObject, propertyMapping, isJournal, pageIds);
+    const result = await notionService.importNotes(
+      userId,
+      databaseId,
+      collectionObject,
+      propertyMapping,
+      isJournal,
+      pageIds
+    );
     res.json(result);
   } catch (err) {
     next(err);

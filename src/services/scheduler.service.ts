@@ -12,9 +12,9 @@
 import { prisma } from '../lib/prismaClient';
 
 export interface CapacityInfo {
-  dailyBudgetMinutes: number;   // user setting, default 240
-  bookedMinutes: number;        // minutes already booked via focus sessions
-  remainingMinutes: number;     // what's left
+  dailyBudgetMinutes: number; // user setting, default 240
+  bookedMinutes: number; // minutes already booked via focus sessions
+  remainingMinutes: number; // what's left
 }
 
 export interface ScheduledBlock {
@@ -22,12 +22,12 @@ export interface ScheduledBlock {
   taskTitle: string;
   priority: string;
   estimatedDuration: number;
-  scheduledStart: Date | null;  // null = block suggested but no specific time
+  scheduledStart: Date | null; // null = block suggested but no specific time
   scheduledEnd: Date | null;
 }
 
 export interface ScheduleSuggestion {
-  date: string;               // YYYY-MM-DD
+  date: string; // YYYY-MM-DD
   capacity: CapacityInfo;
   suggestedBlocks: ScheduledBlock[];
   totalSuggestedMinutes: number;
@@ -94,8 +94,8 @@ export async function suggestSchedule(userId: string, date: Date): Promise<Sched
       estimatedDuration: { not: null }, // only tasks with estimated duration
     },
     orderBy: [
-      { priority: 'desc' },    // CRITICAL first
-      { dueDate: 'asc' },      // earliest due first
+      { priority: 'desc' }, // CRITICAL first
+      { dueDate: 'asc' }, // earliest due first
     ],
     select: {
       id: true,

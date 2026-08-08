@@ -3,6 +3,7 @@
 // Recurrence: stores RRULE strings (e.g. "FREQ=DAILY;INTERVAL=1").
 
 import { prisma } from '../lib/prismaClient';
+import { Prisma } from '@prisma/client';
 import { createError } from '../middleware/errorHandler';
 import { deleteStoredFile } from '../lib/fileStorage';
 import { rrulestr } from 'rrule';
@@ -54,7 +55,10 @@ function subtractMinutes(time: string, minutes: number): string | null {
   return `${String(nextHours).padStart(2, '0')}:${String(nextMinutes).padStart(2, '0')}`;
 }
 
-function resolveReminderTime(dueTime: string | null | undefined, reminderTime: string | null | undefined): string | null {
+function resolveReminderTime(
+  dueTime: string | null | undefined,
+  reminderTime: string | null | undefined
+): string | null {
   const explicitReminder = normalizeTimeString(reminderTime);
   if (explicitReminder) return explicitReminder;
   const normalizedDueTime = normalizeTimeString(dueTime);
@@ -65,7 +69,10 @@ function getWeekdayToken(date: Date): string {
   return ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'][date.getDay()];
 }
 
-function buildRecurrenceFromConfig(config: TaskRecurrenceConfig, startDate: Date): { recurrenceRule: string | null; recurrenceEndDate: Date | null; dueDate: Date | null } {
+export function buildRecurrenceFromConfig(
+  config: TaskRecurrenceConfig,
+  startDate: Date
+): { recurrenceRule: string | null; recurrenceEndDate: Date | null; dueDate: Date | null } {
   if (!config.enabled) {
     return { recurrenceRule: null, recurrenceEndDate: null, dueDate: startDate };
   }
@@ -82,25 +89,27 @@ function buildRecurrenceFromConfig(config: TaskRecurrenceConfig, startDate: Date
       parts.push('FREQ=WEEKLY', `INTERVAL=${interval}`);
       const weekdays = (config.weekdays ?? []).map((day) => day.trim().toUpperCase()).filter(Boolean);
       if (weekdays.length > 0) {
-        const normalized = weekdays.map((day) => {
-          const map: Record<string, string> = {
-            sunday: 'SU',
-            monday: 'MO',
-            tuesday: 'TU',
-            wednesday: 'WE',
-            thursday: 'TH',
-            friday: 'FR',
-            saturday: 'SA',
-            su: 'SU',
-            mo: 'MO',
-            tu: 'TU',
-            we: 'WE',
-            th: 'TH',
-            fr: 'FR',
-            sa: 'SA',
-          };
-          return map[day.toLowerCase()] ?? day.slice(0, 2);
-        }).join(',');
+        const normalized = weekdays
+          .map((day) => {
+            const map: Record<string, string> = {
+              sunday: 'SU',
+              monday: 'MO',
+              tuesday: 'TU',
+              wednesday: 'WE',
+              thursday: 'TH',
+              friday: 'FR',
+              saturday: 'SA',
+              su: 'SU',
+              mo: 'MO',
+              tu: 'TU',
+              we: 'WE',
+              th: 'TH',
+              fr: 'FR',
+              sa: 'SA',
+            };
+            return map[day.toLowerCase()] ?? day.slice(0, 2);
+          })
+          .join(',');
         parts.push(`BYDAY=${normalized}`);
       }
       break;
@@ -136,7 +145,10 @@ function buildRecurrenceFromConfig(config: TaskRecurrenceConfig, startDate: Date
   return { recurrenceRule: parts.join(';'), recurrenceEndDate, dueDate };
 }
 
-function recurrenceConfigToRule(config?: TaskRecurrenceConfig | null, fallbackDueDate?: Date | null): { recurrenceRule?: string | null; recurrenceEndDate?: Date | null; dueDate?: Date | null } {
+export function recurrenceConfigToRule(
+  config?: TaskRecurrenceConfig | null,
+  fallbackDueDate?: Date | null
+): { recurrenceRule?: string | null; recurrenceEndDate?: Date | null; dueDate?: Date | null } {
   if (!config?.enabled) return {};
   const startDate = config.startsAt ? new Date(config.startsAt) : (fallbackDueDate ?? startOfToday());
   return buildRecurrenceFromConfig(config, startDate);
@@ -163,21 +175,53 @@ function isFutureScheduledDate(scheduledDate: Date | null, timeZone: string): bo
 }
 
 /**
- * Calculates the next scheduled date from the completed occurrence's scheduled
- * date, never from wall-clock time. This keeps recurrence deterministic even
- * when the user completes a task late.
+ * Calculates the next scheduled date for a recurring task.
+ *
+ * repeatBasedOn = 'dueDate' (default):
+ *   Always anchors to the original due date. Completing late doesn't shift
+ *   the schedule. E.g. a Monday task completed on Wednesday still creates
+ *   the next occurrence on the following Monday.
+ *
+ * repeatBasedOn = 'completionDate':
+ *   The interval counts from when the task was actually completed. Useful
+ *   for tasks like "water the plants every 3 days" where the clock resets
+ *   on completion, not on the original due date.
  */
-function getNextOccurrence(
+export function getNextOccurrence(
   scheduledDate: Date | null,
   recurrenceRule: string | null,
   recurrenceEndDate: Date | null,
-  skipDates: string[]
+  skipDates: string[],
+  options?: {
+    repeatBasedOn?: 'dueDate' | 'completionDate';
+    completionDate?: Date | null;
+  }
 ): Date | null {
-  if (!scheduledDate || !recurrenceRule) return null;
+  if (!recurrenceRule) return null;
+
+  // Choose anchor based on repeatBasedOn setting
+  const repeatBasedOn = options?.repeatBasedOn ?? 'dueDate';
+  let anchor: Date | null = null;
+
+  if (repeatBasedOn === 'completionDate' && options?.completionDate) {
+    // Anchor from completion time, but normalise to midnight UTC so the
+    // RRULE engine (which works in UTC midnight dates) stays consistent.
+    anchor = new Date(options.completionDate);
+    anchor.setUTCHours(0, 0, 0, 0);
+  } else {
+    anchor = scheduledDate;
+  }
+
+  if (!anchor) return null;
 
   try {
-    const rule = rrulestr(recurrenceRule, { dtstart: scheduledDate });
-    let next = rule.after(scheduledDate, false);
+    const rule = rrulestr(recurrenceRule, { dtstart: anchor });
+    // For dueDate mode we use rule.after(anchor) which gives the next
+    // occurrence *strictly after* the anchor date — i.e. the one after
+    // the just-completed task.
+    // For completionDate mode the anchor IS the completion date, so we
+    // also want the first occurrence strictly after it.
+    let next = rule.after(anchor, false);
 
     while (next) {
       if (recurrenceEndDate && next > recurrenceEndDate) return null;
@@ -197,7 +241,21 @@ async function createNextRecurringOccurrence(
   tx: any,
   task: any,
   rootId: string,
+  options?: {
+    completionDate?: Date | null;
+    /** Override the config stored on the task (used when called from updateTask) */
+    recurrenceConfig?: TaskRecurrenceConfig | null;
+  }
 ): Promise<void> {
+  const cfg: TaskRecurrenceConfig | null =
+    options?.recurrenceConfig ?? (task.recurrenceConfig as TaskRecurrenceConfig | null) ?? null;
+  const missedBehavior = cfg?.missedBehavior ?? 'skip';
+  const generateNext = cfg?.generateNext ?? 'onCompletion';
+  const repeatBasedOn = cfg?.repeatBasedOn ?? 'dueDate';
+
+  // generateNext = 'onDueDate': do NOT spawn here — the cron job handles it.
+  if (generateNext === 'onDueDate') return;
+
   const existingActiveOccurrence = await tx.task.findFirst({
     where: {
       userId: task.userId,
@@ -207,14 +265,39 @@ async function createNextRecurringOccurrence(
   });
   if (existingActiveOccurrence) return;
 
-  const nextDate = getNextOccurrence(
-    task.dueDate,
-    task.recurrenceRule,
-    task.recurrenceEndDate,
-    task.skipDates || [],
-  );
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const nextDate = getNextOccurrence(task.dueDate, task.recurrenceRule, task.recurrenceEndDate, task.skipDates || [], {
+    repeatBasedOn,
+    completionDate: options?.completionDate ?? null,
+  });
   if (!nextDate) return;
 
+  // missedBehavior = 'skip' (default): only create future occurrences.
+  // missedBehavior = 'overdue': create the task even if nextDate is in the past.
+  // missedBehavior = 'createNext': create the missed occurrence AND the one after it.
+  const nextDateIsInPast = nextDate < today;
+
+  if (nextDateIsInPast && missedBehavior === 'skip') {
+    // Find the first future occurrence instead
+    let futureDate = getNextOccurrence(nextDate, task.recurrenceRule, task.recurrenceEndDate, task.skipDates || [], {
+      repeatBasedOn: 'dueDate',
+      completionDate: null,
+    });
+    // Keep advancing until we find a future date
+    while (futureDate && futureDate < today) {
+      futureDate = getNextOccurrence(futureDate, task.recurrenceRule, task.recurrenceEndDate, task.skipDates || [], {
+        repeatBasedOn: 'dueDate',
+        completionDate: null,
+      });
+    }
+    if (!futureDate) return;
+    await spawnOccurrence(tx, task, rootId, futureDate);
+    return;
+  }
+
+  // 'overdue' and 'createNext' both create at nextDate (even if past)
   const existingSameDate = await tx.task.findFirst({
     where: {
       userId: task.userId,
@@ -222,8 +305,39 @@ async function createNextRecurringOccurrence(
       dueDate: nextDate,
     },
   });
-  if (existingSameDate) return;
+  if (!existingSameDate) {
+    await spawnOccurrence(tx, task, rootId, nextDate);
+  }
 
+  // 'createNext': also spawn the one after the missed date
+  if (missedBehavior === 'createNext' && nextDateIsInPast) {
+    let futureDate = getNextOccurrence(nextDate, task.recurrenceRule, task.recurrenceEndDate, task.skipDates || [], {
+      repeatBasedOn: 'dueDate',
+      completionDate: null,
+    });
+    while (futureDate && futureDate < today) {
+      futureDate = getNextOccurrence(futureDate, task.recurrenceRule, task.recurrenceEndDate, task.skipDates || [], {
+        repeatBasedOn: 'dueDate',
+        completionDate: null,
+      });
+    }
+    if (futureDate) {
+      const existingFuture = await tx.task.findFirst({
+        where: {
+          userId: task.userId,
+          OR: [{ id: rootId }, { parentTaskId: rootId }],
+          dueDate: futureDate,
+        },
+      });
+      if (!existingFuture) {
+        await spawnOccurrence(tx, task, rootId, futureDate);
+      }
+    }
+  }
+}
+
+/** Creates a single child occurrence task at the given due date. */
+async function spawnOccurrence(tx: any, task: any, rootId: string, dueDate: Date): Promise<void> {
   await tx.task.create({
     data: {
       userId: task.userId,
@@ -231,8 +345,9 @@ async function createNextRecurringOccurrence(
       description: task.description,
       priority: task.priority,
       status: 'TODO',
-      dueDate: nextDate,
+      dueDate,
       recurrenceRule: task.recurrenceRule,
+      recurrenceConfig: task.recurrenceConfig ?? Prisma.JsonNull,
       recurrenceEndDate: task.recurrenceEndDate,
       skipDates: task.skipDates || [],
       parentTaskId: rootId,
@@ -242,19 +357,24 @@ async function createNextRecurringOccurrence(
       attachmentUrl: task.attachmentUrl,
       voiceNoteUrl: task.voiceNoteUrl,
       estimatedDuration: task.estimatedDuration,
-      subTasks: task.subTasks?.length > 0 ? {
-        create: task.subTasks.map((st: any) => ({
-          title: st.title,
-          order: st.order,
-          completed: false,
-        })),
-      } : undefined,
-      projectTasks: task.projectTasks ? {
-        create: {
-          projectId: task.projectTasks.projectId,
-          order: task.projectTasks.order,
-        },
-      } : undefined,
+      subTasks:
+        task.subTasks?.length > 0
+          ? {
+              create: task.subTasks.map((st: any) => ({
+                title: st.title,
+                order: st.order,
+                completed: false,
+              })),
+            }
+          : undefined,
+      projectTasks: task.projectTasks
+        ? {
+            create: {
+              projectId: task.projectTasks.projectId,
+              order: task.projectTasks.order,
+            },
+          }
+        : undefined,
     },
   });
 }
@@ -284,6 +404,7 @@ function toDTO(t: any): TaskDTO {
     reminderTime: t.reminderTime ?? null,
     reminderMessage: t.reminderMessage ?? null,
     recurrenceRule: t.recurrenceRule,
+    recurrenceConfig: (t.recurrenceConfig as TaskRecurrenceConfig | null) ?? null,
     recurrenceEndDate: t.recurrenceEndDate?.toISOString() ?? null,
     skipDates: t.skipDates || [],
     parentTaskId: t.parentTaskId,
@@ -306,14 +427,14 @@ function toDTO(t: any): TaskDTO {
 async function triggerCalendarSync(userId: string): Promise<void> {
   try {
     // Check if Google Calendar is connected before attempting sync
-    const connection = await prisma.googleCalendarConnection.findUnique({ 
-      where: { userId } 
+    const connection = await prisma.googleCalendarConnection.findUnique({
+      where: { userId },
     });
-    
+
     if (!connection || !connection.isActive || !connection.syncTasks) {
       return; // Skip sync if not connected or sync disabled
     }
-    
+
     await syncGoogleCalendarTasks(userId);
     console.log(`[Google Calendar] Successfully synced tasks for user ${userId}`);
   } catch (error: any) {
@@ -369,7 +490,10 @@ function normalizeSubTaskOrder(subTasks: TaskSubTaskInput[]): TaskSubTaskInput[]
   }));
 }
 
-export async function listTasks(userId: string, filters?: Record<string, string>): Promise<{ data: TaskDTO[]; meta: { total: number; nextCursor?: string | null } }> {
+export async function listTasks(
+  userId: string,
+  filters?: Record<string, string>
+): Promise<{ data: TaskDTO[]; meta: { total: number; nextCursor?: string | null } }> {
   const where: Record<string, unknown> = { userId };
   if (filters?.status) where.status = filters.status;
   if (filters?.priority) where.priority = filters.priority;
@@ -394,7 +518,7 @@ export async function listTasks(userId: string, filters?: Record<string, string>
         subTasks: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] },
         projectTasks: { include: { project: true } },
         goal: true,
-      }
+      },
     }),
     prisma.task.count({ where }),
   ]);
@@ -409,14 +533,14 @@ export async function listTasks(userId: string, filters?: Record<string, string>
 export async function getTask(userId: string, taskId: string): Promise<TaskDetailDTO> {
   const task = await prisma.task.findFirst({
     where: { id: taskId, userId },
-      include: {
-        subTasks: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] },
-        projectTasks: { include: { project: true } },
-        activity: { orderBy: { createdAt: 'desc' } },
-        timeEntries: { orderBy: { createdAt: 'desc' } },
-        media: true,
-        goal: true,
-      }
+    include: {
+      subTasks: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] },
+      projectTasks: { include: { project: true } },
+      activity: { orderBy: { createdAt: 'desc' } },
+      timeEntries: { orderBy: { createdAt: 'desc' } },
+      media: true,
+      goal: true,
+    },
   });
   if (!task) throw createError(404, 'TASK_NOT_FOUND', 'Task not found');
   const linkedNotes = await prisma.note.findMany({
@@ -466,14 +590,13 @@ export async function createTask(userId: string, data: CreateTaskRequest): Promi
   // Recurring tasks need an anchor date to compute occurrences from, even if
   // the user didn't set one — default silently to today rather than forcing
   // it as a required field in the UI.
-  const recurrenceData = recurrenceConfigToRule(data.recurrenceConfig, hasExplicitDueDate ? new Date(data.dueDate as string) : null);
-  const dueDate = recurrenceData.dueDate ?? (
-    hasExplicitDueDate
-      ? new Date(data.dueDate as string)
-      : data.recurrenceRule
-        ? startOfToday()
-        : null
+  const recurrenceData = recurrenceConfigToRule(
+    data.recurrenceConfig,
+    hasExplicitDueDate ? new Date(data.dueDate as string) : null
   );
+  const dueDate =
+    recurrenceData.dueDate ??
+    (hasExplicitDueDate ? new Date(data.dueDate as string) : data.recurrenceRule ? startOfToday() : null);
   const dueTime = normalizeTimeString(data.dueTime);
   const reminderTime = resolveReminderTime(dueTime, data.reminderTime);
   const reminderMessage = data.reminderMessage?.trim() || null;
@@ -517,7 +640,10 @@ export async function createTask(userId: string, data: CreateTaskRequest): Promi
         reminderTime,
         reminderMessage,
         recurrenceRule: recurrenceData.recurrenceRule ?? data.recurrenceRule ?? null,
-        recurrenceEndDate: recurrenceData.recurrenceEndDate ?? ((data.recurrenceEndDate && data.recurrenceEndDate !== '') ? new Date(data.recurrenceEndDate) : null),
+        recurrenceConfig: data.recurrenceConfig ?? Prisma.JsonNull,
+        recurrenceEndDate:
+          recurrenceData.recurrenceEndDate ??
+          (data.recurrenceEndDate && data.recurrenceEndDate !== '' ? new Date(data.recurrenceEndDate) : null),
         skipDates: data.skipDates || [],
         parentTaskId: data.parentTaskId ?? null,
         estimatedDuration: data.estimatedDuration ?? null,
@@ -526,29 +652,35 @@ export async function createTask(userId: string, data: CreateTaskRequest): Promi
         goalId,
         inProgressAt: data.status === 'IN_PROGRESS' ? new Date() : null,
         completedAt: data.status === 'DONE' ? new Date() : null,
-        subTasks: data.subTasks && data.subTasks.length > 0 ? {
-          create: data.subTasks.map((st, index) => ({
-            title: normalizeSubTaskTitle(st.title),
-            order: st.order ?? index,
-          }))
-        } : undefined,
-        projectTasks: resolvedProjectId ? {
-          create: {
-            projectId: resolvedProjectId,
-            order: 0,
-          },
-        } : undefined,
+        subTasks:
+          data.subTasks && data.subTasks.length > 0
+            ? {
+                create: data.subTasks.map((st, index) => ({
+                  title: normalizeSubTaskTitle(st.title),
+                  order: st.order ?? index,
+                })),
+              }
+            : undefined,
+        projectTasks: resolvedProjectId
+          ? {
+              create: {
+                projectId: resolvedProjectId,
+                order: 0,
+              },
+            }
+          : undefined,
       },
       include: {
         subTasks: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] },
         projectTasks: { include: { project: true } },
         goal: true,
-      }
+      },
     });
   });
   await createActivity(task.id, userId, 'CREATED', `Created task "${task.title}"`);
   if (projectId || goalId) {
-    const linkedProjectId = projectId ?? (await prisma.project.findFirst({ where: { userId, goalId }, select: { id: true } }))?.id ?? null;
+    const linkedProjectId =
+      projectId ?? (await prisma.project.findFirst({ where: { userId, goalId }, select: { id: true } }))?.id ?? null;
     if (linkedProjectId) {
       await updateProjectProgress(linkedProjectId);
     }
@@ -568,11 +700,11 @@ export async function updateTask(userId: string, taskId: string, data: UpdateTas
   const existing = await prisma.task.findFirst({
     where: { id: taskId, userId },
     include: {
-        user: { select: { timezone: true } },
-        subTasks: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] },
-        projectTasks: true,
-        goal: true,
-      },
+      user: { select: { timezone: true } },
+      subTasks: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] },
+      projectTasks: true,
+      goal: true,
+    },
   });
   if (!existing) throw createError(404, 'TASK_NOT_FOUND', 'Task not found');
   const previousAttachmentUrl = existing.attachmentUrl;
@@ -588,7 +720,11 @@ export async function updateTask(userId: string, taskId: string, data: UpdateTas
   const isRecurringCompletion = wasNotDone && isBeingMarkedDone && !!existing.recurrenceRule;
 
   if (isRecurringCompletion && isFutureScheduledDate(existing.dueDate, existing.user.timezone || 'UTC')) {
-    throw createError(400, 'RECURRING_OCCURRENCE_NOT_DUE', 'Future recurring tasks cannot be completed before their scheduled date');
+    throw createError(
+      400,
+      'RECURRING_OCCURRENCE_NOT_DUE',
+      'Future recurring tasks cannot be completed before their scheduled date'
+    );
   }
 
   let nextInProgressAt: Date | null | undefined = undefined;
@@ -612,17 +748,13 @@ export async function updateTask(userId: string, taskId: string, data: UpdateTas
   // with no due date (covers turning recurrence on for the first time via edit).
   let nextDueDate: Date | null | undefined = undefined;
   if (data.dueDate !== undefined) {
-    nextDueDate = (data.dueDate && data.dueDate !== '') ? new Date(data.dueDate) : null;
+    nextDueDate = data.dueDate && data.dueDate !== '' ? new Date(data.dueDate) : null;
   }
   const nextRecurrenceRule = data.recurrenceRule !== undefined ? data.recurrenceRule : existing.recurrenceRule;
   const nextRecurrenceData = recurrenceConfigToRule(data.recurrenceConfig, nextDueDate ?? existing.dueDate);
-  const nextDueTime = data.dueTime !== undefined
-    ? normalizeTimeString(data.dueTime)
-    : existing.dueTime ?? null;
+  const nextDueTime = data.dueTime !== undefined ? normalizeTimeString(data.dueTime) : (existing.dueTime ?? null);
   const nextReminderMessage =
-    data.reminderMessage !== undefined
-      ? data.reminderMessage?.trim() || null
-      : existing.reminderMessage ?? null;
+    data.reminderMessage !== undefined ? data.reminderMessage?.trim() || null : (existing.reminderMessage ?? null);
   let nextReminderTime: string | null | undefined = undefined;
   if (data.reminderTime !== undefined) {
     nextReminderTime = normalizeTimeString(data.reminderTime);
@@ -632,9 +764,8 @@ export async function updateTask(userId: string, taskId: string, data: UpdateTas
     nextReminderTime = existing.reminderTime ?? null;
   }
   const effectiveDueDate = nextDueDate !== undefined ? nextDueDate : existing.dueDate;
-  const dueDateChanged = data.dueDate !== undefined && (
-    (existing.dueDate?.toISOString() ?? null) !== (nextDueDate?.toISOString() ?? null)
-  );
+  const dueDateChanged =
+    data.dueDate !== undefined && (existing.dueDate?.toISOString() ?? null) !== (nextDueDate?.toISOString() ?? null);
   const dueTimeChanged = data.dueTime !== undefined && (existing.dueTime ?? null) !== (nextDueTime ?? null);
   if ((nextRecurrenceRule || nextRecurrenceData.recurrenceRule) && !effectiveDueDate) {
     nextDueDate = startOfToday();
@@ -696,9 +827,19 @@ export async function updateTask(userId: string, taskId: string, data: UpdateTas
         ...(data.reminderTime !== undefined || data.dueTime !== undefined ? { reminderTime: nextReminderTime } : {}),
         ...(data.reminderMessage !== undefined && { reminderMessage: nextReminderMessage }),
         ...(data.recurrenceRule !== undefined && { recurrenceRule: data.recurrenceRule }),
-        ...(data.recurrenceEndDate !== undefined && { recurrenceEndDate: (data.recurrenceEndDate && data.recurrenceEndDate !== '') ? new Date(data.recurrenceEndDate) : null }),
-        ...(data.recurrenceConfig !== undefined && nextRecurrenceData.recurrenceRule !== undefined && { recurrenceRule: nextRecurrenceData.recurrenceRule }),
-        ...(data.recurrenceConfig !== undefined && nextRecurrenceData.recurrenceEndDate !== undefined && { recurrenceEndDate: nextRecurrenceData.recurrenceEndDate }),
+        ...(data.recurrenceEndDate !== undefined && {
+          recurrenceEndDate:
+            data.recurrenceEndDate && data.recurrenceEndDate !== '' ? new Date(data.recurrenceEndDate) : null,
+        }),
+        ...(data.recurrenceConfig !== undefined &&
+          nextRecurrenceData.recurrenceRule !== undefined && { recurrenceRule: nextRecurrenceData.recurrenceRule }),
+        ...(data.recurrenceConfig !== undefined &&
+          nextRecurrenceData.recurrenceEndDate !== undefined && {
+            recurrenceEndDate: nextRecurrenceData.recurrenceEndDate,
+          }),
+        ...(data.recurrenceConfig !== undefined && {
+          recurrenceConfig: data.recurrenceConfig ? data.recurrenceConfig : Prisma.JsonNull,
+        }),
         ...(data.skipDates !== undefined && { skipDates: data.skipDates }),
         ...(data.attachmentUrl !== undefined && { attachmentUrl: data.attachmentUrl }),
         ...(data.voiceNoteUrl !== undefined && { voiceNoteUrl: data.voiceNoteUrl }),
@@ -706,7 +847,7 @@ export async function updateTask(userId: string, taskId: string, data: UpdateTas
         ...(data.goalId !== undefined && { goalId: data.goalId || null }),
         ...(nextInProgressAt !== undefined && { inProgressAt: nextInProgressAt }),
         ...(nextCompletedAt !== undefined && { completedAt: nextCompletedAt }),
-      },
+      } as any,
       include: {
         subTasks: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] },
         projectTasks: { include: { project: true } },
@@ -715,7 +856,11 @@ export async function updateTask(userId: string, taskId: string, data: UpdateTas
     });
 
     if (isRecurringCompletion) {
-      await createNextRecurringOccurrence(tx, updatedTask, existing.parentTaskId ?? existing.id);
+      await createNextRecurringOccurrence(tx, updatedTask, existing.parentTaskId ?? existing.id, {
+        completionDate: nextCompletedAt ?? new Date(),
+        recurrenceConfig: (data.recurrenceConfig ??
+          (updatedTask as any).recurrenceConfig) as TaskRecurrenceConfig | null,
+      });
     }
 
     return updatedTask;
@@ -729,15 +874,15 @@ export async function updateTask(userId: string, taskId: string, data: UpdateTas
   } else if (!wasNotDone && existing.status === 'DONE' && data.status && data.status !== 'DONE') {
     await revokeTaskCompletion(userId, task.id, task.title);
   }
-    if (data.title !== undefined && data.title !== existing.title) {
-      await createActivity(task.id, userId, 'TITLE_CHANGED', 'Updated task title');
-    }
-    if (dueDateChanged || dueTimeChanged) {
-      await createActivity(task.id, userId, 'DUE_DATE_CHANGED', 'Rescheduled task');
-    }
-    if (data.description !== undefined) {
-      await createActivity(task.id, userId, 'DESCRIPTION_CHANGED', 'Updated task details');
-    }
+  if (data.title !== undefined && data.title !== existing.title) {
+    await createActivity(task.id, userId, 'TITLE_CHANGED', 'Updated task title');
+  }
+  if (dueDateChanged || dueTimeChanged) {
+    await createActivity(task.id, userId, 'DUE_DATE_CHANGED', 'Rescheduled task');
+  }
+  if (data.description !== undefined) {
+    await createActivity(task.id, userId, 'DESCRIPTION_CHANGED', 'Updated task details');
+  }
   if (data.attachmentUrl !== undefined && data.attachmentUrl !== previousAttachmentUrl) {
     await deleteStoredFile(previousAttachmentUrl);
   }
@@ -749,16 +894,20 @@ export async function updateTask(userId: string, taskId: string, data: UpdateTas
   // scheduled AFTER this task's due date (or created after if no due date).
   // This rolls back the recurring chain from this point forward without
   // affecting past completed occurrences prior to this date.
-  if (!wasNotDone && existing.status === 'DONE' && data.status !== undefined && data.status !== 'DONE' && existing.recurrenceRule) {
+  if (
+    !wasNotDone &&
+    existing.status === 'DONE' &&
+    data.status !== undefined &&
+    data.status !== 'DONE' &&
+    existing.recurrenceRule
+  ) {
     const rootId = existing.parentTaskId ?? taskId;
     const spawnedOccurrences = await prisma.task.findMany({
       where: {
         parentTaskId: rootId,
         recurrenceRule: { not: null },
         id: { not: taskId },
-        ...(existing.dueDate
-          ? { dueDate: { gt: existing.dueDate } }
-          : { createdAt: { gt: existing.createdAt } }),
+        ...(existing.dueDate ? { dueDate: { gt: existing.dueDate } } : { createdAt: { gt: existing.createdAt } }),
       },
     });
     const deletedTaskIds = spawnedOccurrences.map((occ) => occ.id);
@@ -770,7 +919,9 @@ export async function updateTask(userId: string, taskId: string, data: UpdateTas
     if (deletedTaskIds.length > 0) {
       // Fire-and-forget: delete from Google Calendar
       deleteGoogleCalendarEvents(userId, deletedTaskIds).catch(() => {});
-      console.log(`Deleted ${spawnedOccurrences.length} spawned occurrence(s) after ${existing.dueDate?.toISOString() ?? existing.createdAt.toISOString()} for unmarked task ${taskId}`);
+      console.log(
+        `Deleted ${spawnedOccurrences.length} spawned occurrence(s) after ${existing.dueDate?.toISOString() ?? existing.createdAt.toISOString()} for unmarked task ${taskId}`
+      );
     }
   }
 
@@ -779,7 +930,7 @@ export async function updateTask(userId: string, taskId: string, data: UpdateTas
     await updateProjectProgress(projectTask.projectId);
   }
 
-  const effectiveGoalId = data.goalId !== undefined ? (data.goalId || null) : (existing.goalId ?? null);
+  const effectiveGoalId = data.goalId !== undefined ? data.goalId || null : (existing.goalId ?? null);
   if (effectiveGoalId) {
     await recomputeGoalProgress(effectiveGoalId).catch(() => undefined);
   }
@@ -794,12 +945,12 @@ export async function deleteTask(userId: string, taskId: string): Promise<void> 
   const existing = await prisma.task.findFirst({ where: { id: taskId, userId } });
   if (!existing) throw createError(404, 'TASK_NOT_FOUND', 'Task not found');
   const projectTask = await prisma.projectTask.findUnique({ where: { taskId } });
-  
+
   // If task was completed, deduct the XP before deleting
   if (existing.status === 'DONE') {
     await deleteTaskPoints(userId, existing.id, existing.title);
   }
-  
+
   await prisma.task.delete({ where: { id: taskId } });
 
   // Clean up the Google Calendar sync item for this task
@@ -833,10 +984,16 @@ export async function synchronizeRecurringTasks(userId?: string): Promise<void> 
     },
   });
 
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
   for (const root of recurringRoots) {
     try {
       await prisma.$transaction(async (tx) => {
         const rootId = root.id;
+        const cfg = (root as any).recurrenceConfig as TaskRecurrenceConfig | null;
+        const generateNext = cfg?.generateNext ?? 'onCompletion';
+
         const activeOccurrence = await tx.task.findFirst({
           where: {
             userId: root.userId,
@@ -856,13 +1013,24 @@ export async function synchronizeRecurringTasks(userId?: string): Promise<void> 
         });
         if (!latestOccurrence?.dueDate) return;
 
+        // For 'onDueDate' tasks: only create when the latest due date has arrived.
+        // For 'onCompletion' tasks: the completion handler normally spawns; the cron
+        // acts as a safety net for any that were missed.
+        if (generateNext === 'onDueDate') {
+          const latestDueKey = dateKeyInTimeZone(latestOccurrence.dueDate, 'UTC');
+          const todayKey = dateKeyInTimeZone(today, 'UTC');
+          if (latestDueKey > todayKey) return; // not yet due
+        }
+
         await createNextRecurringOccurrence(
           tx,
           {
             ...root,
             dueDate: latestOccurrence.dueDate,
+            recurrenceConfig: cfg,
           },
           rootId,
+          { recurrenceConfig: cfg }
         );
       });
     } catch (err: any) {
@@ -879,7 +1047,7 @@ export async function listSubTasks(userId: string, taskId: string): Promise<SubT
   if (!task) throw createError(404, 'TASK_NOT_FOUND', 'Task not found');
   const subTasks = await prisma.subTask.findMany({
     where: { taskId },
-    orderBy: [{ order: 'asc' }, { createdAt: 'asc' }]
+    orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
   });
   return subTasks.map(subTaskToDTO);
 }
@@ -889,19 +1057,26 @@ export async function createSubTask(userId: string, taskId: string, data: Create
   if (!task) throw createError(404, 'TASK_NOT_FOUND', 'Task not found');
   const title = normalizeSubTaskTitle(data.title);
   if (!title) throw createError(400, 'INVALID_SUBTASK_TITLE', 'Subtask title is required');
-  const nextOrder = data.order ?? ((await prisma.subTask.findFirst({ where: { taskId }, orderBy: { order: 'desc' } }))?.order ?? -1) + 1;
+  const nextOrder =
+    data.order ??
+    ((await prisma.subTask.findFirst({ where: { taskId }, orderBy: { order: 'desc' } }))?.order ?? -1) + 1;
   const subTask = await prisma.subTask.create({
     data: {
       taskId,
       title,
-      order: nextOrder
-    }
+      order: nextOrder,
+    },
   });
   await createActivity(taskId, userId, 'SUBTASK_CREATED', `Added subtask "${title}"`);
   return subTaskToDTO(subTask);
 }
 
-export async function updateSubTask(userId: string, taskId: string, subTaskId: string, data: UpdateSubTaskRequest): Promise<SubTaskDTO> {
+export async function updateSubTask(
+  userId: string,
+  taskId: string,
+  subTaskId: string,
+  data: UpdateSubTaskRequest
+): Promise<SubTaskDTO> {
   const task = await prisma.task.findFirst({ where: { id: taskId, userId } });
   if (!task) throw createError(404, 'TASK_NOT_FOUND', 'Task not found');
   const subTask = await prisma.subTask.findFirst({ where: { id: subTaskId, taskId } });
@@ -912,10 +1087,15 @@ export async function updateSubTask(userId: string, taskId: string, subTaskId: s
       ...(data.title !== undefined && { title: normalizeSubTaskTitle(data.title) }),
       ...(data.completed !== undefined && { completed: data.completed }),
       ...(data.order !== undefined && { order: data.order }),
-    }
+    },
   });
   if (data.completed !== undefined) {
-    await createActivity(taskId, userId, data.completed ? 'SUBTASK_COMPLETED' : 'SUBTASK_REOPENED', `Updated subtask "${updated.title}"`);
+    await createActivity(
+      taskId,
+      userId,
+      data.completed ? 'SUBTASK_COMPLETED' : 'SUBTASK_REOPENED',
+      `Updated subtask "${updated.title}"`
+    );
   }
   return subTaskToDTO(updated);
 }
@@ -954,7 +1134,7 @@ export async function addTaskMedia(
   type: 'attachment' | 'voice_note',
   fileName?: string,
   mimeType?: string,
-  size?: number,
+  size?: number
 ): Promise<void> {
   const task = await prisma.task.findFirst({ where: { id: taskId, userId } });
   if (!task) throw createError(404, 'TASK_NOT_FOUND', 'Task not found');
@@ -972,11 +1152,7 @@ export async function addTaskMedia(
 }
 
 /** Remove a media item from a task */
-export async function removeTaskMedia(
-  userId: string,
-  taskId: string,
-  mediaId: string,
-): Promise<void> {
+export async function removeTaskMedia(userId: string, taskId: string, mediaId: string): Promise<void> {
   const task = await prisma.task.findFirst({ where: { id: taskId, userId } });
   if (!task) throw createError(404, 'TASK_NOT_FOUND', 'Task not found');
 

@@ -1,5 +1,5 @@
 // backend/src/controllers/analytics.controller.ts
-import { Request, Response, NextFunction } from 'express';
+import type { Request, Response, NextFunction } from 'express';
 import * as analyticsService from '../services/analytics.service';
 
 export async function summary(req: Request, res: Response, next: NextFunction) {
@@ -7,7 +7,9 @@ export async function summary(req: Request, res: Response, next: NextFunction) {
     const startDate = req.query.startDate as string | undefined;
     const endDate = req.query.endDate as string | undefined;
     res.json(await analyticsService.getSummary(req.user!.sub, startDate, endDate));
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 }
 
 export async function daily(req: Request, res: Response, next: NextFunction) {
@@ -16,7 +18,9 @@ export async function daily(req: Request, res: Response, next: NextFunction) {
     const startDate = req.query.startDate as string | undefined;
     const endDate = req.query.endDate as string | undefined;
     res.json(await analyticsService.getDailyBreakdown(req.user!.sub, days, startDate, endDate));
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 }
 
 export async function projects(req: Request, res: Response, next: NextFunction) {
@@ -24,7 +28,9 @@ export async function projects(req: Request, res: Response, next: NextFunction) 
     const startDate = req.query.startDate as string | undefined;
     const endDate = req.query.endDate as string | undefined;
     res.json(await analyticsService.getProjectAnalytics(req.user!.sub, startDate, endDate));
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 }
 
 export async function weekly(req: Request, res: Response, next: NextFunction) {
@@ -33,14 +39,18 @@ export async function weekly(req: Request, res: Response, next: NextFunction) {
     const startDate = req.query.startDate as string | undefined;
     const endDate = req.query.endDate as string | undefined;
     res.json(await analyticsService.getWeeklyProgress(req.user!.sub, weeks, startDate, endDate));
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 }
 
 export async function upcomingDeadlines(req: Request, res: Response, next: NextFunction) {
   try {
     const days = parseInt((req.query.days as string) ?? '7', 10);
     res.json(await analyticsService.getUpcomingDeadlines(req.user!.sub, days));
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 }
 
 // ─── PHASE 2 Endpoints ───────────────────────────────────────────────────────
@@ -50,7 +60,9 @@ export async function focusAnalytics(req: Request, res: Response, next: NextFunc
     const startDate = req.query.startDate as string | undefined;
     const endDate = req.query.endDate as string | undefined;
     res.json(await analyticsService.getFocusAnalytics(req.user!.sub, startDate, endDate));
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 }
 
 export async function taskAnalytics(req: Request, res: Response, next: NextFunction) {
@@ -58,7 +70,9 @@ export async function taskAnalytics(req: Request, res: Response, next: NextFunct
     const startDate = req.query.startDate as string | undefined;
     const endDate = req.query.endDate as string | undefined;
     res.json(await analyticsService.getTaskAnalytics(req.user!.sub, startDate, endDate));
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 }
 
 export async function habitAnalytics(req: Request, res: Response, next: NextFunction) {
@@ -66,7 +80,9 @@ export async function habitAnalytics(req: Request, res: Response, next: NextFunc
     const startDate = req.query.startDate as string | undefined;
     const endDate = req.query.endDate as string | undefined;
     res.json(await analyticsService.getHabitAnalytics(req.user!.sub, startDate, endDate));
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 }
 
 export async function consistency(req: Request, res: Response, next: NextFunction) {
@@ -74,7 +90,9 @@ export async function consistency(req: Request, res: Response, next: NextFunctio
     const startDate = req.query.startDate as string | undefined;
     const endDate = req.query.endDate as string | undefined;
     res.json(await analyticsService.getConsistency(req.user!.sub, startDate, endDate));
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 }
 
 export async function timeOfDay(req: Request, res: Response, next: NextFunction) {
@@ -82,5 +100,7 @@ export async function timeOfDay(req: Request, res: Response, next: NextFunction)
     const startDate = req.query.startDate as string | undefined;
     const endDate = req.query.endDate as string | undefined;
     res.json(await analyticsService.getTimeOfDay(req.user!.sub, startDate, endDate));
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 }

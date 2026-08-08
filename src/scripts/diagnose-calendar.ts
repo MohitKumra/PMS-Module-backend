@@ -17,10 +17,7 @@ function decryptSecret(value: string | null | undefined): string | null {
   if (version !== 'v1' || !ivB64 || !encryptedB64 || !tagB64) return value;
   const decipher = crypto.createDecipheriv('aes-256-gcm', encryptionKey(), Buffer.from(ivB64, 'base64'));
   decipher.setAuthTag(Buffer.from(tagB64, 'base64'));
-  const decrypted = Buffer.concat([
-    decipher.update(Buffer.from(encryptedB64, 'base64')),
-    decipher.final(),
-  ]);
+  const decrypted = Buffer.concat([decipher.update(Buffer.from(encryptedB64, 'base64')), decipher.final()]);
   return decrypted.toString('utf8');
 }
 
@@ -43,7 +40,7 @@ async function diagnoseCalendar(userId: string) {
     console.log('\nAction needed: Connect Google Calendar from Settings → Integrations');
     return;
   }
-  
+
   console.log(`\n✓ Google Calendar connected`);
   console.log(`  Google Email: ${connection.googleEmail}`);
   console.log(`  Active: ${connection.isActive ? '✓' : '✗'}`);
@@ -52,7 +49,7 @@ async function diagnoseCalendar(userId: string) {
   console.log(`  Connected At: ${connection.connectedAt.toISOString()}`);
   console.log(`  Last Synced: ${connection.lastSyncedAt?.toISOString() || 'Never'}`);
   console.log(`  Token Expires: ${connection.expiresAt?.toISOString() || 'Unknown'}`);
-  
+
   if (!connection.isActive) {
     console.error('\n❌ Connection is inactive');
     console.log('Action needed: Reconnect Google Calendar from Settings');
@@ -70,7 +67,7 @@ async function diagnoseCalendar(userId: string) {
   const hasRefreshToken = Boolean(connection.refreshToken);
   console.log(`\n  Has Access Token: ${hasAccessToken ? '✓' : '✗'}`);
   console.log(`  Has Refresh Token: ${hasRefreshToken ? '✓' : '✗'}`);
-  
+
   if (!hasRefreshToken) {
     console.error('\n❌ Missing refresh token');
     console.log('Action needed: Reconnect Google Calendar (tokens need to be re-authorized)');
@@ -142,7 +139,7 @@ async function diagnoseCalendar(userId: string) {
 
   // 8. Test Google Calendar API with a simple call
   console.log(`\n=== Testing Google Calendar API ===\n`);
-  
+
   const refreshToken = decryptSecret(connection.refreshToken);
   if (!refreshToken) {
     console.error('❌ Cannot test API - refresh token missing');
@@ -180,12 +177,9 @@ async function diagnoseCalendar(userId: string) {
 
     // Try to list calendars
     console.log('\nTesting calendar list API...');
-    const calendarListResponse = await fetch(
-      'https://www.googleapis.com/calendar/v3/users/me/calendarList',
-      {
-        headers: { Authorization: `Bearer ${tokenData.access_token}` },
-      }
-    );
+    const calendarListResponse = await fetch('https://www.googleapis.com/calendar/v3/users/me/calendarList', {
+      headers: { Authorization: `Bearer ${tokenData.access_token}` },
+    });
 
     if (!calendarListResponse.ok) {
       const errorText = await calendarListResponse.text();
@@ -203,13 +197,13 @@ async function diagnoseCalendar(userId: string) {
     // Try to create a test event
     const targetCalendarId = connection.calendarId || 'primary';
     console.log(`\nTesting event creation on calendar: ${targetCalendarId}...`);
-    
+
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
     tomorrow.setHours(0, 0, 0, 0);
     const dayAfter = new Date(tomorrow);
     dayAfter.setDate(dayAfter.getDate() + 1);
-    
+
     const testEventPayload = {
       summary: '[TEST] Calendar Sync Diagnostic',
       description: 'This is a test event created by the diagnostic script. You can delete it.',
@@ -272,7 +266,6 @@ async function diagnoseCalendar(userId: string) {
     } else {
       console.log(`⚠️  Could not delete test event (you may need to delete it manually)`);
     }
-
   } catch (error) {
     console.error('\n❌ API test failed with error:', error);
     return;
