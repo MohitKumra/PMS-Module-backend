@@ -16,6 +16,7 @@ export async function list(req: Request, res: Response, next: NextFunction) {
       dateTo: typeof req.query.dateTo === 'string' ? req.query.dateTo : undefined,
       archived: req.query.archived !== undefined ? req.query.archived === 'true' : undefined,
       isPinned: req.query.isPinned !== undefined ? req.query.isPinned === 'true' : undefined,
+      hasAttachment: req.query.hasAttachment !== undefined ? req.query.hasAttachment === 'true' : undefined,
       sortField:
         typeof req.query.sortField === 'string' ? (req.query.sortField as NoteListFilters['sortField']) : undefined,
       sortOrder:

@@ -617,6 +617,7 @@ export interface NoteListFilters {
   dateTo?: string; // ISO date
   archived?: boolean;
   isPinned?: boolean;
+  hasAttachment?: boolean;
   sortField?: NoteSortField;
   sortOrder?: NoteSortOrder;
   page?: number;

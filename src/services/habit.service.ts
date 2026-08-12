@@ -197,7 +197,16 @@ async function toDTO(
   };
 }
 
-export async function listHabits(userId: string): Promise<{
+export interface HabitListFilters {
+  status?: string; // 'all' | 'active' | 'pending' | 'completed'
+  search?: string;
+  sort?: string; // 'custom' | 'name' | 'progress' | 'streak'
+}
+
+export async function listHabits(
+  userId: string,
+  filters: HabitListFilters = {}
+): Promise<{
   data: HabitDTO[];
   meta: { total: number; weeklyTrend: number };
 }> {
@@ -221,10 +230,41 @@ export async function listHabits(userId: string): Promise<{
     orderBy: { createdAt: 'asc' },
   });
 
-  const data = await Promise.all(habits.map((h) => toDTO(h as any)));
+  const all = await Promise.all(habits.map((h) => toDTO(h as any)));
 
-  const thisWeekTotal = data.reduce((sum, h) => sum + h.completionsThisWeek, 0);
-  const lastWeekTotal = data.reduce((sum, h) => sum + h.completionsLastWeek, 0);
+  // Apply status / search / sort on the server. These mirror the frontend
+  // semantics exactly so behavior is identical, but enforced by the backend.
+  let data = all;
+
+  const status = filters.status ?? 'all';
+  if (status === 'active') data = data.filter((h) => h.currentStreak > 0);
+  else if (status === 'pending') data = data.filter((h) => !h.completedToday);
+  else if (status === 'completed') data = data.filter((h) => h.completedToday);
+
+  const term = (filters.search ?? '').trim().toLowerCase();
+  if (term) data = data.filter((h) => h.title.toLowerCase().includes(term));
+
+  switch (filters.sort) {
+    case 'name':
+      data = [...data].sort((a, b) => a.title.localeCompare(b.title));
+      break;
+    case 'progress':
+      data = [...data].sort(
+        (a, b) =>
+          b.completionsThisWeek / Math.max(b.targetPerWeek, 1) -
+          a.completionsThisWeek / Math.max(a.targetPerWeek, 1)
+      );
+      break;
+    case 'streak':
+      data = [...data].sort((a, b) => b.currentStreak - a.currentStreak);
+      break;
+    // 'custom' / undefined → keep createdAt asc (the default order)
+  }
+
+  // weeklyTrend is computed over the full set, not the filtered slice, so the
+  // summary widget stays accurate regardless of the active filter tab.
+  const thisWeekTotal = all.reduce((sum, h) => sum + h.completionsThisWeek, 0);
+  const lastWeekTotal = all.reduce((sum, h) => sum + h.completionsLastWeek, 0);
   const weeklyTrend =
     lastWeekTotal === 0
       ? thisWeekTotal > 0

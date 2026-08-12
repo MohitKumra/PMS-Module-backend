@@ -122,6 +122,7 @@ const subTaskIdParams = z.object({ taskId: z.string(), subTaskId: z.string() });
 
 // Task routes
 router.get('/', ctrl.list);
+router.get('/counts', ctrl.getCounts);
 router.get('/:id', validate({ params: idParams }), ctrl.getOne);
 router.post('/', validate({ body: createSchema }), ctrl.create);
 router.patch('/:id', validate({ params: idParams, body: updateSchema }), ctrl.update);

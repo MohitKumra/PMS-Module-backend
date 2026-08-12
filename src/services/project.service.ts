@@ -65,8 +65,17 @@ function toDTO(project: any): ProjectDTO {
   };
 }
 
+export interface ProjectListFilters {
+  status?: string; // 'ALL' | ProjectStatus
+  search?: string;
+  sort?: string; // 'default' | 'name' | 'progress' | 'dueDate'
+}
+
 /** Get all projects for a user */
-export async function listProjects(userId: string): Promise<ListResponse<ProjectDTO>> {
+export async function listProjects(
+  userId: string,
+  filters: ProjectListFilters = {}
+): Promise<ListResponse<ProjectDTO>> {
   const projects = await prisma.project.findMany({
     where: { userId },
     include: {
@@ -84,9 +93,35 @@ export async function listProjects(userId: string): Promise<ListResponse<Project
     return { ...p, completedTaskCount };
   });
 
+  // Filter / search / sort on the server, mirroring the previous frontend logic.
+  let data = projectsWithCounts.map(toDTO);
+
+  const status = filters.status ?? 'ALL';
+  if (status !== 'ALL') data = data.filter((p) => p.status === status);
+
+  const term = (filters.search ?? '').trim().toLowerCase();
+  if (term) data = data.filter((p) => p.name.toLowerCase().includes(term) || (p.description ?? '').toLowerCase().includes(term));
+
+  switch (filters.sort) {
+    case 'name':
+      data = [...data].sort((a, b) => a.name.localeCompare(b.name));
+      break;
+    case 'progress':
+      data = [...data].sort((a, b) => b.progress - a.progress);
+      break;
+    case 'dueDate':
+      data = [...data].sort(
+        (a, b) =>
+          (a.dueDate ? new Date(a.dueDate).getTime() : Infinity) -
+          (b.dueDate ? new Date(b.dueDate).getTime() : Infinity)
+      );
+      break;
+    // 'default' / undefined → keep updatedAt desc (the default order)
+  }
+
   return {
-    data: projectsWithCounts.map(toDTO),
-    meta: { total: projects.length },
+    data,
+    meta: { total: data.length },
   };
 }
 

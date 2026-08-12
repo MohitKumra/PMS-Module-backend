@@ -493,19 +493,176 @@ function normalizeSubTaskOrder(subTasks: TaskSubTaskInput[]): TaskSubTaskInput[]
 export async function listTasks(
   userId: string,
   filters?: Record<string, string>
-): Promise<{ data: TaskDTO[]; meta: { total: number; nextCursor?: string | null } }> {
-  const where: Record<string, unknown> = { userId };
-  if (filters?.status) where.status = filters.status;
-  if (filters?.priority) where.priority = filters.priority;
-  if (filters?.from || filters?.to) {
-    where.dueDate = {};
-    if (filters.from) (where.dueDate as Record<string, unknown>).gte = new Date(filters.from);
-    if (filters.to) (where.dueDate as Record<string, unknown>).lte = new Date(filters.to);
+): Promise<{ data: TaskDTO[]; meta: { total: number; nextCursor?: string | null; page?: number; pageSize?: number; totalPages?: number } }> {
+  const where: Prisma.TaskWhereInput = { userId };
+
+  // ── named preset filter ────────────────────────────────────────────────────
+  // ?filter=pending|today|upcoming|overdue|completed|all
+  // These map directly to the tab filters in the UI.
+  const preset = filters?.filter;
+  if (preset && preset !== 'all') {
+    // Resolve the user's timezone so date-based tabs (Today / Upcoming / Overdue)
+    // use the user's local calendar-day boundaries. The frontend stores dueDate
+    // as YYYY-MM-DD → UTC midnight (e.g. "2026-08-10" → 2026-08-10T00:00:00.000Z),
+    // so computing boundaries from the local date key keeps every tab's results
+    // aligned with what the user sees on their calendar — otherwise an IST user's
+    // "Today" tasks (stored at 2026-08-09T18:30:00.000Z) would fall into the
+    // "Overdue" bucket when compared against UTC midnight.
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { timezone: true },
+    });
+    const timeZone = user?.timezone || 'UTC';
+    const todayKey = dateKeyInTimeZone(new Date(), timeZone); // YYYY-MM-DD in user's timezone
+    const today = new Date(`${todayKey}T00:00:00.000Z`);
+    const tomorrow = new Date(today);
+    tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+    const nextWeek = new Date(today);
+    nextWeek.setUTCDate(nextWeek.getUTCDate() + 7);
+    nextWeek.setUTCHours(23, 59, 59, 999);
+
+    switch (preset) {
+      case 'pending':
+        // Active tasks (not done/cancelled) whose due date is today or earlier (or has no due date)
+        where.status = { notIn: ['DONE', 'CANCELLED'] };
+        where.OR = [{ dueDate: null }, { dueDate: { lte: new Date(today.getTime() + 86399999) } }];
+        break;
+      case 'today':
+        where.status = { notIn: ['DONE', 'CANCELLED'] };
+        where.dueDate = { gte: today, lt: tomorrow };
+        break;
+      case 'upcoming':
+        // Due in the next 1–7 days (exclusive of today)
+        where.status = { notIn: ['DONE', 'CANCELLED'] };
+        where.dueDate = { gte: tomorrow, lte: nextWeek };
+        break;
+      case 'overdue':
+        // Due before today, not done/cancelled
+        where.status = { notIn: ['DONE', 'CANCELLED'] };
+        where.dueDate = { lt: today };
+        break;
+      case 'completed':
+        where.status = 'DONE';
+        break;
+      default:
+        break;
+    }
+
+    // ── Apply date range / noDate overrides on top of the preset ──────────
+    // The frontend sends these alongside a preset filter like "pending" or
+    // "completed" (e.g. filter=pending&noDate=true). In that case we need to
+    // override the preset's date conditions with the more specific date filter.
+    if (filters?.noDate === 'true') {
+      delete where.OR; // remove any OR from preset (e.g. pending's dueDate OR)
+      where.dueDate = null;
+    } else if (filters?.from || filters?.to) {
+      delete where.OR; // remove any OR from preset
+      const dateFilter: Prisma.DateTimeNullableFilter = {};
+      if (filters.from) dateFilter.gte = new Date(filters.from);
+      if (filters.to) {
+        const toDate = new Date(filters.to);
+        toDate.setUTCHours(23, 59, 59, 999);
+        dateFilter.lte = toDate;
+      }
+      where.dueDate = dateFilter;
+    }
+  } else {
+    // ── individual param filters (used for advanced/date filter combos) ──────
+    if (filters?.status) {
+      // Support comma-separated values: e.g. status=TODO,IN_PROGRESS
+      const statuses = filters.status.split(',').map((s) => s.trim()).filter(Boolean);
+      if (statuses.length === 1) {
+        where.status = statuses[0] as Prisma.EnumTaskStatusFilter<'Task'> | import('@prisma/client').TaskStatus;
+      } else if (statuses.length > 1) {
+        where.status = { in: statuses as import('@prisma/client').TaskStatus[] };
+      }
+    }
+    if (filters?.priority) {
+      where.priority = filters.priority as import('@prisma/client').Priority;
+    }
+    // ── date range / noDate (individual params mode, no preset) ──────────
+    if (filters?.noDate === 'true') {
+      where.dueDate = null;
+    } else if (filters?.from || filters?.to) {
+      where.dueDate = {};
+      if (filters.from) (where.dueDate as Prisma.DateTimeNullableFilter).gte = new Date(filters.from);
+      if (filters.to) {
+        // Set to end of day for the to-date
+        const toDate = new Date(filters.to);
+        toDate.setUTCHours(23, 59, 59, 999);
+        (where.dueDate as Prisma.DateTimeNullableFilter).lte = toDate;
+      }
+    }
   }
 
-  // Cursor pagination
+  // ── search (title or description contains, case-insensitive) ──────────────
+  if (filters?.search?.trim()) {
+    const searchTerm = filters.search.trim();
+    const searchCondition = {
+      OR: [
+        { title: { contains: searchTerm, mode: 'insensitive' as const } },
+        { description: { contains: searchTerm, mode: 'insensitive' as const } },
+      ],
+    };
+    // Merge with any existing OR from preset filters
+    if (where.OR) {
+      where.AND = [{ OR: where.OR as Prisma.TaskWhereInput[] }, searchCondition];
+      delete where.OR;
+    } else {
+      Object.assign(where, searchCondition);
+    }
+  }
+
+  // ── sort ───────────────────────────────────────────────────────────────────
+  let orderBy: Prisma.TaskOrderByWithRelationInput[] = [{ dueDate: 'asc' }, { id: 'asc' }];
+  if (filters?.sortBy === 'priority') {
+    // Prisma doesn't support custom enum ordering natively; fall back to createdAt
+    // and let the client re-sort by priority locally for display purposes.
+    orderBy = [{ createdAt: 'desc' }, { id: 'asc' }];
+  } else if (filters?.sortBy === 'created') {
+    orderBy = [{ createdAt: 'desc' }, { id: 'asc' }];
+  }
+
+  // ── pagination ─────────────────────────────────────────────────────────────
+  // Two modes:
+  //   cursor (default / board view): ?take=10&cursor=<id>   → nextCursor in meta
+  //   offset (card / list view):     ?page=2&pageSize=10    → page/totalPages in meta
+
+  const useOffsetPagination = !!(filters?.page || filters?.pageSize);
+
+  if (useOffsetPagination) {
+    // ── Offset pagination ──────────────────────────────────────────────────
+    const pageRaw = filters?.page ? parseInt(filters.page, 12) : 1;
+    const pageSizeRaw = filters?.pageSize ? parseInt(filters.pageSize, 12) : 12;
+    const page = Math.max(1, pageRaw);
+    const pageSize = Math.min(Math.max(pageSizeRaw, 1), 100);
+    const skip = (page - 1) * pageSize;
+
+    const [tasks, total] = await Promise.all([
+      prisma.task.findMany({
+        where,
+        take: pageSize,
+        skip,
+        orderBy,
+        include: {
+          subTasks: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] },
+          projectTasks: { include: { project: true } },
+          goal: true,
+        },
+      }),
+      prisma.task.count({ where }),
+    ]);
+
+    const totalPages = Math.ceil(total / pageSize);
+    return {
+      data: tasks.map(toDTO),
+      meta: { total, nextCursor: null, page, pageSize, totalPages },
+    };
+  }
+
+  // ── Cursor pagination ──────────────────────────────────────────────────────
   const cursor = filters?.cursor ?? undefined;
-  const takeRaw = filters?.take ? parseInt(filters.take, 10) : 20;
+  const takeRaw = filters?.take ? parseInt(filters.take, 10) : 10;
   const take = Math.min(Math.max(takeRaw, 1), 100); // clamp 1–100
 
   const [tasks, total] = await Promise.all([
@@ -513,7 +670,7 @@ export async function listTasks(
       where,
       take: take + 1, // fetch one extra to detect hasMore
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-      orderBy: [{ dueDate: 'asc' }, { id: 'asc' }],
+      orderBy,
       include: {
         subTasks: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] },
         projectTasks: { include: { project: true } },
@@ -524,10 +681,54 @@ export async function listTasks(
   ]);
 
   const hasMore = tasks.length > take;
-  if (hasMore) tasks.pop(); // remove the extra item
+  if (hasMore) tasks.pop(); // remove the extra sentinel item
   const nextCursor = hasMore ? tasks[tasks.length - 1].id : null;
 
   return { data: tasks.map(toDTO), meta: { total, nextCursor } };
+}
+
+/**
+ * Returns per-tab task counts for the tasks page in a single call.
+ * Mirrors the filter logic from listTasks so the tab badges always
+ * match exactly what each tab would return.
+ */
+export async function getTaskCounts(
+  userId: string,
+  timeZone?: string | null
+): Promise<{ pending: number; today: number; upcoming: number; completed: number; overdue: number; all: number }> {
+  const user = timeZone
+    ? null
+    : await prisma.user.findUnique({
+        where: { id: userId },
+        select: { timezone: true },
+      });
+  const tz = timeZone || user?.timezone || 'UTC';
+  const todayKey = dateKeyInTimeZone(new Date(), tz);
+  const today = new Date(`${todayKey}T00:00:00.000Z`);
+  const tomorrow = new Date(today);
+  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+  const nextWeek = new Date(today);
+  nextWeek.setUTCDate(nextWeek.getUTCDate() + 7);
+  nextWeek.setUTCHours(23, 59, 59, 999);
+
+  const baseActive: Prisma.TaskWhereInput = { userId, status: { notIn: ['DONE', 'CANCELLED'] } };
+
+  const [pending, todayCount, upcoming, completed, overdue, all] = await Promise.all([
+    prisma.task.count({
+      where: {
+        userId,
+        status: { notIn: ['DONE', 'CANCELLED'] },
+        OR: [{ dueDate: null }, { dueDate: { lte: new Date(today.getTime() + 86399999) } }],
+      },
+    }),
+    prisma.task.count({ where: { ...baseActive, dueDate: { gte: today, lt: tomorrow } } }),
+    prisma.task.count({ where: { ...baseActive, dueDate: { gte: tomorrow, lte: nextWeek } } }),
+    prisma.task.count({ where: { userId, status: 'DONE' } }),
+    prisma.task.count({ where: { userId, status: { notIn: ['DONE', 'CANCELLED'] }, dueDate: { lt: today } } }),
+    prisma.task.count({ where: { userId } }),
+  ]);
+
+  return { pending, today: todayCount, upcoming, completed, overdue, all };
 }
 
 export async function getTask(userId: string, taskId: string): Promise<TaskDetailDTO> {

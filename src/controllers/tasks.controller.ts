@@ -11,6 +11,18 @@ export async function list(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+export async function getCounts(req: Request, res: Response, next: NextFunction) {
+  try {
+    const timezone =
+      (req.headers['x-client-timezone'] as string | undefined) ||
+      (req.query.timezone as string | undefined);
+    const counts = await taskService.getTaskCounts(req.user!.sub, timezone ?? null);
+    res.json(counts);
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function getOne(req: Request, res: Response, next: NextFunction) {
   try {
     const task = await taskService.getTask(req.user!.sub, req.params.id as string);

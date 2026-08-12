@@ -3,7 +3,7 @@ import * as goalService from '../services/goal.service';
 
 export async function list(req: Request, res: Response, next: NextFunction) {
   try {
-    res.json(await goalService.listGoals(req.user!.sub));
+    res.json(await goalService.listGoals(req.user!.sub, req.query as any));
   } catch (err) {
     next(err);
   }

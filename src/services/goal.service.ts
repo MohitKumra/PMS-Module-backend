@@ -249,7 +249,16 @@ async function syncLinks(
   await updateLinks('project', nextIds.projects, currentIds.projects);
 }
 
-export async function listGoals(userId: string): Promise<{ data: GoalDTO[]; meta: { total: number } }> {
+export interface GoalListFilters {
+  status?: string; // 'ALL' | GoalStatus
+  search?: string;
+  sort?: string; // 'latest' | 'oldest' | 'progress' | 'name'
+}
+
+export async function listGoals(
+  userId: string,
+  filters: GoalListFilters = {}
+): Promise<{ data: GoalDTO[]; meta: { total: number } }> {
   const goals = await prisma.goal.findMany({
     where: { userId },
     orderBy: { updatedAt: 'desc' },
@@ -261,7 +270,38 @@ export async function listGoals(userId: string): Promise<{ data: GoalDTO[]; meta
     },
   });
 
-  return { data: goals.map((goal) => toDTO(goal as any)), meta: { total: goals.length } };
+  // Filter / search / sort on the server, mirroring the previous frontend logic.
+  let data = goals.map((goal) => toDTO(goal as any));
+
+  const status = filters.status ?? 'ALL';
+  if (status !== 'ALL') data = data.filter((goal) => goal.status === status);
+
+  const term = (filters.search ?? '').trim().toLowerCase();
+  if (term) {
+    data = data.filter((goal) =>
+      [goal.title, goal.description, goal.category, goal.aiSummary]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+        .includes(term)
+    );
+  }
+
+  switch (filters.sort) {
+    case 'oldest':
+      data = [...data].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+      break;
+    case 'progress':
+      data = [...data].sort((a, b) => b.progress - a.progress);
+      break;
+    case 'name':
+      data = [...data].sort((a, b) => a.title.localeCompare(b.title));
+      break;
+    default: // 'latest'
+      data = [...data].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+  }
+
+  return { data, meta: { total: data.length } };
 }
 
 export async function getGoal(userId: string, goalId: string): Promise<GoalDTO> {

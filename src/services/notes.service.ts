@@ -94,6 +94,15 @@ export async function listNotes(
     where.isPinned = filters.isPinned;
   }
 
+  // Attachment / voice-note filter (has any media)
+  if (filters?.hasAttachment) {
+    where.OR = [
+      ...(where.OR ? (Array.isArray(where.OR) ? where.OR : [where.OR]) : []),
+      { attachmentUrl: { not: null } },
+      { voiceNoteUrl: { not: null } },
+    ];
+  }
+
   // Sort
   const sortField = filters?.sortField || 'updatedAt';
   const sortOrder = filters?.sortOrder || 'desc';
