@@ -5,6 +5,7 @@
 import cron from 'node-cron';
 import { prisma } from '../lib/prismaClient';
 import * as notifService from '../services/notification.service';
+import { syncBrokenHabitStreak } from '../services/habit.service';
 import { synchronizeRecurringTasks } from '../services/task.service';
 import { rrulestr } from 'rrule';
 
@@ -427,6 +428,201 @@ async function checkHabitReminders() {
   }
 }
 
+async function checkHabitRemindersV2() {
+  const now = new Date();
+
+  try {
+    const habitsWithReminders = await prisma.habit.findMany({
+      where: {
+        reminderTime: { not: null },
+      },
+      select: {
+        id: true,
+        userId: true,
+        title: true,
+        targetPerWeek: true,
+        reminderTime: true,
+        reminderMessage: true,
+        skipDays: true,
+        createdAt: true,
+        user: {
+          include: {
+            notificationPreferences: true,
+          },
+        },
+      },
+    });
+
+    for (const habit of habitsWithReminders) {
+      if (!habit.reminderTime) continue;
+
+      try {
+        const skipDayStr = (habit as any).skipDays || '[]';
+        let skipIndices: number[] = [];
+        try {
+          skipIndices = JSON.parse(skipDayStr);
+        } catch {}
+        if (skipIndices.length > 0) {
+          const nowUTC = new Date();
+          const dow = (nowUTC.getUTCDay() + 6) % 7;
+          if (skipIndices.includes(dow)) continue;
+        }
+      } catch {}
+
+      try {
+        const formatter = new Intl.DateTimeFormat('en-US', {
+          timeZone: habit.user.timezone || 'UTC',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false,
+        });
+
+        const parts = formatter.formatToParts(now);
+        const hour = parts.find((p) => p.type === 'hour')?.value ?? '00';
+        const minute = parts.find((p) => p.type === 'minute')?.value ?? '00';
+        const currentMinutes = parseInt(hour, 10) * 60 + parseInt(minute, 10);
+        const [reminderHour, reminderMinute] = habit.reminderTime.split(':').map((value) => parseInt(value, 10));
+        const reminderMinutes = reminderHour * 60 + reminderMinute;
+        const warningMinutes = parseMinutes(subtractMinutes(habit.reminderTime, 30));
+
+        const prefs = habit.user.notificationPreferences;
+        const shouldNotify = prefs === null || prefs.habitReminder === true;
+        if (!shouldNotify) continue;
+
+        const todayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+        const alreadyCompletedToday = await prisma.habitCompletion.findFirst({
+          where: { habitId: habit.id, date: todayStart },
+        });
+        if (alreadyCompletedToday) continue;
+
+        const todayStartParts = new Intl.DateTimeFormat('en-CA', {
+          timeZone: habit.user.timezone || 'UTC',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+        }).formatToParts(now);
+        const todayYear = todayStartParts.find((p) => p.type === 'year')?.value ?? '0000';
+        const todayMonth = todayStartParts.find((p) => p.type === 'month')?.value ?? '01';
+        const todayDay = todayStartParts.find((p) => p.type === 'day')?.value ?? '01';
+        const todayStartUtc = new Date(Date.UTC(parseInt(todayYear, 10), parseInt(todayMonth, 10) - 1, parseInt(todayDay, 10)));
+
+        const reminderTitle = habit.reminderMessage?.trim()
+          ? habit.reminderMessage.trim()
+          : `Habit Reminder: ${habit.title}`;
+        const warningTitle = habit.reminderMessage?.trim()
+          ? `30-minute warning: ${habit.reminderMessage.trim()}`
+          : `30-minute warning: ${habit.title}`;
+        const reminderBody = `Don't let "${habit.title}" slip today. Completing it now helps protect your streak.`;
+        const warningBody = `You have 30 minutes left to complete "${habit.title}" and protect your streak.`;
+
+        if (warningMinutes !== null && Math.abs(currentMinutes - warningMinutes) <= 1) {
+          const warningDedupKey = `habit-reminder-warning:${habit.id}:${todayYear}-${todayMonth}-${todayDay}`;
+          const alreadyWarnedToday = await prisma.notificationLog.findFirst({
+            where: {
+              userId: habit.userId,
+              title: warningDedupKey,
+              sentAt: { gte: todayStartUtc },
+            },
+          });
+          if (!alreadyWarnedToday) {
+            console.info(`⏰  Habit warning triggered for User ${habit.userId}: "${habit.title}"`);
+            await notifService.sendNotification(
+              habit.userId,
+              warningTitle,
+              warningBody,
+              ['BROWSER_PUSH', 'EMAIL'],
+              {
+                templateName: 'habit-reminder-playful',
+                templateVars: {
+                  reminderTitle: warningTitle,
+                  habit: {
+                    title: habit.title,
+                    reminderTime: habit.reminderTime,
+                  },
+                },
+              },
+              {
+                logTitle: warningDedupKey,
+                emailSubject: warningTitle,
+              }
+            );
+          }
+        }
+
+        if (Math.abs(currentMinutes - reminderMinutes) <= 1) {
+          const reminderDedupKey = `habit-reminder:${habit.id}:${todayYear}-${todayMonth}-${todayDay}`;
+          const alreadyNotifiedToday = await prisma.notificationLog.findFirst({
+            where: {
+              userId: habit.userId,
+              title: reminderDedupKey,
+              sentAt: { gte: todayStartUtc },
+            },
+          });
+          if (alreadyNotifiedToday) continue;
+
+          console.info(`⏰  Habit Reminder triggered for User ${habit.userId}: "${habit.title}"`);
+          await notifService.sendNotification(
+            habit.userId,
+            reminderTitle,
+            reminderBody,
+            ['BROWSER_PUSH', 'EMAIL'],
+            {
+              templateName: 'habit-reminder-playful',
+              templateVars: {
+                reminderTitle,
+                habit: {
+                  title: habit.title,
+                  reminderTime: habit.reminderTime,
+                },
+              },
+            },
+            {
+              logTitle: reminderDedupKey,
+              emailSubject: reminderTitle,
+            }
+          );
+        }
+      } catch (tzErr) {
+        console.error(`❌  Failed timezone calculation for User ${habit.userId} / Timezone ${habit.user.timezone}:`, tzErr);
+      }
+    }
+  } catch (err) {
+    console.error('❌  Error running habit reminder check:', err);
+  }
+}
+
+async function checkHabitBreaks() {
+  try {
+    const habits = await prisma.habit.findMany({
+      where: {
+        isActive: true,
+        completions: {
+          some: {},
+        },
+      },
+      select: {
+        id: true,
+        userId: true,
+        title: true,
+        skipDays: true,
+        streakBrokenAt: true,
+        completions: { select: { date: true } },
+        user: {
+          include: {
+            notificationPreferences: true,
+          },
+        },
+      },
+    });
+
+    for (const habit of habits) {
+      await syncBrokenHabitStreak(habit as any, { notify: true, applyPenalty: true });
+    }
+  } catch (err) {
+    console.error('❌  Error running habit break check:', err);
+  }
+}
+
 /**
  * Legacy recurrence helper retained only for the unused scheduler generator
  * below. Runtime recurrence generation now lives in task.service.ts.
@@ -571,6 +767,7 @@ export function startScheduler() {
   cron.schedule('*/1 * * * *', async () => {
     await checkTaskReminders();
     await checkProjectDeadlines();
-    await checkHabitReminders();
+    await checkHabitRemindersV2();
+    await checkHabitBreaks();
   });
 }

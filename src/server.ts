@@ -59,11 +59,15 @@ app.use(
   })
 );
 
-// Middleware to set correct Content-Type and media headers for audio files
+// Middleware to set correct Content-Type and media headers for audio/image files served from /uploads
 app.use('/uploads', (req, res, next) => {
   const filePath = req.path.toLowerCase();
 
-  // Set correct Content-Type based on extension
+  // Allow cross-origin access for all uploaded assets (needed for AI vision API fetching images)
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Cache-Control', 'public, max-age=31536000');
+
+  // Override Content-Type for audio formats that browsers are picky about
   let contentType: string | undefined;
   if (filePath.endsWith('.webm')) {
     contentType = 'audio/webm';
@@ -75,14 +79,15 @@ app.use('/uploads', (req, res, next) => {
     contentType = 'audio/mpeg';
   } else if (filePath.endsWith('.wav')) {
     contentType = 'audio/wav';
+  } else if (filePath.endsWith('.avif')) {
+    contentType = 'image/avif';
+  } else if (filePath.endsWith('.heic') || filePath.endsWith('.heif')) {
+    contentType = 'image/heic';
   }
 
   if (contentType) {
     res.setHeader('Content-Type', contentType);
-    // Critical headers for audio playback
     res.setHeader('Accept-Ranges', 'bytes');
-    res.setHeader('Cache-Control', 'public, max-age=31536000');
-    res.setHeader('Access-Control-Allow-Origin', '*');
   }
 
   next();

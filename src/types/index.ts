@@ -91,6 +91,65 @@ export interface AIPreferenceDTO {
   tokenUsageUpdatedAt: string | null;
 }
 
+export type CoachChatRole = 'user' | 'assistant';
+
+export interface CoachChatMessageDTO {
+  id: string;
+  chatId: string;
+  role: CoachChatRole;
+  content: string;
+  /** Image URLs attached to this message (user messages only) */
+  imageUrls?: string[];
+  createdAt: string;
+}
+
+export interface CoachChatListDTO {
+  id: string;
+  title: string;
+  summary: string;
+  messageCount: number;
+  preview: string;
+  lastMessageAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CoachChatDTO extends CoachChatListDTO {
+  messages: CoachChatMessageDTO[];
+}
+
+export interface CoachSessionSnapshot {
+  title: string;
+  summary: string;
+  messageCount: number;
+}
+
+export interface CoachGoalSnapshot {
+  title: string;
+  progress: number;
+  status: 'ACTIVE' | 'PAUSED' | 'COMPLETED' | 'ARCHIVED';
+  targetDate: string | null;
+  nextMilestoneTitle: string | null;
+  nextMilestoneDueDate: string | null;
+}
+
+export interface CoachHabitSnapshot {
+  title: string;
+  goalTitle: string | null;
+  currentStreak: number;
+  targetPerWeek: number;
+  completionsThisWeek: number;
+  completedToday: boolean;
+}
+
+export interface CoachMilestoneSnapshot {
+  goalTitle: string;
+  goalProgress: number;
+  title: string;
+  dueDate: string | null;
+  status: 'PENDING' | 'COMPLETED' | 'SKIPPED';
+}
+
 export interface AISettingsDTO {
   ai: AIPreferenceDTO;
 }
@@ -771,6 +830,7 @@ export interface GamificationProfileDTO {
   currentLevelPoints: number;
   nextLevelPoints: number;
   progressPercent: number;
+  currentLevelBadge: string;
   achievements: AchievementDTO[];
   recentAchievements: AchievementDTO[];
   recentPoints: PointLedgerDTO[];
@@ -806,6 +866,7 @@ export type InAppNotificationType =
   | 'TASK_STATUS_CHANGED'
   | 'HABIT_COMPLETED'
   | 'HABIT_STREAK'
+  | 'HABIT_STREAK_BROKEN'
   | 'FOCUS_SESSION_COMPLETED'
   | 'PROJECT_CREATED'
   | 'PROJECT_COMPLETED'

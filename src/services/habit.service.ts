@@ -5,25 +5,25 @@ import { awardHabitCompletion, revokeHabitCompletion, deductPoints } from './gam
 import * as notifService from './notification.service';
 import type { HabitDTO, CreateHabitRequest, UpdateHabitRequest, WeekOverviewDTO, HabitStreakBreakDTO } from '../types';
 
-function toDateStr(d: Date): string {
+export function toDateStr(d: Date): string {
   return d.toISOString().split('T')[0];
 }
 
-function utcToday(): Date {
+export function utcToday(): Date {
   const now = new Date();
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
 }
 
-function daysBetween(a: string, b: string): number {
+export function daysBetween(a: string, b: string): number {
   return (new Date(`${b}T00:00:00.000Z`).getTime() - new Date(`${a}T00:00:00.000Z`).getTime()) / 86400000;
 }
 
-function getDayOfWeek(dateStr: string): number {
+export function getDayOfWeek(dateStr: string): number {
   const d = new Date(`${dateStr}T00:00:00.000Z`);
   return (d.getUTCDay() + 6) % 7;
 }
 
-function parseSkipDays(raw: string | null): number[] {
+export function parseSkipDays(raw: string | null): number[] {
   if (!raw) return [];
   try {
     return JSON.parse(raw);
@@ -32,10 +32,10 @@ function parseSkipDays(raw: string | null): number[] {
   }
 }
 
-function calcStreak(dates: string[], skipDays: number[]): number {
+export function calcStreak(dates: string[], skipDays: number[], asOfDate: Date = utcToday()): number {
   if (dates.length === 0) return 0;
   const sorted = [...new Set(dates)].sort().reverse();
-  const today = utcToday();
+  const today = new Date(Date.UTC(asOfDate.getUTCFullYear(), asOfDate.getUTCMonth(), asOfDate.getUTCDate()));
   const yesterday = new Date(today);
   yesterday.setUTCDate(yesterday.getUTCDate() - 1);
 
@@ -71,7 +71,7 @@ function calcStreak(dates: string[], skipDays: number[]): number {
   return streak;
 }
 
-function calcBestStreak(dates: string[], skipDays: number[]): number {
+export function calcBestStreak(dates: string[], skipDays: number[]): number {
   if (dates.length === 0) return 0;
   const sorted = [...new Set(dates)].sort();
   let best = 1,
@@ -102,6 +102,45 @@ function calcBestStreak(dates: string[], skipDays: number[]): number {
     }
   }
   return best;
+}
+
+function getLatestCompletionDate(dates: string[]): Date | null {
+  if (dates.length === 0) return null;
+  return dates.reduce<Date>((latest, dateStr) => {
+    const current = new Date(`${dateStr}T00:00:00.000Z`);
+    return current > latest ? current : latest;
+  }, new Date(`${dates[0]}T00:00:00.000Z`));
+}
+
+export interface HabitStreakAnalysis {
+  currentStreak: number;
+  previousStreak: number;
+  latestCompletionDate: Date | null;
+  isBroken: boolean;
+  shouldRecordBreak: boolean;
+}
+
+export function analyzeHabitStreak(
+  dates: string[],
+  skipDays: number[],
+  brokenAt: Date | null = null
+): HabitStreakAnalysis {
+  const currentStreak = calcStreak(dates, skipDays);
+  const latestCompletionDate = getLatestCompletionDate(dates);
+  const isBroken = brokenAt !== null || (dates.length > 0 && currentStreak === 0);
+  const previousStreak = isBroken ? Math.max(calcStreak(dates, skipDays, latestCompletionDate ?? utcToday()), 1) : currentStreak;
+  const shouldRecordBreak =
+    currentStreak === 0 &&
+    dates.length > 0 &&
+    (!brokenAt || (latestCompletionDate !== null && latestCompletionDate > brokenAt));
+
+  return {
+    currentStreak,
+    previousStreak,
+    latestCompletionDate,
+    isBroken,
+    shouldRecordBreak,
+  };
 }
 
 function utcMondayOfThisWeek(): Date {
@@ -148,6 +187,81 @@ interface HabitRow {
   reminderTime: string | null;
   createdAt: Date;
   completions: { date: Date }[];
+}
+
+interface HabitBreakRow {
+  id: string;
+  userId: string;
+  title: string;
+  skipDays: string;
+  streakBrokenAt: Date | null;
+  completions: { date: Date }[];
+  user?: {
+    notificationPreferences?: {
+      habitReminder: boolean;
+    } | null;
+  } | null;
+}
+
+export async function syncBrokenHabitStreak(
+  habit: HabitBreakRow,
+  options: { notify?: boolean; applyPenalty?: boolean; now?: Date } = {}
+): Promise<HabitStreakBreakDTO | null> {
+  const now = options.now ?? new Date();
+  const dateStrings = habit.completions.map((c) => toDateStr(c.date));
+  const analysis = analyzeHabitStreak(dateStrings, parseSkipDays(habit.skipDays), habit.streakBrokenAt);
+  if (!analysis.isBroken) return null;
+
+  let brokenAt = habit.streakBrokenAt?.toISOString() ?? null;
+
+  if (analysis.shouldRecordBreak) {
+    const updateWhere = habit.streakBrokenAt
+      ? { id: habit.id, streakBrokenAt: habit.streakBrokenAt }
+      : { id: habit.id, streakBrokenAt: null };
+    const updated = await prisma.habit.updateMany({
+      where: updateWhere as any,
+      data: { streakBrokenAt: now },
+    });
+
+    if (updated.count > 0) {
+      brokenAt = now.toISOString();
+
+      if (options.applyPenalty !== false) {
+        await deductPoints({
+          userId: habit.userId,
+          points: analysis.previousStreak * 15,
+          reason: 'STREAK_BROKEN',
+          entityType: 'habit',
+          entityId: habit.id,
+          description: `Streak broken for habit: ${habit.title} (lost ${analysis.previousStreak}-day streak)`,
+        });
+      }
+
+      const habitReminderEnabled = habit.user?.notificationPreferences?.habitReminder ?? true;
+      if (options.notify !== false && habitReminderEnabled) {
+        await notifService.sendNotification(
+          habit.userId,
+          `Streak broken: ${habit.title}`,
+          `Your streak for "${habit.title}" has been broken. Restart it today so the habit does not stay down for long.`,
+          ['BROWSER_PUSH', 'EMAIL']
+        );
+      }
+    } else {
+      const refreshed = await prisma.habit.findUnique({
+        where: { id: habit.id },
+        select: { streakBrokenAt: true },
+      });
+      brokenAt = refreshed?.streakBrokenAt?.toISOString() ?? brokenAt;
+    }
+  }
+
+  return {
+    habitId: habit.id,
+    title: habit.title,
+    previousStreak: analysis.previousStreak,
+    xpLost: analysis.previousStreak * 15,
+    brokenAt: brokenAt ?? now.toISOString(),
+  };
 }
 
 async function toDTO(
@@ -443,7 +557,7 @@ export async function toggleCompletion(userId: string, habitId: string): Promise
     updated.completions.map((c: any) => toDateStr(c.date)),
     parseSkipDays(habit.skipDays)
   );
-  if (wasCompleted && newStreak < oldStreak && newStreak === 0) {
+  if (wasCompleted && oldStreak > 1 && newStreak === 0) {
     await prisma.habit.update({
       where: { id: habitId },
       data: { streakBrokenAt: today } as any,
@@ -509,14 +623,12 @@ export async function toggleCompletion(userId: string, habitId: string): Promise
 }
 
 export async function getBrokenStreaks(userId: string): Promise<HabitStreakBreakDTO[]> {
-  const now = new Date();
-  const recentWindowStart = new Date(now.getTime() - 48 * 60 * 60 * 1000);
-
   const habits = (await prisma.habit.findMany({
     where: {
       userId,
-      streakBrokenAt: {
-        gte: recentWindowStart,
+      isActive: true,
+      completions: {
+        some: {},
       },
     } as any,
     select: {
@@ -525,25 +637,25 @@ export async function getBrokenStreaks(userId: string): Promise<HabitStreakBreak
       skipDays: true,
       completions: { select: { date: true } },
       streakBrokenAt: true,
+      user: {
+        select: {
+          notificationPreferences: {
+            select: {
+              habitReminder: true,
+            },
+          },
+        },
+      },
     },
     orderBy: {
       streakBrokenAt: 'desc',
     },
   })) as any[];
 
-  return habits.map((h: any) => {
-    const previousStreak = calcStreak(
-      h.completions.map((c: any) => toDateStr(c.date)),
-      parseSkipDays(h.skipDays)
-    );
-    return {
-      habitId: h.id,
-      title: h.title,
-      previousStreak,
-      xpLost: previousStreak * 15,
-      brokenAt: h.streakBrokenAt?.toISOString() ?? now.toISOString(),
-    };
-  });
+  const broken = await Promise.all(habits.map((habit) => syncBrokenHabitStreak(habit, { notify: true, applyPenalty: true })));
+  return broken
+    .filter((item): item is HabitStreakBreakDTO => item !== null)
+    .sort((a, b) => new Date(b.brokenAt).getTime() - new Date(a.brokenAt).getTime());
 }
 
 export async function getWeekOverview(userId: string): Promise<WeekOverviewDTO> {

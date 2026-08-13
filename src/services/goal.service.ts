@@ -4,6 +4,7 @@ import { listTasks } from './task.service';
 import { listHabits } from './habit.service';
 import { listProjects } from './project.service';
 import { updateProjectProgress } from './project.service';
+import { awardGoalCompletion } from './gamification.service';
 import type {
   GoalDTO,
   GoalMilestoneDTO,
@@ -143,6 +144,14 @@ export async function recomputeGoalProgress(goalId: string): Promise<void> {
     where: { id: goalId },
     data: { progress, ...(nextStatus !== goal.status ? { status: nextStatus } : {}) },
   });
+
+  // Award XP (and re-evaluate achievements) exactly once when a goal tips over
+  // to COMPLETED. The PointLedger unique constraint on (userId, reason,
+  // entityType, entityId) makes this idempotent even though recompute is fired
+  // from many call sites, so we never double-award.
+  if (nextStatus === 'COMPLETED' && goal.status !== 'COMPLETED') {
+    await awardGoalCompletion(goal.userId, goalId, goal.title).catch(() => undefined);
+  }
 }
 
 async function loadGoalForRecompute(goalId: string) {

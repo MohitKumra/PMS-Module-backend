@@ -29,5 +29,6 @@ model User {
   taskTimeEntries          TaskTimeEntry[]
   achievements             UserAchievement[]
   aiPreferences            AIPreference?
+  coachChats               AICoachChat[]
   preferences              UserPreference?
 }

@@ -4,6 +4,7 @@
 
 import { prisma } from '../lib/prismaClient';
 import type { InAppNotificationDTO, ActivityFeedResponse } from '../types';
+import { analyzeHabitStreak, parseSkipDays, toDateStr } from './habit.service';
 
 /**
  * Get unified activity feed for a user combining:
@@ -37,6 +38,7 @@ export async function getActivityFeed(
     overdueTasks,
     tasksDueSoon,
     habitsToday,
+    brokenHabitStreaks,
   ] = await Promise.all([
     // Task activities from last 7 days
     prisma.taskActivity.findMany({
@@ -183,6 +185,23 @@ export async function getActivityFeed(
         id: true,
         title: true,
       },
+      take: 20,
+    }),
+
+    // Recent streak breaks from the last 7 days
+    prisma.habit.findMany({
+      where: {
+        userId,
+        streakBrokenAt: { gte: sevenDaysAgo },
+      },
+      select: {
+        id: true,
+        title: true,
+        skipDays: true,
+        streakBrokenAt: true,
+        completions: { select: { date: true } },
+      },
+      orderBy: { streakBrokenAt: 'desc' },
       take: 20,
     }),
   ]);
@@ -378,6 +397,34 @@ export async function getActivityFeed(
       entityType: 'habit',
       entityId: habit.id,
       metadata: { habitTitle: habit.title },
+      isActionable: true,
+    });
+  });
+
+  // Recent streak breaks
+  brokenHabitStreaks.forEach((habit) => {
+    const analysis = analyzeHabitStreak(
+      habit.completions.map((completion) => toDateStr(completion.date)),
+      parseSkipDays(habit.skipDays),
+      habit.streakBrokenAt
+    );
+
+    notifications.push({
+      id: `habit-streak-broken-${habit.id}-${habit.streakBrokenAt?.getTime() ?? 0}`,
+      type: 'HABIT_STREAK_BROKEN',
+      title: `Streak broken: ${habit.title}`,
+      description:
+        analysis.previousStreak > 1
+          ? `Previous streak: ${analysis.previousStreak} days`
+          : 'Previous streak: 1 day',
+      timestamp: habit.streakBrokenAt?.toISOString() ?? now.toISOString(),
+      entityType: 'habit',
+      entityId: habit.id,
+      metadata: {
+        habitTitle: habit.title,
+        previousStreak: analysis.previousStreak,
+        xpLost: analysis.previousStreak * 15,
+      },
       isActionable: true,
     });
   });

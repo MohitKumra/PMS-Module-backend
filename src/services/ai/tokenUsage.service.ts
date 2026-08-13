@@ -15,20 +15,33 @@ export interface TokenUsageSnapshot {
   periodStart: string;
 }
 
+// The token counters roll over on India Standard Time (IST = UTC+5:30) day/week/month
+// boundaries so "today" matches the user's local calendar day rather than UTC midnight.
+const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000; // 5h 30m ahead of UTC
+
+/**
+ * Shift a UTC timestamp into IST, truncate to the start of its IST calendar day,
+ * then shift back to UTC. The result is the UTC instant of IST local midnight.
+ */
 function startOfDay(date: Date): Date {
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  const shifted = new Date(date.getTime() + IST_OFFSET_MS);
+  return new Date(
+    Date.UTC(shifted.getUTCFullYear(), shifted.getUTCMonth(), shifted.getUTCDate()) - IST_OFFSET_MS
+  );
 }
 
 function startOfWeek(date: Date): Date {
   const day = startOfDay(date);
-  // Sunday-based week (getUTCDay: 0=Sunday)
-  const offset = day.getUTCDay();
+  // Sunday-based week (0=Sunday) in IST
+  const shifted = new Date(day.getTime() + IST_OFFSET_MS);
+  const offset = shifted.getUTCDay();
   day.setUTCDate(day.getUTCDate() - offset);
   return day;
 }
 
 function startOfMonth(date: Date): Date {
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
+  const shifted = new Date(date.getTime() + IST_OFFSET_MS);
+  return new Date(Date.UTC(shifted.getUTCFullYear(), shifted.getUTCMonth(), 1) - IST_OFFSET_MS);
 }
 
 /**
@@ -69,17 +82,26 @@ export async function recordTokenUsage(userId: string, totalTokens: number): Pro
 
     // Only reset counters that crossed their boundary; keep the more
     // granular ones alive (e.g. if only the day changed, week/month persist).
-    const next = {
-      ...(crossedDay ? { tokensToday: 0 } : {}),
-      ...(crossedWeek ? { tokensThisWeek: 0 } : {}),
-      ...(crossedMonth ? { tokensThisMonth: 0 } : {}),
-      ...(crossedDay || crossedWeek || crossedMonth ? { tokenPeriodStart: now } : {}),
-    };
+    // NOTE: reset and increment MUST be separate update calls — if they share one
+    // data object, the increment keys overwrite the reset keys (both target the same
+    // fields) and the windows would never roll over (today/week/month stay == total).
+    const needsRollover = crossedDay || crossedWeek || crossedMonth;
+    if (needsRollover) {
+      await prisma.aIPreference.update({
+        where: { userId },
+        data: {
+          ...(crossedDay ? { tokensToday: 0 } : {}),
+          ...(crossedWeek ? { tokensThisWeek: 0 } : {}),
+          ...(crossedMonth ? { tokensThisMonth: 0 } : {}),
+          tokenPeriodStart: now,
+        },
+      });
+    }
 
+    // Increment every window (these must not share a data object with the reset above).
     await prisma.aIPreference.update({
       where: { userId },
       data: {
-        ...next,
         tokensToday: { increment: totalTokens },
         tokensThisWeek: { increment: totalTokens },
         tokensThisMonth: { increment: totalTokens },

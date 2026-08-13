@@ -39,6 +39,13 @@ export interface EmailTemplateVars {
   templateVars: Record<string, any>;
 }
 
+export interface NotificationDeliveryOptions {
+  /** Optional title to store in notificationLog. Defaults to the visible title. */
+  logTitle?: string;
+  /** Optional email subject. Defaults to the visible title. */
+  emailSubject?: string;
+}
+
 /**
  * Safety net: maximum number of emails a single user can receive per day.
  * Prevents any future scheduler/notification regression from flooding inboxes.
@@ -51,7 +58,8 @@ export async function sendNotification(
   title: string,
   body: string,
   channels: NotificationChannel[],
-  emailTemplate?: EmailTemplateVars
+  emailTemplate?: EmailTemplateVars,
+  options: NotificationDeliveryOptions = {}
 ): Promise<void> {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) {
@@ -59,13 +67,16 @@ export async function sendNotification(
     return;
   }
 
+  const logTitle = options.logTitle ?? title;
+  const emailSubject = options.emailSubject ?? title;
+
   // Create log entries in parallel
   const logPromises = channels.map((channel) =>
     prisma.notificationLog.create({
       data: {
         userId,
         channel,
-        title,
+        title: logTitle,
         body,
       },
     })
@@ -114,7 +125,7 @@ export async function sendNotification(
 
         await sendMail({
           to: user.email,
-          subject: title,
+          subject: emailSubject,
           html,
         });
       } else if (channel === 'BROWSER_PUSH' && user.pushSubscription) {

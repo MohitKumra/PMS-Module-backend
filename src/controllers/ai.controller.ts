@@ -4,9 +4,12 @@
 // a zero-token fallback shape.
 
 import type { Request, Response } from 'express';
+import fs from 'fs';
+import path from 'path';
 import {
   getAIStatus,
   generateAIInsights,
+  buildFallbackCoachResult,
   generateAICoach,
   generateDailyBrief,
   analyzeJournalEntry,
@@ -15,6 +18,14 @@ import {
   generateGoalPlan,
   fallbackGoalPlan,
 } from '../services/ai/aiService';
+import {
+  buildCoachPromptData,
+  createCoachChat,
+  deleteCoachChat,
+  getCoachChat,
+  listCoachChats,
+  recordCoachTurn,
+} from '../services/ai/coachChat.service';
 import { getSummary, getWeeklyProgress, getUpcomingDeadlines } from '../services/analytics.service';
 import { prisma } from '../lib/prismaClient';
 import * as goalService from '../services/goal.service';
@@ -48,13 +59,15 @@ function toDateStr(d: Date): string {
   return d.toISOString().split('T')[0];
 }
 
-function getTimeOfDay(): 'morning' | 'afternoon' | 'evening' | 'night' {
-  const hour = new Date().getHours();
-  if (hour < 12) return 'morning';
-  if (hour < 17) return 'afternoon';
-  if (hour < 21) return 'evening';
-  return 'night';
-}
+type CoachConversationTurn = {
+  role: 'user' | 'assistant';
+  content: string;
+};
+
+type CoachMessageInput = {
+  role?: unknown;
+  content?: unknown;
+};
 
 export async function getStatus(req: Request, res: Response) {
   const status = getAIStatus();
@@ -134,41 +147,237 @@ export async function getCoach(req: Request, res: Response) {
     const enabled = await isAIFeatureEnabled(userId, 'coachEnabled');
     if (!enabled) {
       res.json({
-        title: '',
+        title: 'Coach',
         message: '',
-        suggestion: { text: '', actionLabel: '' },
+        suggestion: { text: '', actionLabel: '', actionType: 'open_coach' as const },
         mood: 'encouraging',
         source: 'fallback',
       });
       return;
     }
 
-    const summary = await getSummary(userId);
-    const recentTask = await prisma.task.findFirst({
-      where: { userId },
-      orderBy: { updatedAt: 'desc' },
-      select: { title: true, status: true },
-    });
-    const recentActivity = recentTask
-      ? `Last task: "${recentTask.title}" (${recentTask.status})`
-      : 'No recent activity';
-
-    const result = await generateAICoach(userId, {
-      completedToday: summary.habitsCompletedToday,
-      totalHabits: summary.habitsTotal,
-      currentStreak: summary.currentHabitStreak,
-      longestStreak: summary.longestHabitStreak,
-      tasksCompleted: summary.tasksCompleted,
-      tasksOverdue: summary.overdueTasks,
-      focusMinutesToday: summary.focusMinutesTotal,
-      timeOfDay: getTimeOfDay(),
-      recentActivity,
-    });
+    const result = await generateAICoach(userId, await buildCoachPromptData(userId, { mode: 'summary' }));
 
     res.json(result);
   } catch (error: any) {
     console.error('[AI] Coach error:', error.message);
     res.status(500).json({ error: 'Failed to generate coach message' });
+  }
+}
+
+export async function postCoachChat(req: Request, res: Response) {
+  const userId = req.user!.sub;
+  const messages = (Array.isArray(req.body.messages) ? req.body.messages : []) as CoachMessageInput[];
+
+  if (messages.length === 0) {
+    res.status(400).json({ error: 'Coach messages are required' });
+    return;
+  }
+
+  try {
+    const enabled = await isAIFeatureEnabled(userId, 'coachEnabled');
+    if (!enabled) {
+      res.json({
+        title: 'Coach',
+        message: '',
+        suggestion: { text: '', actionLabel: '', actionType: 'open_coach' as const },
+        mood: 'encouraging',
+        planPrompt: '',
+        source: 'fallback',
+      });
+      return;
+    }
+
+    const conversation: CoachConversationTurn[] = messages
+      .slice(-6)
+      .map((message) => ({
+        role: message.role === 'assistant' ? 'assistant' : 'user',
+        content: typeof message.content === 'string' ? message.content.trim() : '',
+      }))
+      .filter((message): message is CoachConversationTurn => message.content.length > 0);
+
+    if (conversation.length === 0) {
+      res.status(400).json({ error: 'Coach messages are required' });
+      return;
+    }
+
+    const result = await generateAICoach(
+      userId,
+      await buildCoachPromptData(userId, {
+        mode: 'chat',
+        session: {
+          title: 'Coach',
+          summary: '',
+          messageCount: conversation.length,
+        },
+        conversation,
+      })
+    );
+    res.json(result);
+  } catch (error: any) {
+    console.error('[AI] Coach chat error:', error.message);
+    res.status(500).json({ error: 'Failed to generate coach chat response' });
+  }
+}
+
+export async function getCoachChats(req: Request, res: Response) {
+  const userId = req.user!.sub;
+  try {
+    res.json(await listCoachChats(userId));
+  } catch (error: any) {
+    console.error('[AI] Coach chats error:', error.message);
+    res.status(500).json({ error: 'Failed to load coach chats' });
+  }
+}
+
+export async function createCoachChatThread(req: Request, res: Response) {
+  const userId = req.user!.sub;
+  const title = typeof req.body?.title === 'string' ? req.body.title : undefined;
+
+  try {
+    const chat = await createCoachChat(userId, title);
+    res.status(201).json(chat);
+  } catch (error: any) {
+    console.error('[AI] Coach create error:', error.message);
+    res.status(500).json({ error: 'Failed to create coach chat' });
+  }
+}
+
+export async function deleteCoachChatThread(req: Request, res: Response) {
+  const userId = req.user!.sub;
+  const chatId = typeof req.params.chatId === 'string' ? req.params.chatId : '';
+
+  try {
+    await deleteCoachChat(userId, chatId);
+    res.status(200).json({ ok: true });
+  } catch (error: any) {
+    const status = error?.statusCode ?? error?.status ?? 500;
+    const message = status === 404 ? 'Coach chat not found' : 'Failed to delete coach chat';
+    console.error('[AI] Coach delete error:', error.message);
+    res.status(status).json({ error: message });
+  }
+}
+
+export async function getCoachChatThread(req: Request, res: Response) {
+  const userId = req.user!.sub;
+  const chatId = typeof req.params.chatId === 'string' ? req.params.chatId : '';
+  try {
+    res.json(await getCoachChat(userId, chatId));
+  } catch (error: any) {
+    const status = error?.statusCode ?? error?.status ?? 500;
+    const message = status === 404 ? 'Coach chat not found' : 'Failed to load coach chat';
+    console.error('[AI] Coach thread error:', error.message);
+    res.status(status).json({ error: message });
+  }
+}
+
+// ─── Image URL resolver ───────────────────────────────────────────────────────
+// External AI providers (Groq, OpenAI) cannot reach localhost URLs.
+// This helper converts local /uploads paths to base64 data URLs so the model
+// can receive the image data regardless of where the server is running.
+
+const UPLOADS_ROOT = path.resolve(process.cwd(), 'uploads');
+const LOCAL_HOST_PATTERN = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/i;
+
+async function resolveImageUrlsForAI(urls: string[]): Promise<string[]> {
+  const results: string[] = [];
+  for (const url of urls) {
+    try {
+      if (LOCAL_HOST_PATTERN.test(url)) {
+        // Extract the path after /uploads/ and read from disk
+        const urlPath = new URL(url).pathname; // e.g. /uploads/user@email.com/attachments/file.webp
+        if (urlPath.startsWith('/uploads/')) {
+          const relativePath = urlPath.replace(/^\/uploads\//, '');
+          const absolutePath = path.resolve(UPLOADS_ROOT, relativePath);
+          // Security: prevent path traversal outside uploads root
+          if (absolutePath.startsWith(UPLOADS_ROOT + path.sep) || absolutePath === UPLOADS_ROOT) {
+            const buffer = fs.readFileSync(absolutePath);
+            const ext = path.extname(relativePath).toLowerCase().replace('.', '');
+            const mimeMap: Record<string, string> = {
+              jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
+              webp: 'image/webp', gif: 'image/gif', avif: 'image/avif',
+            };
+            const mime = mimeMap[ext] ?? 'image/jpeg';
+            results.push(`data:${mime};base64,${buffer.toString('base64')}`);
+            continue;
+          }
+        }
+        // Local URL but not an /uploads path — skip (can't resolve)
+        console.warn(`[AI] Skipping unresolvable local image URL: ${url}`);
+      } else {
+        // Public URL — pass through as-is
+        results.push(url);
+      }
+    } catch (err: any) {
+      console.warn(`[AI] Could not resolve image URL "${url}": ${err.message}`);
+    }
+  }
+  return results;
+}
+
+export async function postCoachChatMessage(req: Request, res: Response) {
+  const userId = req.user!.sub;
+  const chatId = typeof req.params.chatId === 'string' ? req.params.chatId : '';
+  const message = typeof req.body?.message === 'string' ? req.body.message.trim() : '';
+
+  // Validate and sanitise image URLs — only accept http/https, max 8 images
+  const rawImageUrls = Array.isArray(req.body?.imageUrls) ? (req.body.imageUrls as unknown[]) : [];
+  const imageUrls: string[] = rawImageUrls
+    .filter((u): u is string => typeof u === 'string' && /^https?:\/\//i.test(u))
+    .slice(0, 8);
+
+  if (!message && imageUrls.length === 0) {
+    res.status(400).json({ error: 'Coach message is required' });
+    return;
+  }
+
+  try {
+    const enabled = await isAIFeatureEnabled(userId, 'coachEnabled');
+    const chat = await getCoachChat(userId, chatId);
+    const conversation = [
+      ...chat.messages.slice(-5).map((turn) => ({
+        role: turn.role,
+        content: turn.content,
+      })),
+      {
+        role: 'user' as const,
+        // For conversation history we keep a text representation; the vision
+        // content is only sent on the live call, not stored in past turns.
+        content: message || (imageUrls.length > 0 ? `[Shared ${imageUrls.length} image(s)]` : ''),
+      },
+    ];
+
+    // Resolve local /uploads URLs to base64 data URLs so external AI providers
+    // (Groq, OpenAI) can access the image data — localhost URLs are unreachable
+    // from outside the server.
+    const resolvedImageUrls = await resolveImageUrlsForAI(imageUrls);
+
+    const promptData = await buildCoachPromptData(userId, {
+      mode: 'chat',
+      session: {
+        title: chat.title,
+        summary: chat.summary,
+        messageCount: chat.messageCount + 1,
+      },
+      conversation,
+      imageUrls: resolvedImageUrls.length > 0 ? resolvedImageUrls : undefined,
+    });
+
+    const result = enabled
+      ? await generateAICoach(userId, promptData)
+      : buildFallbackCoachResult(promptData);
+
+    const assistantMessage = result.message?.trim() || 'I need a little more detail to help with that.';
+    // Store the original URLs (not base64) in the DB to keep storage compact
+    const storedUserMessage = message || `[Shared ${imageUrls.length} image(s)]`;
+    const updatedChat = await recordCoachTurn(userId, chatId, storedUserMessage, assistantMessage, imageUrls.length > 0 ? imageUrls : undefined);
+
+    res.json({ chat: updatedChat, result });
+  } catch (error: any) {
+    const status = error?.statusCode ?? error?.status ?? 500;
+    const responseMessage = status === 404 ? 'Coach chat not found' : 'Failed to send coach message';
+    console.error('[AI] Coach message error:', error.message);
+    res.status(status).json({ error: responseMessage });
   }
 }
 

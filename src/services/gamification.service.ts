@@ -31,10 +31,40 @@ type UserStats = {
   focusSessionsCompleted: number;
   focusMinutes: number;
   projectsCompleted: number;
+  goalsCompleted: number;
+  milestonesCompleted: number;
   bestHabitStreak: number;
 };
 
-const LEVEL_POINTS = 500;
+// ─── Leveling curve ─────────────────────────────────────────────────────────
+// Flat XP-per-level was too easy to climb, so each level now requires more XP
+// than the previous one (a linear growth curve). Tune LEVEL_BASE_XP and
+// LEVEL_GROWTH here to change how hard it is to level up.
+const LEVEL_BASE_XP = 500;
+const LEVEL_GROWTH = 250;
+
+/** XP required to advance from `level` to `level + 1`. Grows every level. */
+function xpForLevel(level: number): number {
+  return LEVEL_BASE_XP + (level - 1) * LEVEL_GROWTH;
+}
+
+// Named badge tiers attached to the current level, shown in the level UI so
+// a level reads as a badge ("Operator", "Strategist", ...) not just a number.
+const LEVEL_BADGES: Array<{ min: number; name: string }> = [
+  { min: 50, name: 'Legend' },
+  { min: 25, name: 'Champion' },
+  { min: 10, name: 'Strategist' },
+  { min: 5, name: 'Operator' },
+  { min: 2, name: 'Achiever' },
+  { min: 1, name: 'Beginner' },
+];
+
+function getLevelBadgeName(level: number): string {
+  for (const badge of LEVEL_BADGES) {
+    if (level >= badge.min) return badge.name;
+  }
+  return 'Beginner';
+}
 
 const ACHIEVEMENTS: AchievementDefinition[] = [
   // ─── Tasks ──────────────────────────────────────────────────────────────
@@ -195,6 +225,48 @@ const ACHIEVEMENTS: AchievementDefinition[] = [
     progress: (stats) => ({ current: stats.projectsCompleted, target: 10 }),
   },
 
+  // ─── Goals ────────────────────────────────────────────────────────────────
+  {
+    key: 'first_goal_completed',
+    title: 'Goal Getter',
+    description: 'Complete your first goal.',
+    tier: 'bronze',
+    icon: 'flag',
+    pointsAwarded: 75,
+    isUnlocked: (stats) => stats.goalsCompleted >= 1,
+    progress: (stats) => ({ current: stats.goalsCompleted, target: 1 }),
+  },
+  {
+    key: 'goal_achiever_5',
+    title: 'Goal Achiever',
+    description: 'Complete 5 goals.',
+    tier: 'silver',
+    icon: 'trophy',
+    pointsAwarded: 200,
+    isUnlocked: (stats) => stats.goalsCompleted >= 5,
+    progress: (stats) => ({ current: stats.goalsCompleted, target: 5 }),
+  },
+  {
+    key: 'goal_master_25',
+    title: 'Goal Master',
+    description: 'Complete 25 goals.',
+    tier: 'gold',
+    icon: 'crown',
+    pointsAwarded: 500,
+    isUnlocked: (stats) => stats.goalsCompleted >= 25,
+    progress: (stats) => ({ current: stats.goalsCompleted, target: 25 }),
+  },
+  {
+    key: 'milestone_builder_10',
+    title: 'Milestone Builder',
+    description: 'Complete 10 goal milestones.',
+    tier: 'silver',
+    icon: 'flag',
+    pointsAwarded: 150,
+    isUnlocked: (stats) => stats.milestonesCompleted >= 10,
+    progress: (stats) => ({ current: stats.milestonesCompleted, target: 10 }),
+  },
+
   // ─── Level ──────────────────────────────────────────────────────────────
   {
     key: 'level_five',
@@ -205,6 +277,46 @@ const ACHIEVEMENTS: AchievementDefinition[] = [
     pointsAwarded: 500,
     isUnlocked: (stats) => getLevel(stats.totalPoints).level >= 5,
     progress: (stats) => ({ current: getLevel(stats.totalPoints).level, target: 5 }),
+  },
+  {
+    key: 'level_two',
+    title: 'Second Wind',
+    description: 'Reach level 2.',
+    tier: 'bronze',
+    icon: 'star',
+    pointsAwarded: 50,
+    isUnlocked: (stats) => getLevel(stats.totalPoints).level >= 2,
+    progress: (stats) => ({ current: getLevel(stats.totalPoints).level, target: 2 }),
+  },
+  {
+    key: 'level_ten',
+    title: 'Level 10 Strategist',
+    description: 'Reach level 10.',
+    tier: 'gold',
+    icon: 'sparkles',
+    pointsAwarded: 400,
+    isUnlocked: (stats) => getLevel(stats.totalPoints).level >= 10,
+    progress: (stats) => ({ current: getLevel(stats.totalPoints).level, target: 10 }),
+  },
+  {
+    key: 'level_25',
+    title: 'Level 25 Champion',
+    description: 'Reach level 25.',
+    tier: 'platinum',
+    icon: 'crown',
+    pointsAwarded: 600,
+    isUnlocked: (stats) => getLevel(stats.totalPoints).level >= 25,
+    progress: (stats) => ({ current: getLevel(stats.totalPoints).level, target: 25 }),
+  },
+  {
+    key: 'level_50',
+    title: 'Level 50 Legend',
+    description: 'Reach level 50.',
+    tier: 'platinum',
+    icon: 'target',
+    pointsAwarded: 900,
+    isUnlocked: (stats) => getLevel(stats.totalPoints).level >= 50,
+    progress: (stats) => ({ current: getLevel(stats.totalPoints).level, target: 50 }),
   },
 ];
 
@@ -251,13 +363,21 @@ function toAchievementDTO(row: {
 }
 
 function getLevel(totalPoints: number) {
-  const level = Math.floor(totalPoints / LEVEL_POINTS) + 1;
-  const currentLevelPoints = totalPoints % LEVEL_POINTS;
-  const progressPercent = Math.round((currentLevelPoints / LEVEL_POINTS) * 100);
+  let level = 1;
+  let remaining = totalPoints;
+  // Consume each level's (growing) XP requirement until there isn't enough
+  // left for the next level. Terminates because xpForLevel grows with level.
+  while (remaining >= xpForLevel(level)) {
+    remaining -= xpForLevel(level);
+    level += 1;
+  }
+  const currentLevelPoints = remaining;
+  const nextLevelPoints = xpForLevel(level);
+  const progressPercent = Math.round((currentLevelPoints / nextLevelPoints) * 100);
   return {
     level,
     currentLevelPoints,
-    nextLevelPoints: LEVEL_POINTS,
+    nextLevelPoints,
     progressPercent,
   };
 }
@@ -274,21 +394,24 @@ async function createPointLedger(tx: GamificationTx, input: AwardInput) {
 }
 
 async function getStats(userId: string, tx: GamificationTx = prisma): Promise<UserStats> {
-  const [points, tasksCompleted, habitsCompleted, focusStats, projectsCompleted, habits] = await Promise.all([
-    tx.pointLedger.aggregate({ where: { userId }, _sum: { points: true } }),
-    tx.task.count({ where: { userId, status: 'DONE' } }),
-    tx.habitCompletion.count({ where: { habit: { userId } } }),
-    tx.focusSession.aggregate({
-      where: { userId, status: 'COMPLETED', isBreak: false },
-      _count: true,
-      _sum: { durationMin: true },
-    }),
-    tx.project.count({ where: { userId, status: 'COMPLETED' } }),
-    tx.habit.findMany({
-      where: { userId },
-      select: { completions: { select: { date: true } } },
-    }),
-  ]);
+  const [points, tasksCompleted, habitsCompleted, focusStats, projectsCompleted, goalsCompleted, milestonesCompleted, habits] =
+    await Promise.all([
+      tx.pointLedger.aggregate({ where: { userId }, _sum: { points: true } }),
+      tx.task.count({ where: { userId, status: 'DONE' } }),
+      tx.habitCompletion.count({ where: { habit: { userId } } }),
+      tx.focusSession.aggregate({
+        where: { userId, status: 'COMPLETED', isBreak: false },
+        _count: true,
+        _sum: { durationMin: true },
+      }),
+      tx.project.count({ where: { userId, status: 'COMPLETED' } }),
+      tx.goal.count({ where: { userId, status: 'COMPLETED' } }),
+      tx.goalMilestone.count({ where: { goal: { userId }, status: 'COMPLETED' } }),
+      tx.habit.findMany({
+        where: { userId },
+        select: { completions: { select: { date: true } } },
+      }),
+    ]);
 
   return {
     totalPoints: points._sum.points ?? 0,
@@ -297,6 +420,8 @@ async function getStats(userId: string, tx: GamificationTx = prisma): Promise<Us
     focusSessionsCompleted: focusStats._count,
     focusMinutes: focusStats._sum.durationMin ?? 0,
     projectsCompleted,
+    goalsCompleted,
+    milestonesCompleted,
     bestHabitStreak: Math.max(
       0,
       ...habits.map((habit) => calcBestStreak(habit.completions.map((c) => dateKey(c.date))))
@@ -530,6 +655,39 @@ export async function deleteProjectPoints(userId: string, projectId: string, nam
   });
 }
 
+export async function awardGoalCompletion(userId: string, goalId: string, title: string) {
+  return awardPoints({
+    userId,
+    points: 200,
+    reason: 'GOAL_COMPLETED',
+    entityType: 'goal',
+    entityId: goalId,
+    description: `Completed goal: ${title}`,
+  });
+}
+
+export async function revokeGoalCompletion(userId: string, goalId: string, title: string) {
+  return deductPoints({
+    userId,
+    points: 200,
+    reason: 'GOAL_UNCOMPLETED',
+    entityType: 'goal',
+    entityId: goalId,
+    description: `Goal uncompleted: ${title}`,
+  });
+}
+
+export async function deleteGoalPoints(userId: string, goalId: string, title: string) {
+  return deductPoints({
+    userId,
+    points: 200,
+    reason: 'GOAL_DELETED',
+    entityType: 'goal',
+    entityId: goalId,
+    description: `Deleted completed goal: ${title}`,
+  });
+}
+
 export async function getGamificationProfile(userId: string): Promise<GamificationProfileDTO> {
   await evaluateAchievements(userId);
 
@@ -550,6 +708,7 @@ export async function getGamificationProfile(userId: string): Promise<Gamificati
   return {
     totalPoints,
     ...getLevel(totalPoints),
+    currentLevelBadge: getLevelBadgeName(getLevel(totalPoints).level),
     achievements: achievements.map(toAchievementDTO),
     recentAchievements: achievements.slice(0, 5).map(toAchievementDTO),
     recentPoints: recentPoints.map(toPointDTO),

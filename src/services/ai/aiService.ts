@@ -6,7 +6,12 @@ import { complete, isAIAvailable, getAIProvider, getAIModel } from './aiClient';
 import { recordTokenUsage } from './tokenUsage.service';
 import { extractDueDateFromText, getLocalDateContext } from './taskDateParser';
 import { INSIGHT_SYSTEM_PROMPT, buildInsightUserPrompt } from './prompts/insightPrompts';
-import { COACH_SYSTEM_PROMPT, buildCoachUserPrompt } from './prompts/coachPrompts';
+import {
+  COACH_SYSTEM_PROMPT,
+  buildCoachUserPrompt,
+  type AICoachActionType,
+  type CoachPromptData,
+} from './prompts/coachPrompts';
 import { DAILY_BRIEF_SYSTEM_PROMPT, buildDailyBriefUserPrompt } from './prompts/dailyBriefPrompts';
 import {
   JOURNAL_ANALYSIS_SYSTEM_PROMPT,
@@ -51,7 +56,7 @@ export async function generateAIInsights(
   const response = await complete({
     systemPrompt: INSIGHT_SYSTEM_PROMPT,
     userPrompt: buildInsightUserPrompt(data),
-    maxTokens: 1024,
+    maxTokens: 600,
     temperature: 0.7,
     responseFormat: 'json_object',
   });
@@ -82,62 +87,293 @@ export async function generateAIInsights(
 export interface AICoachResult {
   title: string;
   message: string;
-  suggestion: { text: string; actionLabel: string };
+  suggestion: { text: string; actionLabel: string; actionType: AICoachActionType };
   mood: 'encouraging' | 'challenging' | 'celebratory';
+  planPrompt?: string;
   source: 'ai' | 'fallback';
+}
+
+const COACH_ACTION_TYPES: AICoachActionType[] = [
+  'open_habits',
+  'open_tasks',
+  'open_goals',
+  'open_focus',
+  'open_dashboard',
+  'open_coach',
+  'create_plan',
+];
+
+function trimCoachText(value: unknown, maxLength: number): string {
+  if (typeof value !== 'string') return '';
+  return value.replace(/\s+/g, ' ').trim().slice(0, maxLength);
+}
+
+function emptyCoachResult(): AICoachResult {
+  return {
+    title: 'Coach',
+    message: '',
+    suggestion: { text: '', actionLabel: '', actionType: 'open_coach' },
+    mood: 'encouraging',
+    planPrompt: '',
+    source: 'fallback',
+  };
+}
+
+function buildCoachSignalText(data: CoachPromptData): string {
+  const mode = data.mode ?? (data.conversation?.length ? 'chat' : 'summary');
+  const userMessages = [...(data.conversation ?? [])]
+    .reverse()
+    .filter((turn) => turn.role === 'user')
+    .slice(0, 3)
+    .map((turn) => turn.content);
+
+  const goalSignals = data.goals.flatMap((goal) => [goal.title, goal.nextMilestoneTitle].filter(Boolean) as string[]);
+  const habitSignals = data.habits.flatMap((habit) => [habit.title, habit.goalTitle].filter(Boolean) as string[]);
+  const milestoneSignals = data.milestones.flatMap((milestone) => [milestone.goalTitle, milestone.title].filter(Boolean) as string[]);
+
+  return [
+    data.session.title,
+    mode === 'chat' ? '' : data.session.summary,
+    data.recentActivity,
+    ...userMessages,
+    ...goalSignals,
+    ...habitSignals,
+    ...milestoneSignals,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function latestUserMessage(data: CoachPromptData): string {
+  return (
+    [...(data.conversation ?? [])]
+      .reverse()
+      .find((turn) => turn.role === 'user')
+      ?.content.replace(/\s+/g, ' ')
+      .trim() || ''
+  );
+}
+
+function includesAny(text: string, keywords: string[]): boolean {
+  const normalized = text.toLowerCase();
+  return keywords.some((keyword) => normalized.includes(keyword));
+}
+
+function pickVariant<T>(variants: T[], seed: string): T {
+  if (variants.length === 0) {
+    throw new Error('pickVariant requires at least one variant');
+  }
+
+  let hash = 0;
+  for (let i = 0; i < seed.length; i += 1) {
+    hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
+  }
+
+  return variants[hash % variants.length];
+}
+
+export function buildFallbackCoachResult(data: CoachPromptData): AICoachResult {
+  const userText = latestUserMessage(data);
+  const combinedText = buildCoachSignalText(data);
+  const mode = data.mode ?? (data.conversation?.length ? 'chat' : 'summary');
+  const isChatMode = mode === 'chat';
+  const branchText = isChatMode && userText ? userText : combinedText;
+  const seed = [
+    mode,
+    data.session.messageCount,
+    userText || combinedText,
+    data.completedToday,
+    data.tasksOverdue,
+    data.focusMinutesToday,
+    data.totalHabits,
+    data.currentStreak,
+  ].join('|');
+  const userLooksVague =
+    isChatMode &&
+    (!userText ||
+      userText.length < 8 ||
+      includesAny(userText, ['hello', 'hi', 'hey', 'thanks', 'thank you', 'ok', 'okay']));
+
+  let title = 'Coach';
+  let message = 'Tell me what matters most and I will help you pick the next move.';
+  let suggestionText = 'Share one goal, blocker, or deadline.';
+  let actionLabel = 'Keep chatting';
+  let actionType: AICoachActionType = 'open_coach';
+  let planPrompt = '';
+  let mood: AICoachResult['mood'] = 'encouraging';
+
+  if (userLooksVague) {
+    title = pickVariant(['Quick check-in', 'Talk to me', 'Next step'], seed);
+    message = pickVariant(
+      [
+        'I am here. Tell me the one thing you want to work on, and I will help shape the next step.',
+        'Let us make this useful. What is the goal, blocker, or deadline you want to tackle first?',
+        'Give me a target or a problem, and I will help turn it into something actionable.',
+      ],
+      seed
+    );
+    suggestionText = 'Tell me your goal or blocker.';
+    actionLabel = 'Keep chatting';
+    actionType = 'open_coach';
+    mood = 'encouraging';
+  } else {
+    const wantsPlan = includesAny(branchText, ['plan', 'roadmap', 'strategy', 'goal plan', 'build a plan']);
+    const wantsTasks = includesAny(branchText, ['task', 'todo', 'backlog', 'overdue', 'blocked']);
+    const wantsFocus = includesAny(branchText, ['focus', 'distract', 'distraction', 'attention', 'concentrate']);
+    const wantsHabits = includesAny(branchText, ['habit', 'routine', 'streak', 'exercise', 'workout']);
+    const wantsGoals = includesAny(branchText, ['goal', 'goals', 'target', 'objective']);
+
+    if (wantsPlan) {
+    title = 'Plan builder';
+    message = 'I can turn this into a practical plan. Give me the goal and deadline if you have one.';
+    suggestionText = 'Build a practical plan from this chat.';
+    actionLabel = 'Build plan';
+    actionType = 'create_plan';
+    planPrompt = userText
+      ? `Create a practical goal plan from this request: ${userText}`
+      : 'Create a practical goal plan from the conversation.';
+    mood = 'encouraging';
+  } else if (wantsTasks) {
+    title = 'Task reset';
+    message = data.tasksOverdue > 0
+      ? pickVariant(
+          [
+            `${data.tasksOverdue} overdue task${data.tasksOverdue === 1 ? '' : 's'} need attention. Let us clear the smallest one first.`,
+            `You have ${data.tasksOverdue} overdue task${data.tasksOverdue === 1 ? '' : 's'}. Start with the easiest blocker.`,
+            'A few tasks are waiting. Pick one overdue item and move it forward now.',
+          ],
+          seed
+        )
+      : pickVariant(
+          [
+            'Your task list needs a quick reset. Pick one easy win and make it real.',
+            'Let us tidy the task stack. Start with the smallest blocker.',
+            'A light task cleanup will help here. Choose one thing and finish it.',
+          ],
+          seed
+        );
+    suggestionText = 'Open tasks and clear the next blocker.';
+    actionLabel = 'Open tasks';
+    actionType = 'open_tasks';
+    mood = data.tasksOverdue > 2 ? 'challenging' : 'encouraging';
+  } else if (wantsFocus) {
+    title = 'Focus block';
+    message = `You have ${data.focusMinutesToday} focus minute${data.focusMinutesToday === 1 ? '' : 's'} today. Let’s protect one focused block.`;
+    suggestionText = 'Open focus and start one short block.';
+    actionLabel = 'Open focus';
+    actionType = 'open_focus';
+    mood = data.focusMinutesToday >= 30 ? 'celebratory' : 'encouraging';
+  } else if (wantsHabits) {
+    title = 'Habit push';
+    message = `${data.completedToday} of ${data.totalHabits} habits are done. Finish one small habit to protect the streak.`;
+    suggestionText = 'Open habits and finish one quick win.';
+    actionLabel = 'Open habits';
+    actionType = 'open_habits';
+    mood = data.completedToday > 0 ? 'celebratory' : 'encouraging';
+  } else if (wantsGoals) {
+    title = 'Goals';
+    message = 'You are talking about a goal. Open goals and turn it into a concrete next step.';
+    suggestionText = 'Open goals and map the next step.';
+    actionLabel = 'Open goals';
+    actionType = 'open_goals';
+    mood = 'encouraging';
+  } else if (!isChatMode && (data.completedToday > 0 || data.focusMinutesToday > 30)) {
+    title = 'Momentum';
+    message = 'You are moving well. Keep the momentum with one clear next step.';
+    suggestionText = 'Stay in motion with one focused action.';
+    actionLabel = 'Open coach';
+    actionType = 'open_coach';
+    mood = 'celebratory';
+  }
+  }
+
+  return {
+    title,
+    message,
+    suggestion: {
+      text: suggestionText,
+      actionLabel,
+      actionType,
+    },
+    mood,
+    planPrompt,
+    source: 'fallback',
+  };
+}
+
+function normalizeCoachActionType(value: unknown, fallback: AICoachActionType): AICoachActionType {
+  return typeof value === 'string' && COACH_ACTION_TYPES.includes(value as AICoachActionType)
+    ? (value as AICoachActionType)
+    : fallback;
+}
+
+function normalizeCoachResult(parsed: any, fallback: AICoachResult): AICoachResult {
+  const parsedSuggestion = parsed?.suggestion && typeof parsed.suggestion === 'object' ? parsed.suggestion : {};
+  const actionType = normalizeCoachActionType(
+    parsedSuggestion.actionType,
+    trimCoachText(parsed?.planPrompt, 220) ? 'create_plan' : 'open_coach'
+  );
+  const actionLabel =
+    trimCoachText(parsedSuggestion.actionLabel, 24) ||
+    (actionType === 'create_plan'
+      ? 'Build plan'
+      : actionType === 'open_coach'
+        ? 'Open coach'
+        : 'Continue');
+  const suggestionText = trimCoachText(parsedSuggestion.text, 120) || fallback.suggestion.text;
+  const mood =
+    parsed?.mood === 'challenging' || parsed?.mood === 'celebratory' ? parsed.mood : ('encouraging' as const);
+
+  return {
+    title: trimCoachText(parsed?.title, 40) || fallback.title,
+    message: trimCoachText(parsed?.message, 240) || fallback.message,
+    suggestion: {
+      text: suggestionText,
+      actionLabel,
+      actionType,
+    },
+    mood,
+    planPrompt: trimCoachText(parsed?.planPrompt, 220),
+    source: 'ai',
+  };
 }
 
 export async function generateAICoach(
   userId: string,
-  data: Parameters<typeof buildCoachUserPrompt>[0]
+  data: CoachPromptData
 ): Promise<AICoachResult> {
   if (!isAIAvailable()) {
-    return {
-      title: '',
-      message: '',
-      suggestion: { text: '', actionLabel: '' },
-      mood: 'encouraging',
-      source: 'fallback',
-    };
+    return buildFallbackCoachResult(data);
   }
+
+  // Vision responses need more tokens — the model describes the image before
+  // producing the JSON, so the tight 160-token chat cap causes truncated/invalid JSON.
+  const hasImages = Boolean(data.imageUrls && data.imageUrls.length > 0);
+  const chatTokens = hasImages ? 400 : 160;
 
   const response = await complete({
     systemPrompt: COACH_SYSTEM_PROMPT,
     userPrompt: buildCoachUserPrompt(data),
-    maxTokens: 512,
-    temperature: 0.8,
+    imageUrls: data.imageUrls,
+    maxTokens: data.mode === 'chat' ? chatTokens : 192,
+    temperature: data.mode === 'chat' ? 0.65 : 0.45,
     responseFormat: 'json_object',
   });
 
   if (!response) {
-    return {
-      title: '',
-      message: '',
-      suggestion: { text: '', actionLabel: '' },
-      mood: 'encouraging',
-      source: 'fallback',
-    };
+    return buildFallbackCoachResult(data);
   }
 
   try {
     const parsed = JSON.parse(response.content);
+    const normalized = normalizeCoachResult(parsed, emptyCoachResult());
     void recordTokenUsage(userId, response.usage?.totalTokens ?? 0);
-    return {
-      title: parsed.title || 'Coach says',
-      message: parsed.message || '',
-      suggestion: parsed.suggestion || { text: '', actionLabel: '' },
-      mood: parsed.mood || 'encouraging',
-      source: 'ai',
-    };
+    return normalized;
   } catch (e) {
     console.warn('[AI] Failed to parse coach JSON:', e);
-    return {
-      title: '',
-      message: '',
-      suggestion: { text: '', actionLabel: '' },
-      mood: 'encouraging',
-      source: 'fallback',
-    };
+    return buildFallbackCoachResult(data);
   }
 }
 
@@ -170,7 +406,7 @@ export async function generateDailyBrief(
   const response = await complete({
     systemPrompt: DAILY_BRIEF_SYSTEM_PROMPT,
     userPrompt: buildDailyBriefUserPrompt(data),
-    maxTokens: 512,
+    maxTokens: 300,
     temperature: 0.7,
     responseFormat: 'json_object',
   });
@@ -236,7 +472,7 @@ export async function analyzeJournalEntry(userId: string, entry: string): Promis
   const response = await complete({
     systemPrompt: JOURNAL_ANALYSIS_SYSTEM_PROMPT,
     userPrompt: buildJournalEntryPrompt(entry),
-    maxTokens: 512,
+    maxTokens: 300,
     temperature: 0.7,
     responseFormat: 'json_object',
   });
@@ -305,7 +541,7 @@ export async function analyzeJournalWeek(
   const response = await complete({
     systemPrompt: JOURNAL_WEEKLY_SYSTEM_PROMPT,
     userPrompt: buildJournalWeeklyPrompt(entries),
-    maxTokens: 512,
+    maxTokens: 320,
     temperature: 0.7,
     responseFormat: 'json_object',
   });
@@ -352,81 +588,32 @@ export async function analyzeJournalWeek(
 
 // ─── Goal Planner ───────────────────────────────────────────────────────────────
 
-const GOAL_PLANNER_SYSTEM_PROMPT = `You are a goal planning assistant.
-Turn the user's single prompt into a practical, detailed workspace plan.
+const GOAL_PLANNER_SYSTEM_PROMPT = `You are a goal planning assistant. Turn the user's prompt into a practical workspace plan.
 
-TODAY'S DATE: {{TODAY_DATE}} ({{DAY_NAME}}, user timezone: {{TIMEZONE}})
-
-ALL dates you generate MUST be on or after {{TODAY_DATE}}. Never produce a date in the past.
-Use {{TODAY_DATE}} as the anchor for all relative scheduling (e.g. "in 2 days" = {{TODAY_PLUS_2}}, "in a week" = {{TODAY_PLUS_7}}, etc.).
+TODAY: {{TODAY_DATE}} ({{DAY_NAME}}, tz: {{TIMEZONE}}). All dates MUST be >= {{TODAY_DATE}}.
+Use {{TODAY_PLUS_2}} as the earliest task date. Space milestones toward targetDate.
 
 Output ONLY valid JSON with this exact shape:
 {
-  "goal": {
-    "title": "Goal title (concise, ≤60 chars)",
-    "description": "2-3 sentence description of the goal and why it matters",
-    "category": "One of: Health, Career, Learning, Finance, Personal, Creative, Fitness, Relationships",
-    "icon": "target",
-    "color": "#4F46E5",
-    "targetDate": "YYYY-MM-DD (realistic deadline, must be >= {{TODAY_DATE}}) or null",
-    "status": "ACTIVE",
-    "priority": "LOW|MEDIUM|HIGH|CRITICAL"
-  },
-  "summary": "2-3 sentence executive summary of the full plan",
-  "milestones": [
-    {
-      "title": "Milestone title",
-      "description": "What achieving this milestone means in practice",
-      "dueDate": "YYYY-MM-DD (evenly spaced from {{TODAY_DATE}} toward targetDate, never in the past)",
-      "sortOrder": 0
-    }
-  ],
-  "tasks": [
-    {
-      "title": "Task title (actionable verb phrase)",
-      "description": "1-2 sentence description of what needs to be done",
-      "priority": "LOW|MEDIUM|HIGH|CRITICAL",
-      "dueDate": "YYYY-MM-DD (>= {{TODAY_DATE}}) or null",
-      "dueTime": "HH:mm (24-hour, e.g. 10:00) or null",
-      "reminderTime": "HH:mm (24-hour, 30 min before dueTime if set, else null)",
-      "reminderMessage": "Short reminder nudge text or null",
-      "estimatedDuration": 30
-    }
-  ],
-  "habits": [
-    {
-      "title": "Habit title (daily/weekly action)",
-      "reminderTime": "HH:mm (24-hour, pick a sensible morning/evening time, e.g. 08:00, 20:00 — NEVER null for daily habits)",
-      "reminderMessage": "Short motivating reminder message (1 sentence)",
-      "targetPerWeek": 5
-    }
-  ],
-  "projects": [
-    {
-      "name": "Project name",
-      "description": "What this project covers",
-      "status": "PLANNING",
-      "color": "#4F46E5",
-      "startDate": "YYYY-MM-DD (>= {{TODAY_DATE}}) or null",
-      "dueDate": "YYYY-MM-DD (>= {{TODAY_DATE}}) or null"
-    }
-  ]
+  "goal": { "title": "≤60 chars", "description": "2-3 sentences", "category": "Health|Career|Learning|Finance|Personal|Creative|Fitness|Relationships", "icon": "target", "color": "#4F46E5", "targetDate": "YYYY-MM-DD or null", "status": "ACTIVE", "priority": "LOW|MEDIUM|HIGH|CRITICAL" },
+  "summary": "2-3 sentence executive summary",
+  "milestones": [{ "title": "str", "description": "str", "dueDate": "YYYY-MM-DD", "sortOrder": 0 }],
+  "tasks": [{ "title": "actionable verb phrase ≤60 chars", "description": "1-2 sentences", "priority": "LOW|MEDIUM|HIGH|CRITICAL", "dueDate": "YYYY-MM-DD or null", "dueTime": "HH:mm or null", "reminderTime": "HH:mm or null", "reminderMessage": "str or null", "estimatedDuration": 30 }],
+  "habits": [{ "title": "str", "reminderTime": "HH:mm (required)", "reminderMessage": "≤80 chars (required)", "targetPerWeek": 5 }],
+  "projects": [{ "name": "str", "description": "str", "status": "PLANNING", "color": "#4F46E5", "startDate": "YYYY-MM-DD or null", "dueDate": "YYYY-MM-DD or null" }]
 }
 
 Rules:
-- Generate 3-5 milestones, 4-7 tasks, 1-3 habits, and 1-2 projects.
-- Every single date field MUST be >= {{TODAY_DATE}}. Any date before {{TODAY_DATE}} is invalid.
-- First task dueDate should be {{TODAY_PLUS_2}} or later. Space tasks out realistically.
-- project "status" MUST be one of exactly: PLANNING, ACTIVE, ON_HOLD, COMPLETED, CANCELLED. Never use IN_PROGRESS.
-- goal "status" MUST be one of exactly: ACTIVE, COMPLETED, PAUSED, CANCELLED, ARCHIVED.
-- task "priority" and goal "priority" MUST be one of: LOW, MEDIUM, HIGH, CRITICAL.
-- habits MUST have a non-null "reminderTime" in HH:mm format. Choose a realistic time (morning habits → 07:00–09:00, evening habits → 19:00–21:00).
-- habits MUST have a non-null "reminderMessage" (short, motivating, ≤80 chars).
-- tasks with a "dueTime" MUST have a "reminderTime" set 30 minutes before dueTime.
-- All dates must be YYYY-MM-DD. All times must be HH:mm (24-hour). No other formats.
-- Keep titles concise (≤60 chars). Descriptions should be helpful but brief (1-3 sentences).
-- If the prompt is vague, infer a strong default workspace for a personal productivity goal.
+- 3-5 milestones, 4-7 tasks, 1-3 habits, 1-2 projects.
+- Every date >= {{TODAY_DATE}}. First task dueDate >= {{TODAY_PLUS_2}}.
+- project status: PLANNING|ACTIVE|ON_HOLD|COMPLETED|CANCELLED (not IN_PROGRESS).
+- goal status: ACTIVE|COMPLETED|PAUSED|CANCELLED|ARCHIVED.
+- habits: reminderTime and reminderMessage are required (never null). Morning habits → 07:00-09:00, evening → 19:00-21:00.
+- tasks with dueTime: set reminderTime 30 min before.
+- All dates YYYY-MM-DD, all times HH:mm 24-hour.
+- If prompt is vague, infer a strong personal productivity goal.
 `;
+
 
 export function fallbackGoalPlan(prompt: string, todayDateStr?: string): GoalPlannerPlanDTO {
   const trimmed = prompt.trim();

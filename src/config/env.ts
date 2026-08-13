@@ -44,6 +44,9 @@ const envSchema = z.object({
   OPENAI_API_KEY: z.string().optional(),
   AI_PROVIDER: z.enum(['groq', 'openai', '']).default(''),
   AI_MODEL: z.string().optional(),
+  // Vision model to use when the default AI_MODEL does not support images.
+  // Defaults: groq → qwen/qwen3.6-27b, openai → gpt-4o-mini
+  AI_VISION_MODEL: z.string().optional(),
   AI_BASE_URL: z.string().optional(),
   AI_max_completion_tokens: z.string().default('1024'),
   AI_TEMPERATURE: z.string().default('0.7'),
