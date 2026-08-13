@@ -1,6 +1,9 @@
 // backend/src/services/ai/prompts/coachPrompts.ts
 // Prompt templates for the AI Coach feature.
 
+import type { CoachIntent } from '../coachIntent';
+import { generateEntityCreationPrompt } from '../entitySchemas';
+
 export type AICoachActionType =
   | 'open_habits'
   | 'open_tasks'
@@ -47,8 +50,14 @@ export interface CoachMilestoneSnapshot {
   status: 'PENDING' | 'COMPLETED' | 'SKIPPED';
 }
 
+// ─── Wander budget ────────────────────────────────────────────────────────────
+// How many consecutive off-topic user turns trigger a hard redirect.
+export const OFF_TOPIC_WANDER_LIMIT = 2;
+
 export interface CoachPromptData {
   mode?: 'summary' | 'chat';
+
+  // ── Live stats — only populated when intent requires them ─────────────────
   completedToday: number;
   totalHabits: number;
   currentStreak: number;
@@ -56,35 +65,84 @@ export interface CoachPromptData {
   tasksCompleted: number;
   tasksOverdue: number;
   focusMinutesToday: number;
+
+  // ── Persistent context — always present ───────────────────────────────────
   timeOfDay: 'morning' | 'afternoon' | 'evening' | 'night';
   recentActivity: string;
-  session: CoachSessionSnapshot;
+
+  // ── Entity snapshots — only loaded when intent targets them ───────────────
   goals: CoachGoalSnapshot[];
   habits: CoachHabitSnapshot[];
   milestones: CoachMilestoneSnapshot[];
+
+  // ── Intent metadata ───────────────────────────────────────────────────────
+  /** The classified intent for this turn — drives what data was loaded */
+  intent?: CoachIntent;
+  /** Whether live DB stats were actually loaded this turn */
+  needsLiveData?: boolean;
+
+  // ── Session / conversation ────────────────────────────────────────────────
+  session: CoachSessionSnapshot;
   conversation?: CoachConversationTurn[];
   /** Image URLs from the current user message — forwarded to the LLM as vision content blocks */
   imageUrls?: string[];
+
+  // ── Off-topic tracking ────────────────────────────────────────────────────
+  /** Number of consecutive off-topic/chitchat turns in this session */
+  consecutiveOffTopicTurns?: number;
 }
+
+// ─── AICoachResult extension ──────────────────────────────────────────────────
+// The coach can optionally return an entityDraft when it detected a CRUD intent
+// but needs the user to confirm field values first.
+
+export interface CoachEntityDraft {
+  entity: 'task' | 'habit' | 'goal' | 'project';
+  title: string;
+  fields: Record<string, string | null>;
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function cleanSnippet(text: string, maxLength: number): string {
   return text.replace(/\s+/g, ' ').trim().slice(0, maxLength);
 }
 
-export const COACH_SYSTEM_PROMPT = `You are a warm, natural productivity coach.
+// ─── System prompt ────────────────────────────────────────────────────────────
+// Dynamically includes entity field definitions from entitySchemas.ts
 
-Sound like a real chat partner, not a dashboard or status report.
-Use only the JSON payload from the user.
-Do not invent data.
-Use the session memory, recent turns, and database snapshot as background only.
-Be specific, honest, encouraging, and conversational.
-Vary your openings and sentence structure so replies do not sound templated.
-If the user is vague, answer with a short human response and one helpful follow-up question.
-When mentioning metrics, use at most one relevant stat and do not repeat the full snapshot.
-Do not repeat the previous assistant phrasing or summarize the same data every turn.
-Keep the reply short, practical, and human.
+const ENTITY_CREATION_SECTION = generateEntityCreationPrompt();
 
-Return valid JSON only:
+export const COACH_SYSTEM_PROMPT = `You are a focused productivity coach embedded inside a personal management app (PMS).
+
+YOUR ROLE:
+You help users manage their tasks, habits, goals, and projects. You can:
+  • Give actionable coaching advice about productivity, focus, habits, and goals.
+  • Create a single task, habit, goal, or project on the user's behalf when asked.
+  • Build a full goal plan/workspace when the user is ready to plan.
+  • Review the user's progress when they ask for a check-in.
+
+STAY ON TOPIC:
+  • Keep every reply focused on tasks, habits, goals, projects, focus, or productivity.
+  • If the user sends casual chit-chat (hello, jokes, weather, random questions), give ONE short friendly reply then immediately redirect them back to productivity.
+  • After ${OFF_TOPIC_WANDER_LIMIT} consecutive off-topic exchanges, stop engaging with the tangent entirely and return a redirect message.
+  • Never discuss topics unrelated to productivity (news, politics, entertainment, etc.).
+
+TONE & STYLE:
+  • Sound like a real chat partner, not a dashboard or status report.
+  • Be specific, honest, encouraging, and conversational.
+  • Vary your openings so replies do not sound templated.
+  • When mentioning metrics, use at most one relevant stat.
+  • Keep replies short, practical, and human. Max 40 words in "message".
+
+${ENTITY_CREATION_SECTION}
+
+DATA RULES:
+  • Use only the JSON payload provided. Do not invent data.
+  • In chat mode, rely on the recent conversation for continuity; avoid replaying stats every turn.
+  • If the user says hello or is very vague, respond naturally and ask one follow-up question.
+
+RESPONSE FORMAT — return valid JSON only:
 {
   "title": "2-5 words",
   "message": "1-3 short sentences, max 40 words",
@@ -94,65 +152,82 @@ Return valid JSON only:
     "actionType": "open_habits|open_tasks|open_goals|open_focus|open_dashboard|open_coach|create_plan"
   },
   "mood": "encouraging|challenging|celebratory",
-  "planPrompt": "Short goal-planner prompt or empty string"
+  "planPrompt": "Short goal-planner prompt or empty string",
+  "entityDraft": null
+}
+
+When creating an entity, replace null with:
+{
+  "entity": "task|habit|goal|project",
+  "title": "<title>",
+  "fields": { "<field>": "<value or null>" }
 }
 
 Rules:
-- Use the snapshot values exactly as given.
-- In chat mode, rely on the recent conversation for continuity and avoid replaying the full session summary.
-- If the user says hello or gives very little context, respond naturally and invite them to continue instead of reciting stats.
-- If the user is ready to plan, set actionType to "create_plan" and fill planPrompt.
-- If the best next move is to open an app section, choose the matching actionType.
-- Keep actionLabel very short.
-- Keep planPrompt short, concrete, and focused on the user's actual request.
-- Mention the most relevant habit, milestone, or goal by name when it helps the user move forward, but keep it to one.`;
+  - actionLabel must be very short (≤4 words).
+  - planPrompt is short, concrete, focused on the user's actual request.
+  - Mention at most one relevant habit, milestone, or goal by name.
+  - If ready to plan, set actionType to "create_plan" and fill planPrompt.`;
+
+// ─── User prompt builder ──────────────────────────────────────────────────────
 
 export function buildCoachUserPrompt(data: CoachPromptData): string {
   const mode = data.mode ?? (data.conversation?.length ? 'chat' : 'summary');
   const isChatMode = mode === 'chat';
+  const hasLiveData = data.needsLiveData === true;
 
-  // In chat mode send only the numbers the coach needs; the conversation
-  // already carries the full context so shipping goals/habits/milestones
-  // arrays wastes ~200 prompt tokens per turn.
-  const snapshot = isChatMode
-    ? {
-        habitsToday: `${data.completedToday}/${data.totalHabits}`,
-        streak: data.currentStreak,
-        tasksOverdue: data.tasksOverdue,
-        focusMin: data.focusMinutesToday,
-        timeOfDay: data.timeOfDay,
-      }
-    : {
-        completedToday: data.completedToday,
-        totalHabits: data.totalHabits,
-        currentStreak: data.currentStreak,
-        longestStreak: data.longestStreak,
-        tasksCompleted: data.tasksCompleted,
-        tasksOverdue: data.tasksOverdue,
-        focusMinutesToday: data.focusMinutesToday,
-        timeOfDay: data.timeOfDay,
-        recentActivity: cleanSnippet(data.recentActivity, 120),
-      };
+  // ── Snapshot block — only include stats when they were actually loaded ─────
+  // For chitchat / pure coaching turns we skip the numbers entirely to save tokens.
+  let snapshot: Record<string, unknown> | null = null;
+
+  if (hasLiveData) {
+    snapshot = isChatMode
+      ? {
+          habitsToday: `${data.completedToday}/${data.totalHabits}`,
+          streak: data.currentStreak,
+          tasksOverdue: data.tasksOverdue,
+          focusMin: data.focusMinutesToday,
+          timeOfDay: data.timeOfDay,
+        }
+      : {
+          completedToday: data.completedToday,
+          totalHabits: data.totalHabits,
+          currentStreak: data.currentStreak,
+          longestStreak: data.longestStreak,
+          tasksCompleted: data.tasksCompleted,
+          tasksOverdue: data.tasksOverdue,
+          focusMinutesToday: data.focusMinutesToday,
+          timeOfDay: data.timeOfDay,
+          recentActivity: cleanSnippet(data.recentActivity, 120),
+        };
+  } else {
+    // Always send time-of-day so the coach can greet naturally
+    snapshot = { timeOfDay: data.timeOfDay };
+  }
 
   const payload: Record<string, unknown> = {
     mode,
+    intent: data.intent ?? 'coaching',
     session: {
       title: cleanSnippet(data.session.title, 48),
-      // Summary is only useful on the first (summary) call; skip in chat to save tokens
       summary: isChatMode ? '' : cleanSnippet(data.session.summary, 220),
       messageCount: data.session.messageCount,
     },
     snapshot,
-    // Keep last 4 turns (was 6) — beyond that the model has diminishing returns
-    // and each extra turn costs ~50–80 tokens
     conversation: (data.conversation ?? []).slice(-4).map((turn) => ({
       role: turn.role,
-      content: cleanSnippet(turn.content, 120), // was 180
+      content: cleanSnippet(turn.content, 120),
     })),
   };
 
-  // Only attach the full arrays in summary mode
-  if (!isChatMode) {
+  // Off-topic wander budget signal
+  if ((data.consecutiveOffTopicTurns ?? 0) > 0) {
+    payload.offTopicStreak = data.consecutiveOffTopicTurns;
+  }
+
+  // Entity snapshots — only attached when the loader actually fetched them
+  // (i.e. goals/habits/milestones arrays are non-empty or mode is summary)
+  if (!isChatMode && data.goals.length > 0) {
     payload.goals = data.goals.slice(0, 3).map((goal) => ({
       title: cleanSnippet(goal.title, 60),
       progress: goal.progress,
@@ -160,12 +235,18 @@ export function buildCoachUserPrompt(data: CoachPromptData): string {
       targetDate: goal.targetDate,
       nextMilestone: cleanSnippet(goal.nextMilestoneTitle ?? '', 60) || null,
     }));
+  }
+
+  if (!isChatMode && data.habits.length > 0) {
     payload.habits = data.habits.slice(0, 4).map((habit) => ({
       title: cleanSnippet(habit.title, 60),
       streak: habit.currentStreak,
       doneToday: habit.completedToday,
       doneThisWeek: `${habit.completionsThisWeek}/${habit.targetPerWeek}`,
     }));
+  }
+
+  if (!isChatMode && data.milestones.length > 0) {
     payload.milestones = data.milestones.slice(0, 3).map((milestone) => ({
       goal: cleanSnippet(milestone.goalTitle, 60),
       title: cleanSnippet(milestone.title, 60),

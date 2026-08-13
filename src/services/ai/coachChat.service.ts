@@ -1,7 +1,12 @@
+// backend/src/services/ai/coachChat.service.ts
+// Chat persistence + prompt-data builder for the AI Coach.
+// Context loading is tiered — data is only fetched when the intent requires it.
+
 import { prisma } from '../../lib/prismaClient';
 import { createError } from '../../middleware/errorHandler';
 import { getSummary } from '../analytics.service';
 import { calcStreak, getDayOfWeek, parseSkipDays, toDateStr } from '../habit.service';
+import { classifyIntent, intentNeedsLiveData, intentTargetEntity, CoachIntent } from './coachIntent';
 import type {
   CoachChatDTO,
   CoachChatListDTO,
@@ -20,6 +25,35 @@ const db = prisma as any;
 const DEFAULT_CHAT_TITLE = 'New chat';
 const CHAT_MEMORY_LIMIT = 320;
 const CHAT_PREVIEW_LIMIT = 120;
+
+// ─── Live-stats TTL cache ─────────────────────────────────────────────────────
+// Avoids hammering analytics/focus on every message when the user reviews
+// progress. Entries expire after LIVE_STATS_TTL_MS.
+
+const LIVE_STATS_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+interface LiveStatsEntry {
+  data: Awaited<ReturnType<typeof fetchLiveStats>>;
+  expiresAt: number;
+}
+
+const liveStatsCache = new Map<string, LiveStatsEntry>();
+
+function getLiveStatsFromCache(userId: string): LiveStatsEntry['data'] | null {
+  const entry = liveStatsCache.get(userId);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) {
+    liveStatsCache.delete(userId);
+    return null;
+  }
+  return entry.data;
+}
+
+function setLiveStatsCache(userId: string, data: LiveStatsEntry['data']): void {
+  liveStatsCache.set(userId, { data, expiresAt: Date.now() + LIVE_STATS_TTL_MS });
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function collapseWhitespace(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
@@ -42,6 +76,264 @@ function capitalize(word: string): string {
   return `${word[0].toUpperCase()}${word.slice(1).toLowerCase()}`;
 }
 
+function utcToday(): Date {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+}
+
+function getTimeOfDay(timezone: string): 'morning' | 'afternoon' | 'evening' | 'night' {
+  const now = new Date();
+  let hour = now.getHours();
+  try {
+    hour = Number(
+      new Intl.DateTimeFormat('en-US', {
+        timeZone: timezone,
+        hour: '2-digit',
+        hour12: false,
+      }).format(now),
+    );
+  } catch {
+    hour = now.getHours();
+  }
+  if (hour < 12) return 'morning';
+  if (hour < 17) return 'afternoon';
+  if (hour < 21) return 'evening';
+  return 'night';
+}
+
+// ─── Tier 1: Persistent context (always loaded, very cheap) ───────────────────
+
+interface PersistentContext {
+  timezone: string;
+  timeOfDay: 'morning' | 'afternoon' | 'evening' | 'night';
+  recentActivity: string;
+}
+
+async function loadPersistentContext(userId: string): Promise<PersistentContext> {
+  const user = await db.user
+    .findUnique({ where: { id: userId }, select: { timezone: true } })
+    .catch(() => null);
+  const timezone = user?.timezone || 'UTC';
+
+  const recentTask = await db.task
+    .findFirst({
+      where: { userId },
+      orderBy: { updatedAt: 'desc' },
+      select: { title: true, status: true },
+    })
+    .catch(() => null);
+
+  return {
+    timezone,
+    timeOfDay: getTimeOfDay(timezone),
+    recentActivity: recentTask
+      ? `Last task: "${recentTask.title}" (${recentTask.status})`
+      : 'No recent activity',
+  };
+}
+
+// ─── Tier 2: Live stats (only when intent needs progress data, TTL-cached) ────
+
+interface LiveStats {
+  completedToday: number;
+  totalHabits: number;
+  currentStreak: number;
+  longestStreak: number;
+  tasksCompleted: number;
+  tasksOverdue: number;
+  focusMinutesToday: number;
+}
+
+const EMPTY_LIVE_STATS: LiveStats = {
+  completedToday: 0,
+  totalHabits: 0,
+  currentStreak: 0,
+  longestStreak: 0,
+  tasksCompleted: 0,
+  tasksOverdue: 0,
+  focusMinutesToday: 0,
+};
+
+async function fetchLiveStats(userId: string): Promise<LiveStats> {
+  const today = utcToday();
+  const tomorrow = new Date(today);
+  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+
+  const summary = await getSummary(userId).catch(() => null);
+
+  const focusSessionsToday = await db.focusSession
+    .findMany({
+      where: {
+        userId,
+        status: 'COMPLETED',
+        OR: [
+          { completedAt: { gte: today, lt: tomorrow } },
+          { startedAt: { gte: today, lt: tomorrow } },
+        ],
+      },
+      select: { elapsedMin: true, durationMin: true },
+    })
+    .catch(() => []);
+
+  const focusTimeLogsToday = await db.focusTimeLog
+    .aggregate({
+      where: { userId, date: { gte: today, lt: tomorrow } },
+      _sum: { durationMin: true },
+    })
+    .catch(() => ({ _sum: { durationMin: 0 } }));
+
+  const focusMinutesToday =
+    focusSessionsToday.reduce((total: number, s: any) => {
+      const minutes = (s.elapsedMin && s.elapsedMin > 0 ? s.elapsedMin : s.durationMin) ?? 0;
+      return total + minutes;
+    }, 0) + (focusTimeLogsToday._sum.durationMin ?? 0);
+
+  if (!summary) return { ...EMPTY_LIVE_STATS, focusMinutesToday };
+
+  return {
+    completedToday: summary.habitsCompletedToday ?? 0,
+    totalHabits: summary.habitsTotal ?? 0,
+    currentStreak: summary.currentHabitStreak ?? 0,
+    longestStreak: summary.longestHabitStreak ?? 0,
+    tasksCompleted: summary.tasksCompleted ?? 0,
+    tasksOverdue: summary.overdueTasks ?? 0,
+    focusMinutesToday,
+  };
+}
+
+async function loadLiveStats(userId: string): Promise<LiveStats> {
+  const cached = getLiveStatsFromCache(userId);
+  if (cached) return cached;
+  const fresh = await fetchLiveStats(userId).catch(() => EMPTY_LIVE_STATS);
+  setLiveStatsCache(userId, fresh);
+  return fresh;
+}
+
+// ─── Tier 3: Entity snapshot (only when intent targets a specific entity) ──────
+
+interface EntitySnapshot {
+  goals: CoachGoalSnapshot[];
+  habits: CoachHabitSnapshot[];
+  milestones: CoachMilestoneSnapshot[];
+}
+
+const EMPTY_ENTITY_SNAPSHOT: EntitySnapshot = {
+  goals: [],
+  habits: [],
+  milestones: [],
+};
+
+async function loadEntitySnapshot(
+  userId: string,
+  entity: 'task' | 'habit' | 'goal' | 'project' | null,
+): Promise<EntitySnapshot> {
+  const today = utcToday();
+  const todayStr = toDateStr(today);
+  const weekStart = new Date(today);
+  weekStart.setUTCDate(weekStart.getUTCDate() - 6);
+
+  // Only load the data relevant to the targeted entity type
+  const needsGoals = entity === 'goal' || entity === null;
+  const needsHabits = entity === 'habit' || entity === null;
+  const needsMilestones = entity === 'goal' || entity === null;
+
+  const [rawGoals, rawHabits, rawMilestones] = await Promise.all([
+    needsGoals
+      ? db.goal
+          .findMany({
+            where: { userId, OR: [{ status: 'ACTIVE' }, { status: 'PAUSED' }] },
+            orderBy: [{ updatedAt: 'desc' }],
+            take: 3,
+            select: {
+              title: true,
+              progress: true,
+              status: true,
+              targetDate: true,
+              milestones: {
+                where: { status: 'PENDING' },
+                orderBy: [{ dueDate: 'asc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }],
+                take: 1,
+                select: { title: true, dueDate: true, status: true },
+              },
+            },
+          })
+          .catch(() => [])
+      : Promise.resolve([]),
+
+    needsHabits
+      ? db.habit
+          .findMany({
+            where: { userId, isActive: true },
+            orderBy: [{ createdAt: 'desc' }],
+            take: 4,
+            select: {
+              title: true,
+              targetPerWeek: true,
+              skipDays: true,
+              streakBrokenAt: true,
+              goal: { select: { title: true } },
+              completions: { select: { date: true } },
+            },
+          })
+          .catch(() => [])
+      : Promise.resolve([]),
+
+    needsMilestones
+      ? db.goalMilestone
+          .findMany({
+            where: { status: 'PENDING', goal: { is: { userId } } },
+            orderBy: [{ dueDate: 'asc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }],
+            take: 4,
+            select: {
+              title: true,
+              dueDate: true,
+              status: true,
+              goal: { select: { title: true, progress: true } },
+            },
+          })
+          .catch(() => [])
+      : Promise.resolve([]),
+  ]);
+
+  const habitSnapshots: CoachHabitSnapshot[] = rawHabits.map((habit: any) => {
+    const skipDays = parseSkipDays(habit.skipDays);
+    const dateStrings = habit.completions.map((c: any) => toDateStr(c.date));
+    const completionSet = new Set(dateStrings);
+    const weekCount = dateStrings.filter(
+      (d: string) => d >= toDateStr(weekStart) && d <= todayStr,
+    ).length;
+    return {
+      title: habit.title,
+      goalTitle: habit.goal?.title ?? null,
+      currentStreak: calcStreak(dateStrings, skipDays),
+      targetPerWeek: habit.targetPerWeek,
+      completionsThisWeek: weekCount,
+      completedToday: completionSet.has(todayStr) || skipDays.includes(getDayOfWeek(todayStr)),
+    };
+  });
+
+  const goalSnapshots: CoachGoalSnapshot[] = rawGoals.map((goal: any) => ({
+    title: goal.title,
+    progress: goal.progress,
+    status: goal.status as CoachGoalSnapshot['status'],
+    targetDate: goal.targetDate?.toISOString() ?? null,
+    nextMilestoneTitle: goal.milestones[0]?.title ?? null,
+    nextMilestoneDueDate: goal.milestones[0]?.dueDate?.toISOString() ?? null,
+  }));
+
+  const milestoneSnapshots: CoachMilestoneSnapshot[] = rawMilestones.map((m: any) => ({
+    goalTitle: m.goal.title,
+    goalProgress: m.goal.progress,
+    title: m.title,
+    dueDate: m.dueDate?.toISOString() ?? null,
+    status: m.status,
+  }));
+
+  return { goals: goalSnapshots, habits: habitSnapshots, milestones: milestoneSnapshots };
+}
+
+// ─── Chat title / memory helpers ──────────────────────────────────────────────
+
 export function deriveCoachChatTitle(source: string): string {
   const words = collapseWhitespace(source)
     .replace(/[^\w\s'-]/g, ' ')
@@ -51,23 +343,8 @@ export function deriveCoachChatTitle(source: string): string {
   if (words.length === 0) return DEFAULT_CHAT_TITLE;
 
   const stopWords = new Set([
-    'i',
-    'me',
-    'my',
-    'mine',
-    'please',
-    'help',
-    'need',
-    'want',
-    'to',
-    'for',
-    'the',
-    'a',
-    'an',
-    'with',
-    'and',
-    'build',
-    'make',
+    'i', 'me', 'my', 'mine', 'please', 'help', 'need', 'want',
+    'to', 'for', 'the', 'a', 'an', 'with', 'and', 'build', 'make',
   ]);
 
   let startIndex = 0;
@@ -80,15 +357,20 @@ export function deriveCoachChatTitle(source: string): string {
   return clip(title, 48) || DEFAULT_CHAT_TITLE;
 }
 
-export function buildCoachMemory(currentSummary: string, userMessage: string, assistantMessage: string): string {
+export function buildCoachMemory(
+  currentSummary: string,
+  userMessage: string,
+  assistantMessage: string,
+): string {
   const fragments = [
     currentSummary,
     `User: ${clip(userMessage, 90)}`,
     `Coach: ${clip(assistantMessage, 90)}`,
   ].filter(Boolean);
-
   return trimTail(fragments.join(' | '), CHAT_MEMORY_LIMIT);
 }
+
+// ─── Message mapper ───────────────────────────────────────────────────────────
 
 function mapMessage(message: {
   id: string;
@@ -98,7 +380,6 @@ function mapMessage(message: {
   imageUrls?: string | null;
   createdAt: Date;
 }): CoachChatMessageDTO {
-  // imageUrls is stored as a JSON string in the DB; parse it back to string[]
   let parsedImageUrls: string[] | undefined;
   if (message.imageUrls) {
     try {
@@ -110,7 +391,6 @@ function mapMessage(message: {
       // malformed — ignore
     }
   }
-
   return {
     id: message.id,
     chatId: message.chatId,
@@ -131,10 +411,9 @@ function mapChatListItem(
     createdAt: Date;
     updatedAt: Date;
   },
-  lastMessage?: { content: string; role: 'USER' | 'ASSISTANT'; createdAt: Date } | null
+  lastMessage?: { content: string; role: 'USER' | 'ASSISTANT'; createdAt: Date } | null,
 ): CoachChatListDTO {
   const previewSource = chat.summary || lastMessage?.content || DEFAULT_CHAT_TITLE;
-
   return {
     id: chat.id,
     title: clip(chat.title, 60) || DEFAULT_CHAT_TITLE,
@@ -165,221 +444,10 @@ function mapChat(chat: {
   }[];
 }): CoachChatDTO {
   const listItem = mapChatListItem(chat, chat.messages.at(-1) ?? null);
-  return {
-    ...listItem,
-    messages: chat.messages.map(mapMessage),
-  };
+  return { ...listItem, messages: chat.messages.map(mapMessage) };
 }
 
-async function safeGetCoachSummary(userId: string) {
-  try {
-    const summary = await getSummary(userId);
-    return {
-      completedToday: summary.habitsCompletedToday ?? 0,
-      totalHabits: summary.habitsTotal ?? 0,
-      currentStreak: summary.currentHabitStreak ?? 0,
-      longestStreak: summary.longestHabitStreak ?? 0,
-      tasksCompleted: summary.tasksCompleted ?? 0,
-      tasksOverdue: summary.overdueTasks ?? 0,
-      focusMinutesTotal: summary.focusMinutesTotal ?? 0,
-    };
-  } catch (error: any) {
-    console.warn('[AI] Coach summary unavailable:', error?.message ?? error);
-    return {
-      completedToday: 0,
-      totalHabits: 0,
-      currentStreak: 0,
-      longestStreak: 0,
-      tasksCompleted: 0,
-      tasksOverdue: 0,
-      focusMinutesTotal: 0,
-    };
-  }
-}
-
-function getTimeOfDay(timezone: string): 'morning' | 'afternoon' | 'evening' | 'night' {
-  const now = new Date();
-  let hour = now.getHours();
-
-  try {
-    hour = Number(new Intl.DateTimeFormat('en-US', { timeZone: timezone, hour: '2-digit', hour12: false }).format(now));
-  } catch {
-    hour = now.getHours();
-  }
-
-  if (hour < 12) return 'morning';
-  if (hour < 17) return 'afternoon';
-  if (hour < 21) return 'evening';
-  return 'night';
-}
-
-function utcToday(): Date {
-  const now = new Date();
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-}
-
-async function loadCoachContext(userId: string): Promise<
-  Omit<CoachPromptData, 'session' | 'conversation' | 'mode'>
-> {
-  const summary = await safeGetCoachSummary(userId);
-
-  const user = await db.user
-    .findUnique({
-      where: { id: userId },
-      select: { timezone: true },
-    })
-    .catch((error: any) => {
-      console.warn('[AI] Coach timezone unavailable:', error?.message ?? error);
-      return null;
-    });
-
-  const timezone = user?.timezone || 'UTC';
-  const today = utcToday();
-  const tomorrow = new Date(today);
-  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
-
-  const recentTask = await db.task
-    .findFirst({
-      where: { userId },
-      orderBy: { updatedAt: 'desc' },
-      select: { title: true, status: true },
-    })
-    .catch((error: any) => {
-      console.warn('[AI] Coach recent task unavailable:', error?.message ?? error);
-      return null;
-    });
-
-  const focusSessionsToday = await db.focusSession
-    .findMany({
-      where: {
-        userId,
-        status: 'COMPLETED',
-        OR: [{ completedAt: { gte: today, lt: tomorrow } }, { startedAt: { gte: today, lt: tomorrow } }],
-      },
-      select: { elapsedMin: true, durationMin: true },
-    })
-    .catch((error: any) => {
-      console.warn('[AI] Coach focus sessions unavailable:', error?.message ?? error);
-      return [];
-    });
-
-  const focusTimeLogsToday = await db.focusTimeLog
-    .aggregate({
-      where: { userId, date: { gte: today, lt: tomorrow } },
-      _sum: { durationMin: true },
-    })
-    .catch((error: any) => {
-      console.warn('[AI] Coach focus time logs unavailable:', error?.message ?? error);
-      return { _sum: { durationMin: 0 } };
-    });
-
-  const focusMinutesToday =
-    focusSessionsToday.reduce((total: number, session: any) => {
-      const minutes = (session.elapsedMin && session.elapsedMin > 0 ? session.elapsedMin : session.durationMin) ?? 0;
-      return total + minutes;
-    }, 0) + (focusTimeLogsToday._sum.durationMin ?? 0);
-
-  const recentActivity = recentTask
-    ? `Last task: "${recentTask.title}" (${recentTask.status})`
-    : 'No recent activity';
-
-  const [goals, habits, milestones] = await Promise.all([
-    db.goal.findMany({
-      where: { userId, OR: [{ status: 'ACTIVE' }, { status: 'PAUSED' }] },
-      orderBy: [{ updatedAt: 'desc' }],
-      take: 3,
-      select: {
-        title: true,
-        progress: true,
-        status: true,
-        targetDate: true,
-        milestones: {
-          where: { status: 'PENDING' },
-          orderBy: [{ dueDate: 'asc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }],
-          take: 1,
-          select: { title: true, dueDate: true, status: true },
-        },
-      },
-    }),
-    db.habit.findMany({
-      where: { userId, isActive: true },
-      orderBy: [{ createdAt: 'desc' }],
-      take: 4,
-      select: {
-        title: true,
-        targetPerWeek: true,
-        skipDays: true,
-        streakBrokenAt: true,
-        goal: { select: { title: true } },
-        completions: { select: { date: true } },
-      },
-    }),
-    db.goalMilestone.findMany({
-      where: { status: 'PENDING', goal: { is: { userId } } },
-      orderBy: [{ dueDate: 'asc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }],
-      take: 4,
-      select: {
-        title: true,
-        dueDate: true,
-        status: true,
-        goal: { select: { title: true, progress: true } },
-      },
-    }),
-  ]);
-
-  const todayStr = toDateStr(today);
-  const weekStart = new Date(today);
-  weekStart.setUTCDate(weekStart.getUTCDate() - 6);
-
-  const habitSnapshots: CoachHabitSnapshot[] = habits.map((habit: any) => {
-    const skipDays = parseSkipDays(habit.skipDays);
-    const dateStrings = habit.completions.map((completion: any) => toDateStr(completion.date));
-    const completionSet = new Set(dateStrings);
-    const weekCount = dateStrings.filter((dateStr: string) => dateStr >= toDateStr(weekStart) && dateStr <= todayStr).length;
-    const todayIsSafeDay = skipDays.includes(getDayOfWeek(todayStr));
-
-    return {
-      title: habit.title,
-      goalTitle: habit.goal?.title ?? null,
-      currentStreak: calcStreak(dateStrings, skipDays),
-      targetPerWeek: habit.targetPerWeek,
-      completionsThisWeek: weekCount,
-      completedToday: completionSet.has(todayStr) || todayIsSafeDay,
-    };
-  });
-
-  const goalSnapshots: CoachGoalSnapshot[] = goals.map((goal: any) => ({
-    title: goal.title,
-    progress: goal.progress,
-    status: goal.status as CoachGoalSnapshot['status'],
-    targetDate: goal.targetDate?.toISOString() ?? null,
-    nextMilestoneTitle: goal.milestones[0]?.title ?? null,
-    nextMilestoneDueDate: goal.milestones[0]?.dueDate?.toISOString() ?? null,
-  }));
-
-  const milestoneSnapshots: CoachMilestoneSnapshot[] = milestones.map((milestone: any) => ({
-    goalTitle: milestone.goal.title,
-    goalProgress: milestone.goal.progress,
-    title: milestone.title,
-    dueDate: milestone.dueDate?.toISOString() ?? null,
-    status: milestone.status,
-  }));
-
-  return {
-    completedToday: summary.completedToday,
-    totalHabits: summary.totalHabits,
-    currentStreak: summary.currentStreak,
-    longestStreak: summary.longestStreak,
-    tasksCompleted: summary.tasksCompleted,
-    tasksOverdue: summary.tasksOverdue,
-    focusMinutesToday,
-    timeOfDay: getTimeOfDay(timezone),
-    recentActivity,
-    goals: goalSnapshots,
-    habits: habitSnapshots,
-    milestones: milestoneSnapshots,
-  };
-}
+// ─── Intent-aware prompt data builder ────────────────────────────────────────
 
 export async function buildCoachPromptData(
   userId: string,
@@ -388,23 +456,94 @@ export async function buildCoachPromptData(
     conversation?: CoachConversationTurn[];
     mode?: 'summary' | 'chat';
     imageUrls?: string[];
-  } = {}
+    /** Pre-classified intent — caller should pass this in chat mode */
+    intent?: CoachIntent;
+    /** Consecutive off-topic turns in this session */
+    consecutiveOffTopicTurns?: number;
+  } = {},
 ): Promise<CoachPromptData> {
-  const base = await loadCoachContext(userId);
+  const mode = options.mode ?? (options.conversation?.length ? 'chat' : 'summary');
+  const isChatMode = mode === 'chat';
+
+  // ── Persistent context — always cheap ────────────────────────────────────
+  const persistent = await loadPersistentContext(userId);
+
+  // ── Determine intent ──────────────────────────────────────────────────────
+  // Summary mode (dashboard widget) always loads full context.
+  // Chat mode only loads what the intent needs.
+  let intent = options.intent;
+  if (!intent) {
+    if (isChatMode && options.conversation && options.conversation.length > 0) {
+      const lastUser = [...options.conversation].reverse().find((t) => t.role === 'user');
+      const prevUser = [...options.conversation]
+        .reverse()
+        .filter((t) => t.role === 'user')
+        .slice(1, 2)[0];
+      intent = classifyIntent(lastUser?.content ?? '', prevUser?.content);
+    } else {
+      // Summary widget — treat as progress review so we load full stats
+      intent = CoachIntent.PROGRESS_REVIEW;
+    }
+  }
+
+  // ── Live stats — only when intent needs them ──────────────────────────────
+  const needsLive = !isChatMode || intentNeedsLiveData(intent);
+  const liveStats = needsLive ? await loadLiveStats(userId) : EMPTY_LIVE_STATS;
+
+  // ── Entity snapshot — only when intent targets a specific entity or summary mode ──
+  const targetEntity = intentTargetEntity(intent);
+  const needsEntitySnapshot =
+    !isChatMode ||
+    targetEntity !== null ||
+    intent === CoachIntent.PROGRESS_REVIEW ||
+    intent === CoachIntent.HABIT_STATUS ||
+    intent === CoachIntent.TASK_STATUS;
+
+  const entitySnapshot = needsEntitySnapshot
+    ? await loadEntitySnapshot(userId, targetEntity)
+    : EMPTY_ENTITY_SNAPSHOT;
+
   return {
-    mode: options.mode ?? (options.conversation?.length ? 'chat' : 'summary'),
-    ...base,
+    mode,
+    intent,
+    needsLiveData: needsLive,
+    consecutiveOffTopicTurns: options.consecutiveOffTopicTurns ?? 0,
+
+    // Live stats
+    completedToday: liveStats.completedToday,
+    totalHabits: liveStats.totalHabits,
+    currentStreak: liveStats.currentStreak,
+    longestStreak: liveStats.longestStreak,
+    tasksCompleted: liveStats.tasksCompleted,
+    tasksOverdue: liveStats.tasksOverdue,
+    focusMinutesToday: liveStats.focusMinutesToday,
+
+    // Persistent
+    timeOfDay: persistent.timeOfDay,
+    recentActivity: persistent.recentActivity,
+
+    // Entity snapshots
+    goals: entitySnapshot.goals,
+    habits: entitySnapshot.habits,
+    milestones: entitySnapshot.milestones,
+
+    // Session / conversation
     session: {
       title: clip(options.session?.title ?? DEFAULT_CHAT_TITLE, 48) || DEFAULT_CHAT_TITLE,
       summary: clip(options.session?.summary ?? '', CHAT_MEMORY_LIMIT),
-      messageCount: options.session?.messageCount ?? options.conversation?.length ?? 0,
+      messageCount:
+        options.session?.messageCount ?? options.conversation?.length ?? 0,
     },
     conversation: options.conversation,
     imageUrls: options.imageUrls,
   };
 }
 
-export async function listCoachChats(userId: string): Promise<{ data: CoachChatListDTO[]; meta: { total: number } }> {
+// ─── Chat CRUD ────────────────────────────────────────────────────────────────
+
+export async function listCoachChats(
+  userId: string,
+): Promise<{ data: CoachChatListDTO[]; meta: { total: number } }> {
   const chats = await db.aICoachChat.findMany({
     where: { userId, messageCount: { gt: 0 } },
     orderBy: [{ lastMessageAt: 'desc' }, { createdAt: 'desc' }],
@@ -440,7 +579,6 @@ export async function createCoachChat(userId: string, title?: string): Promise<C
       lastMessageAt: new Date(),
     },
   });
-
   return getCoachChat(userId, chat.id);
 }
 
@@ -457,7 +595,14 @@ export async function getCoachChat(userId: string, chatId: string): Promise<Coac
       updatedAt: true,
       messages: {
         orderBy: { createdAt: 'asc' },
-        select: { id: true, chatId: true, role: true, content: true, imageUrls: true, createdAt: true },
+        select: {
+          id: true,
+          chatId: true,
+          role: true,
+          content: true,
+          imageUrls: true,
+          createdAt: true,
+        },
       },
     },
   });
@@ -480,7 +625,8 @@ export async function recordCoachTurn(
 
   if (!existing) throw createError(404, 'COACH_CHAT_NOT_FOUND', 'Coach chat not found');
 
-  const nextTitle = existing.title === DEFAULT_CHAT_TITLE ? deriveCoachChatTitle(userMessage) : existing.title;
+  const nextTitle =
+    existing.title === DEFAULT_CHAT_TITLE ? deriveCoachChatTitle(userMessage) : existing.title;
   const nextSummary = buildCoachMemory(existing.summary, userMessage, assistantMessage);
 
   await db.$transaction([
@@ -489,17 +635,11 @@ export async function recordCoachTurn(
         chatId,
         role: 'USER',
         content: userMessage,
-        // Serialise image URLs as JSON; null when none present
-        imageUrls:
-          imageUrls && imageUrls.length > 0 ? JSON.stringify(imageUrls) : null,
+        imageUrls: imageUrls && imageUrls.length > 0 ? JSON.stringify(imageUrls) : null,
       },
     }),
     db.aICoachMessage.create({
-      data: {
-        chatId,
-        role: 'ASSISTANT',
-        content: assistantMessage,
-      },
+      data: { chatId, role: 'ASSISTANT', content: assistantMessage },
     }),
     db.aICoachChat.update({
       where: { id: chatId },
@@ -520,7 +660,6 @@ export async function deleteCoachChat(userId: string, chatId: string): Promise<v
     where: { id: chatId, userId },
     select: { id: true },
   });
-
   if (!existing) throw createError(404, 'COACH_CHAT_NOT_FOUND', 'Coach chat not found');
 
   await db.$transaction([

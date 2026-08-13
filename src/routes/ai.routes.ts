@@ -90,4 +90,18 @@ router.post('/goal-plan', aiController.postGoalPlan);
 // POST /api/ai/goal-workspace - Create goal, milestones, tasks, habits, and projects from a plan
 router.post('/goal-workspace', aiController.postGoalWorkspace);
 
+// ─── Coach entity confirm ─────────────────────────────────────────────────────
+
+const coachConfirmEntitySchema = z.object({
+  entity: z.enum(['task', 'habit', 'goal', 'project']),
+  draft: z.record(z.unknown()),
+});
+
+// POST /api/ai/coach/actions/confirm - Validate and write the entity the coach gathered
+router.post(
+  '/coach/actions/confirm',
+  validate({ body: coachConfirmEntitySchema }),
+  aiController.postCoachConfirmEntity,
+);
+
 export default router;

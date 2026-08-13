@@ -26,6 +26,8 @@ import {
   listCoachChats,
   recordCoachTurn,
 } from '../services/ai/coachChat.service';
+import { classifyIntent } from '../services/ai/coachIntent';
+import { confirmCoachEntity } from '../services/ai/coachActions';
 import { getSummary, getWeeklyProgress, getUpcomingDeadlines } from '../services/analytics.service';
 import { prisma } from '../lib/prismaClient';
 import * as goalService from '../services/goal.service';
@@ -157,7 +159,6 @@ export async function getCoach(req: Request, res: Response) {
     }
 
     const result = await generateAICoach(userId, await buildCoachPromptData(userId, { mode: 'summary' }));
-
     res.json(result);
   } catch (error: any) {
     console.error('[AI] Coach error:', error.message);
@@ -201,17 +202,23 @@ export async function postCoachChat(req: Request, res: Response) {
       return;
     }
 
+    // Classify intent from the last user message
+    const lastUser = [...conversation].reverse().find((t) => t.role === 'user');
+    const prevUser = [...conversation].reverse().filter((t) => t.role === 'user').slice(1, 2)[0];
+    const intent = classifyIntent(lastUser?.content ?? '', prevUser?.content);
+
     const result = await generateAICoach(
       userId,
       await buildCoachPromptData(userId, {
         mode: 'chat',
+        intent,
         session: {
           title: 'Coach',
           summary: '',
           messageCount: conversation.length,
         },
         conversation,
-      })
+      }),
     );
     res.json(result);
   } catch (error: any) {
@@ -284,12 +291,10 @@ async function resolveImageUrlsForAI(urls: string[]): Promise<string[]> {
   for (const url of urls) {
     try {
       if (LOCAL_HOST_PATTERN.test(url)) {
-        // Extract the path after /uploads/ and read from disk
-        const urlPath = new URL(url).pathname; // e.g. /uploads/user@email.com/attachments/file.webp
+        const urlPath = new URL(url).pathname;
         if (urlPath.startsWith('/uploads/')) {
           const relativePath = urlPath.replace(/^\/uploads\//, '');
           const absolutePath = path.resolve(UPLOADS_ROOT, relativePath);
-          // Security: prevent path traversal outside uploads root
           if (absolutePath.startsWith(UPLOADS_ROOT + path.sep) || absolutePath === UPLOADS_ROOT) {
             const buffer = fs.readFileSync(absolutePath);
             const ext = path.extname(relativePath).toLowerCase().replace('.', '');
@@ -302,10 +307,8 @@ async function resolveImageUrlsForAI(urls: string[]): Promise<string[]> {
             continue;
           }
         }
-        // Local URL but not an /uploads path — skip (can't resolve)
         console.warn(`[AI] Skipping unresolvable local image URL: ${url}`);
       } else {
-        // Public URL — pass through as-is
         results.push(url);
       }
     } catch (err: any) {
@@ -314,6 +317,29 @@ async function resolveImageUrlsForAI(urls: string[]): Promise<string[]> {
   }
   return results;
 }
+
+// ─── Consecutive off-topic tracker ───────────────────────────────────────────
+// Scans the tail of the stored conversation to count how many turns in a row
+// the user was off-topic (chitchat intent). We look at the last N user turns
+// only — one on-topic turn resets the counter to 0.
+
+function countConsecutiveOffTopicTurns(
+  messages: Array<{ role: string; content: string }>,
+): number {
+  const userMessages = [...messages].reverse().filter((m) => m.role === 'user');
+  let count = 0;
+  for (const msg of userMessages) {
+    const intent = classifyIntent(msg.content);
+    if (intent === 'chitchat') {
+      count++;
+    } else {
+      break;
+    }
+  }
+  return count;
+}
+
+// ─── postCoachChatMessage — main persisted chat endpoint ─────────────────────
 
 export async function postCoachChatMessage(req: Request, res: Response) {
   const userId = req.user!.sub;
@@ -334,6 +360,7 @@ export async function postCoachChatMessage(req: Request, res: Response) {
   try {
     const enabled = await isAIFeatureEnabled(userId, 'coachEnabled');
     const chat = await getCoachChat(userId, chatId);
+
     const conversation = [
       ...chat.messages.slice(-5).map((turn) => ({
         role: turn.role,
@@ -341,19 +368,25 @@ export async function postCoachChatMessage(req: Request, res: Response) {
       })),
       {
         role: 'user' as const,
-        // For conversation history we keep a text representation; the vision
-        // content is only sent on the live call, not stored in past turns.
         content: message || (imageUrls.length > 0 ? `[Shared ${imageUrls.length} image(s)]` : ''),
       },
     ];
 
-    // Resolve local /uploads URLs to base64 data URLs so external AI providers
-    // (Groq, OpenAI) can access the image data — localhost URLs are unreachable
-    // from outside the server.
+    // ── Intent classification ──────────────────────────────────────────────
+    const lastUser = message || '';
+    const prevUser = [...chat.messages].reverse().find((m) => m.role === 'user')?.content;
+    const intent = classifyIntent(lastUser, prevUser);
+
+    // Count consecutive off-topic turns (before adding the new message)
+    const consecutiveOffTopicTurns = countConsecutiveOffTopicTurns(chat.messages);
+
+    // Resolve local image URLs to base64 for external AI providers
     const resolvedImageUrls = await resolveImageUrlsForAI(imageUrls);
 
     const promptData = await buildCoachPromptData(userId, {
       mode: 'chat',
+      intent,
+      consecutiveOffTopicTurns,
       session: {
         title: chat.title,
         summary: chat.summary,
@@ -368,9 +401,15 @@ export async function postCoachChatMessage(req: Request, res: Response) {
       : buildFallbackCoachResult(promptData);
 
     const assistantMessage = result.message?.trim() || 'I need a little more detail to help with that.';
-    // Store the original URLs (not base64) in the DB to keep storage compact
+    // Store the original URLs (not base64) in the DB
     const storedUserMessage = message || `[Shared ${imageUrls.length} image(s)]`;
-    const updatedChat = await recordCoachTurn(userId, chatId, storedUserMessage, assistantMessage, imageUrls.length > 0 ? imageUrls : undefined);
+    const updatedChat = await recordCoachTurn(
+      userId,
+      chatId,
+      storedUserMessage,
+      assistantMessage,
+      imageUrls.length > 0 ? imageUrls : undefined,
+    );
 
     res.json({ chat: updatedChat, result });
   } catch (error: any) {
@@ -378,6 +417,41 @@ export async function postCoachChatMessage(req: Request, res: Response) {
     const responseMessage = status === 404 ? 'Coach chat not found' : 'Failed to send coach message';
     console.error('[AI] Coach message error:', error.message);
     res.status(status).json({ error: responseMessage });
+  }
+}
+
+// ─── postCoachConfirmEntity — create entity the coach gathered ────────────────
+// The LLM returns an entityDraft; the frontend sends it here for validation
+// and writes to the DB. Raw LLM output never touches the DB directly.
+
+export async function postCoachConfirmEntity(req: Request, res: Response) {
+  const userId = req.user!.sub;
+
+  const entity = req.body?.entity;
+  const draft = req.body?.draft;
+
+  if (!entity || !draft || typeof draft !== 'object') {
+    res.status(400).json({ error: 'entity and draft are required' });
+    return;
+  }
+
+  const validEntities = ['task', 'habit', 'goal', 'project'] as const;
+  if (!validEntities.includes(entity)) {
+    res.status(400).json({ error: `entity must be one of: ${validEntities.join(', ')}` });
+    return;
+  }
+
+  try {
+    const result = await confirmCoachEntity(userId, { entity, draft } as any);
+    res.status(201).json(result);
+  } catch (error: any) {
+    const status = error?.statusCode ?? error?.status ?? 500;
+    const message =
+      status === 400
+        ? error?.message ?? 'Invalid entity draft'
+        : 'Failed to create entity from coach';
+    console.error('[AI] Coach confirm entity error:', error.message);
+    res.status(status).json({ error: message });
   }
 }
 
@@ -499,7 +573,10 @@ export async function getJournalWeekly(req: Request, res: Response) {
     const formattedEntries = entries.map((e) => ({
       date: toDateStr(e.createdAt),
       content: e.content?.substring(0, 1000) || '',
-      mood: (e.tags as string[])?.find((t) => ['positive', 'neutral', 'negative', 'mixed'].includes(t)) || undefined,
+      mood:
+        (e.tags as string[])?.find((t) =>
+          ['positive', 'neutral', 'negative', 'mixed'].includes(t),
+        ) || undefined,
     }));
 
     const result = await analyzeJournalWeek(userId, formattedEntries);
@@ -578,7 +655,8 @@ export async function postGoalPlan(req: Request, res: Response) {
       weekday: 'long',
     }).formatToParts(now);
     const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-    const dayName = localDayParts.find((p) => p.type === 'weekday')?.value ?? dayNames[now.getUTCDay()];
+    const dayName =
+      localDayParts.find((p) => p.type === 'weekday')?.value ?? dayNames[now.getUTCDay()];
 
     const result = await generateGoalPlan(userId, prompt, { todayDate, dayName, timezone });
     res.json(result);

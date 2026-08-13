@@ -84,12 +84,19 @@ export async function generateAIInsights(
 
 // ─── Coach ────────────────────────────────────────────────────────────────────
 
+export interface CoachEntityDraft {
+  entity: 'task' | 'habit' | 'goal' | 'project';
+  title: string;
+  fields: Record<string, string | null>;
+}
+
 export interface AICoachResult {
   title: string;
   message: string;
   suggestion: { text: string; actionLabel: string; actionType: AICoachActionType };
   mood: 'encouraging' | 'challenging' | 'celebratory';
   planPrompt?: string;
+  entityDraft?: CoachEntityDraft | null;
   source: 'ai' | 'fallback';
 }
 
@@ -326,6 +333,26 @@ function normalizeCoachResult(parsed: any, fallback: AICoachResult): AICoachResu
   const mood =
     parsed?.mood === 'challenging' || parsed?.mood === 'celebratory' ? parsed.mood : ('encouraging' as const);
 
+  // Extract entityDraft if present from the LLM response
+  let entityDraft: CoachEntityDraft | null | undefined = undefined;
+  if (parsed?.entityDraft && typeof parsed.entityDraft === 'object') {
+    const draft = parsed.entityDraft;
+    const validEntities = ['task', 'habit', 'goal', 'project'];
+    if (
+      validEntities.includes(draft.entity) &&
+      typeof draft.title === 'string' &&
+      draft.title.trim() &&
+      typeof draft.fields === 'object' &&
+      draft.fields !== null
+    ) {
+      entityDraft = {
+        entity: draft.entity as 'task' | 'habit' | 'goal' | 'project',
+        title: draft.title.trim(),
+        fields: draft.fields as Record<string, string | null>,
+      };
+    }
+  }
+
   return {
     title: trimCoachText(parsed?.title, 40) || fallback.title,
     message: trimCoachText(parsed?.message, 240) || fallback.message,
@@ -336,6 +363,7 @@ function normalizeCoachResult(parsed: any, fallback: AICoachResult): AICoachResu
     },
     mood,
     planPrompt: trimCoachText(parsed?.planPrompt, 220),
+    entityDraft,
     source: 'ai',
   };
 }
