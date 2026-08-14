@@ -69,6 +69,34 @@ function getWeekdayToken(date: Date): string {
   return ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'][date.getDay()];
 }
 
+/**
+ * Maps weekday names (full words or 2-letter tokens, case-insensitive) to
+ * RFC 5545 BYDAY tokens (MO..SU). Used by both the weekly and the
+ * daily-with-skip-day recurrence builders.
+ */
+function normalizeWeekdayTokens(weekdays: string[]): string[] {
+  const map: Record<string, string> = {
+    sunday: 'SU',
+    monday: 'MO',
+    tuesday: 'TU',
+    wednesday: 'WE',
+    thursday: 'TH',
+    friday: 'FR',
+    saturday: 'SA',
+    su: 'SU',
+    mo: 'MO',
+    tu: 'TU',
+    we: 'WE',
+    th: 'TH',
+    fr: 'FR',
+    sa: 'SA',
+  };
+  return weekdays
+    .map((day) => day.trim().toUpperCase())
+    .filter(Boolean)
+    .map((day) => map[day.toLowerCase()] ?? day.slice(0, 2));
+}
+
 export function buildRecurrenceFromConfig(
   config: TaskRecurrenceConfig,
   startDate: Date
@@ -82,35 +110,22 @@ export function buildRecurrenceFromConfig(
   let recurrenceEndDate: Date | null = config.endsType === 'date' && config.endsAt ? new Date(config.endsAt) : null;
 
   switch (config.frequency) {
-    case 'day':
+    case 'day': {
       parts.push('FREQ=DAILY', `INTERVAL=${interval}`);
+      // Allow narrowing a *daily* cadence with weekdays (i.e. skip days, the
+      // task equivalent of a habit's skip days). A partial set emits BYDAY;
+      // all 7 (or none) collapses to a plain daily rule.
+      const dayTokens = normalizeWeekdayTokens(config.weekdays ?? []);
+      if (dayTokens.length > 0 && dayTokens.length < 7) {
+        parts.push(`BYDAY=${dayTokens.join(',')}`);
+      }
       break;
+    }
     case 'week': {
       parts.push('FREQ=WEEKLY', `INTERVAL=${interval}`);
-      const weekdays = (config.weekdays ?? []).map((day) => day.trim().toUpperCase()).filter(Boolean);
-      if (weekdays.length > 0) {
-        const normalized = weekdays
-          .map((day) => {
-            const map: Record<string, string> = {
-              sunday: 'SU',
-              monday: 'MO',
-              tuesday: 'TU',
-              wednesday: 'WE',
-              thursday: 'TH',
-              friday: 'FR',
-              saturday: 'SA',
-              su: 'SU',
-              mo: 'MO',
-              tu: 'TU',
-              we: 'WE',
-              th: 'TH',
-              fr: 'FR',
-              sa: 'SA',
-            };
-            return map[day.toLowerCase()] ?? day.slice(0, 2);
-          })
-          .join(',');
-        parts.push(`BYDAY=${normalized}`);
+      const weekTokens = normalizeWeekdayTokens(config.weekdays ?? []);
+      if (weekTokens.length > 0) {
+        parts.push(`BYDAY=${weekTokens.join(',')}`);
       }
       break;
     }

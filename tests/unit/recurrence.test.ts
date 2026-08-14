@@ -21,6 +21,27 @@ describe('buildRecurrenceFromConfig', () => {
     expect(result.recurrenceRule).toBe('FREQ=DAILY;INTERVAL=1');
   });
 
+  it('builds a daily rule with skipped weekdays (BYDAY)', () => {
+    const result = buildRecurrenceFromConfig(
+      { ...base, frequency: 'day', interval: 1, weekdays: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'] },
+      new Date('2026-01-01')
+    );
+    expect(result.recurrenceRule).toBe('FREQ=DAILY;INTERVAL=1;BYDAY=MO,TU,WE,TH,FR');
+  });
+
+  it('collapses a daily rule to plain DAILY when all 7 weekdays are included', () => {
+    const result = buildRecurrenceFromConfig(
+      {
+        ...base,
+        frequency: 'day',
+        interval: 1,
+        weekdays: ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'],
+      },
+      new Date('2026-01-01')
+    );
+    expect(result.recurrenceRule).toBe('FREQ=DAILY;INTERVAL=1');
+  });
+
   it('builds a weekly rule with weekdays', () => {
     const result = buildRecurrenceFromConfig(
       { ...base, frequency: 'week', interval: 2, weekdays: ['MO', 'WE', 'FR'] },
@@ -76,6 +97,17 @@ describe('getNextOccurrence', () => {
   it('skips dates in skipDates', () => {
     const next = getNextOccurrence(new Date('2026-01-01'), 'FREQ=DAILY;INTERVAL=1', null, ['2026-01-02']);
     expect(next?.toISOString().split('T')[0]).toBe('2026-01-03');
+  });
+
+  it('advances across skipped weekdays for a daily rule with BYDAY', () => {
+    // 2026-01-02 is a Friday; skipping Sat & Sun moves the next occurrence to Monday.
+    const next = getNextOccurrence(
+      new Date('2026-01-02'),
+      'FREQ=DAILY;INTERVAL=1;BYDAY=MO,TU,WE,TH,FR',
+      null,
+      []
+    );
+    expect(next?.toISOString().split('T')[0]).toBe('2026-01-05');
   });
 
   it('respects recurrenceEndDate', () => {

@@ -618,6 +618,17 @@ export type NoteMood = 'great' | 'good' | 'neutral' | 'bad' | 'awful' | null;
 export type NoteSortField = 'updatedAt' | 'createdAt' | 'title';
 export type NoteSortOrder = 'asc' | 'desc';
 
+// Bookmark colors for physical ribbon tabs
+export type BookmarkColor = 'yellow' | 'red' | 'blue' | 'green' | 'purple';
+
+export interface Bookmark {
+  id: string;
+  pageNumber: number;
+  color: BookmarkColor;
+  label?: string;
+  createdAt: string;
+}
+
 export interface NoteDTO {
   id: string;
   userId: string;
@@ -632,7 +643,8 @@ export interface NoteDTO {
   mood: NoteMood;
   tags: string[];
   archived: boolean;
-  bookmarkPage?: number | null;
+  bookmarkPage?: number | null; // Legacy single bookmark support
+  bookmarks?: Bookmark[]; // Multi-bookmark system
   createdAt: string;
   updatedAt: string;
 }
@@ -663,6 +675,7 @@ export interface UpdateNoteRequest {
   tags?: string[];
   archived?: boolean;
   bookmarkPage?: number | null;
+  bookmarks?: Bookmark[];
 }
 
 export interface NoteListFilters {

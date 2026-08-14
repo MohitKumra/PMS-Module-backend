@@ -1,10 +1,10 @@
 model FocusSession {
   id          String    @id @default(cuid())
   userId      String
-  durationMin Int       // Planned duration in minutes
-  elapsedMin  Int       @default(0)  // Accumulated elapsed minutes
+  durationMin Int // Planned duration in minutes
+  elapsedMin  Int       @default(0) // Accumulated elapsed minutes
   startedAt   DateTime
-  status      String    @default("IN_PROGRESS")  // IN_PROGRESS | COMPLETED | CANCELLED
+  status      String    @default("IN_PROGRESS") // IN_PROGRESS | COMPLETED | CANCELLED
   completedAt DateTime?
   isBreak     Boolean   @default(false)
   taskId      String?

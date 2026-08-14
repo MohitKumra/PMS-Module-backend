@@ -14,8 +14,9 @@ model Note {
   isPinned      Boolean  @default(false)
   mood          String?
   tags          String[]
-  notionPageId  String?   @unique
+  notionPageId  String?  @unique
   bookmarkPage  Int?
+  bookmarks     Json?    @default("[]")
   project       Project? @relation(fields: [projectId], references: [id])
   task          Task?    @relation(fields: [taskId], references: [id])
   user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)

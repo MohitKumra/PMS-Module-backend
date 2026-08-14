@@ -1,23 +1,23 @@
 model NotionConnection {
-  userId          String    @id
-  accessToken     String    // Encrypted
-  workspaceName   String?
-  workspaceIcon   String?
-  connectedAt     DateTime  @default(now())
-  lastSyncedAt    DateTime?
-  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId        String    @id
+  accessToken   String // Encrypted
+  workspaceName String?
+  workspaceIcon String?
+  connectedAt   DateTime  @default(now())
+  lastSyncedAt  DateTime?
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model IntegrationLog {
-  id          String   @id @default(cuid())
-  userId      String
-  source      String   // 'notion'
-  action      String   // 'import_tasks', 'import_notes', 'sync'
-  status      String   // 'success', 'partial', 'failed'
-  itemsCount  Int      @default(0)
-  errorLog    Json?
-  createdAt   DateTime @default(now())
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id         String   @id @default(cuid())
+  userId     String
+  source     String // 'notion'
+  action     String // 'import_tasks', 'import_notes', 'sync'
+  status     String // 'success', 'partial', 'failed'
+  itemsCount Int      @default(0)
+  errorLog   Json?
+  createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, source])
   @@index([userId, createdAt])

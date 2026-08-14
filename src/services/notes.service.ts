@@ -31,6 +31,7 @@ export function toNoteDTO(n: any): NoteDTO {
     tags: n.tags ?? [],
     archived: n.archived ?? false,
     bookmarkPage: n.bookmarkPage ?? null,
+    bookmarks: Array.isArray(n.bookmarks) ? n.bookmarks : [],
     createdAt: n.createdAt instanceof Date ? n.createdAt.toISOString() : n.createdAt,
     updatedAt: n.updatedAt instanceof Date ? n.updatedAt.toISOString() : n.updatedAt,
   };
@@ -186,8 +187,8 @@ export async function updateNote(userId: string, noteId: string, data: UpdateNot
       ...(data.title !== undefined && { title: data.title ?? null }),
       ...(data.content !== undefined && { content: data.content }),
       ...(data.isJournal !== undefined && { isJournal: data.isJournal }),
-      ...(data.taskId !== undefined && { taskId: data.taskId }),
-      ...(data.projectId !== undefined && { projectId: data.projectId }),
+      ...(data.taskId !== undefined && { taskId: data.taskId ?? null }),
+      ...(data.projectId !== undefined && { projectId: data.projectId ?? null }),
       ...(data.attachmentUrl !== undefined && { attachmentUrl: normalizeMediaUrl(data.attachmentUrl) }),
       ...(data.voiceNoteUrl !== undefined && { voiceNoteUrl: normalizeMediaUrl(data.voiceNoteUrl) }),
       ...(data.isPinned !== undefined && { isPinned: data.isPinned }),
@@ -195,6 +196,7 @@ export async function updateNote(userId: string, noteId: string, data: UpdateNot
       ...(data.tags !== undefined && { tags: data.tags }),
       ...(data.archived !== undefined && { archived: data.archived }),
       ...(data.bookmarkPage !== undefined && { bookmarkPage: data.bookmarkPage }),
+      ...(data.bookmarks !== undefined && { bookmarks: data.bookmarks as any }),
     },
   });
   if (data.attachmentUrl !== undefined && data.attachmentUrl !== previousAttachmentUrl) {

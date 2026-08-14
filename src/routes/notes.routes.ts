@@ -8,6 +8,15 @@ import { validate } from '../middleware/validate';
 const router = Router();
 router.use(authenticate);
 
+// Bookmark schema for multi-bookmark system
+const bookmarkSchema = z.object({
+  id: z.string(),
+  pageNumber: z.number().int().min(1),
+  color: z.enum(['yellow', 'red', 'blue', 'green', 'purple']),
+  label: z.string().max(100).optional(),
+  createdAt: z.string().datetime(),
+});
+
 const createSchema = z.object({
   title: z.string().max(500).optional(),
   content: z.string().min(1),
@@ -30,7 +39,8 @@ const createSchema = z.object({
   tags: z.array(z.string().max(50)).max(20).optional(),
   isPinned: z.boolean().optional(),
   archived: z.boolean().optional(),
-  bookmarkPage: z.number().nullable().optional(),
+  bookmarkPage: z.number().nullable().optional(), // Legacy single bookmark
+  bookmarks: z.array(bookmarkSchema).max(5).optional(), // Multi-bookmark system (max 5)
 });
 const idParams = z.object({ id: z.string() });
 
