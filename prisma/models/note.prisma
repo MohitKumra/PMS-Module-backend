@@ -13,7 +13,7 @@ model Note {
   archived      Boolean  @default(false)
   isPinned      Boolean  @default(false)
   mood          String?
-  tags          String[]
+  tags          Json   @default("[]")
   notionPageId  String?  @unique
   bookmarkPage  Int?
   bookmarks     Json?    @default("[]")

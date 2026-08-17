@@ -62,9 +62,11 @@ export async function listNotes(
     ];
   }
 
-  // Tag filter (match any)
+  // Tag filter (match any) — tags is a Json array, so use JSON containment.
+  // For a top-level JSON array, target the root with `path: ['$']` and check containment.
   if (filters?.tags && filters.tags.length > 0) {
-    where.tags = { hasSome: filters.tags };
+    const existingOr = Array.isArray(where.OR) ? where.OR : where.OR ? [where.OR] : [];
+    where.OR = [...existingOr, ...filters.tags.map((t) => ({ tags: { path: ['$'], array_contains: [t] } }))];
   }
 
   // Mood filter
