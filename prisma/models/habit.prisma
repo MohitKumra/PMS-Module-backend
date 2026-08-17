@@ -1,18 +1,18 @@
 model Habit {
   id              String            @id @default(cuid())
   userId          String
-  goalId          String?
   title           String
   targetPerWeek   Int               @default(7)
   reminderTime    String?
-  reminderMessage String? // email subject / notification title
-  durationDays    Int? // null = forever; auto-deactivates when reached
-  skipDays        String            @default("[]") // JSON array of day indices 0-6 (0=Mon..6=Sun)
-  streakBrokenAt  DateTime? // when streak was last broken (for popup)
-  isActive        Boolean           @default(true)
   createdAt       DateTime          @default(now())
+  reminderMessage String?
+  durationDays    Int?
+  skipDays        String            @default("[]")
+  streakBrokenAt  DateTime?
+  isActive        Boolean           @default(true)
+  goalId          String?
+  goal            Goal?             @relation("GoalHabits", fields: [goalId], references: [id])
   user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  goal            Goal?             @relation("GoalHabits", fields: [goalId], references: [id], onDelete: SetNull)
   completions     HabitCompletion[]
   skipLogs        HabitSkipLog[]
 }

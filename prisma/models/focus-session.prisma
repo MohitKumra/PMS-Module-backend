@@ -1,14 +1,14 @@
 model FocusSession {
   id          String    @id @default(cuid())
   userId      String
-  durationMin Int // Planned duration in minutes
-  elapsedMin  Int       @default(0) // Accumulated elapsed minutes
+  durationMin Int
   startedAt   DateTime
-  status      String    @default("IN_PROGRESS") // IN_PROGRESS | COMPLETED | CANCELLED
-  completedAt DateTime?
   isBreak     Boolean   @default(false)
   taskId      String?
   projectId   String?
+  elapsedMin  Int       @default(0)
+  status      String    @default("IN_PROGRESS")
+  completedAt DateTime?
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, status])

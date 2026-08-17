@@ -1,3 +1,45 @@
+model Goal {
+  id          String          @id @default(cuid())
+  userId      String
+  title       String
+  description String?
+  category    String?
+  icon        String?
+  color       String?         @default("#4F46E5")
+  targetDate  DateTime?
+  status      GoalStatus      @default(ACTIVE)
+  priority    GoalPriority    @default(MEDIUM)
+  progress    Int             @default(0)
+  aiSummary   String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  milestones  GoalMilestone[]
+  habits      Habit[]         @relation("GoalHabits")
+  projects    Project[]       @relation("GoalProjects")
+  tasks       Task[]          @relation("GoalTasks")
+
+  @@index([userId])
+  @@index([status])
+}
+
+model GoalMilestone {
+  id          String              @id @default(cuid())
+  goalId      String
+  title       String
+  description String?
+  dueDate     DateTime?
+  status      GoalMilestoneStatus @default(PENDING)
+  sortOrder   Int                 @default(0)
+  completedAt DateTime?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  goal        Goal                @relation(fields: [goalId], references: [id], onDelete: Cascade)
+
+  @@index([goalId])
+  @@index([status])
+}
+
 enum GoalStatus {
   ACTIVE
   PAUSED
@@ -12,52 +54,8 @@ enum GoalPriority {
   CRITICAL
 }
 
-model Goal {
-  id          String       @id @default(cuid())
-  userId      String
-  title       String
-  description String?
-  category    String?
-  icon        String?
-  color       String?      @default("#4F46E5")
-  targetDate  DateTime?
-  status      GoalStatus   @default(ACTIVE)
-  priority    GoalPriority @default(MEDIUM)
-  progress    Int          @default(0)
-  aiSummary   String?
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-
-  user       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  habits     Habit[]         @relation("GoalHabits")
-  tasks      Task[]          @relation("GoalTasks")
-  projects   Project[]       @relation("GoalProjects")
-  milestones GoalMilestone[]
-
-  @@index([userId])
-  @@index([status])
-}
-
 enum GoalMilestoneStatus {
   PENDING
   COMPLETED
   SKIPPED
-}
-
-model GoalMilestone {
-  id          String              @id @default(cuid())
-  goalId      String
-  title       String
-  description String?
-  dueDate     DateTime?
-  status      GoalMilestoneStatus @default(PENDING)
-  sortOrder   Int                 @default(0)
-  completedAt DateTime?
-  createdAt   DateTime            @default(now())
-  updatedAt   DateTime            @updatedAt
-
-  goal Goal @relation(fields: [goalId], references: [id], onDelete: Cascade)
-
-  @@index([goalId])
-  @@index([status])
 }

@@ -162,7 +162,11 @@ export async function createNote(userId: string, data: CreateNoteRequest): Promi
       attachmentUrl: normalizeMediaUrl(data.attachmentUrl),
       voiceNoteUrl: normalizeMediaUrl(data.voiceNoteUrl),
       mood: data.mood ?? null,
-      tags: data.tags ?? [],
+      // Only write tags when non-empty; otherwise omit so the DB column default
+      // ('[]'::jsonb, or '{}' for a legacy TEXT[] column) applies. This avoids
+      // sending an empty JS array that the pg driver adapter can mis-serialize
+      // (P2007 "malformed array literal: []").
+      ...(Array.isArray(data.tags) && data.tags.length > 0 ? { tags: data.tags } : {}),
       bookmarkPage: data.bookmarkPage ?? null,
     },
   });

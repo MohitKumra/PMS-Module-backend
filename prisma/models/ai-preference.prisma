@@ -1,27 +1,22 @@
 model AIPreference {
-  userId                 String  @id
-  dailyBriefEnabled      Boolean @default(true)
-  journalWeeklyEnabled   Boolean @default(true)
-  insightsEnabled        Boolean @default(true)
-  coachEnabled           Boolean @default(true)
-  journalAnalysisEnabled Boolean @default(true)
-  goalSummaryEnabled     Boolean @default(true)
-  taskParserEnabled      Boolean @default(true)
-  goalPlannerEnabled     Boolean @default(true)
-  summaryRefreshMinutes  Int     @default(60)
-
-  // ─── Token consumption counters ──────────────────────────────────────
-  // Aggregated usage for the current period. The service rolls these over
-  // when tokenPeriodStart crosses the matching calendar boundary.
-  tokenPeriodStart DateTime  @default(now()) // anchor for the current counting window
-  tokensToday      Int       @default(0)
-  tokensThisWeek   Int       @default(0)
-  tokensThisMonth  Int       @default(0)
-  tokensTotal      Int       @default(0)
-  aiCallsTotal     Int       @default(0)
-  lastTokenUseAt   DateTime?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId                 String    @id
+  dailyBriefEnabled      Boolean   @default(true)
+  journalWeeklyEnabled   Boolean   @default(true)
+  insightsEnabled        Boolean   @default(true)
+  coachEnabled           Boolean   @default(true)
+  journalAnalysisEnabled Boolean   @default(true)
+  goalSummaryEnabled     Boolean   @default(true)
+  taskParserEnabled      Boolean   @default(true)
+  goalPlannerEnabled     Boolean   @default(true)
+  summaryRefreshMinutes  Int       @default(60)
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+  tokenPeriodStart       DateTime  @default(now())
+  tokensToday            Int       @default(0)
+  tokensThisWeek         Int       @default(0)
+  tokensThisMonth        Int       @default(0)
+  tokensTotal            Int       @default(0)
+  aiCallsTotal           Int       @default(0)
+  lastTokenUseAt         DateTime?
+  user                   User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

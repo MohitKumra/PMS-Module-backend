@@ -3,8 +3,8 @@ model UserPreference {
   themePreference  String   @default("SYSTEM")
   layoutPreference String   @default("COMFORTABLE")
   calendarView     String   @default("month")
-  taskView         String   @default("board")
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
+  taskView         String   @default("board")
   user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

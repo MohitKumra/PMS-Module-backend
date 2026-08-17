@@ -1,7 +1,6 @@
 model Project {
   id            String         @id @default(cuid())
   name          String
-  goalId        String?
   description   String?
   status        ProjectStatus  @default(PLANNING)
   color         String?        @default("#4F46E5")
@@ -13,10 +12,11 @@ model Project {
   userId        String
   attachmentUrl String?
   voiceNoteUrl  String?
+  goalId        String?
   notes         Note[]
-  media         ProjectMedia[]
+  goal          Goal?          @relation("GoalProjects", fields: [goalId], references: [id])
   user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  goal          Goal?          @relation("GoalProjects", fields: [goalId], references: [id], onDelete: SetNull)
+  media         ProjectMedia[]
   tasks         ProjectTask[]
 
   @@index([userId])

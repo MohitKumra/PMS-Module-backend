@@ -685,7 +685,9 @@ export async function importNotes(
             userId,
             title: noteData.title,
             content: noteData.content,
-            tags: noteData.tags,
+            // Omit empty tags so the DB column default applies instead of sending
+            // an empty JS array (avoids P2007 "malformed array literal: []").
+            ...(noteData.tags && noteData.tags.length > 0 ? { tags: noteData.tags } : {}),
             isJournal: isJournal ?? false,
             notionPageId: notionId,
           },

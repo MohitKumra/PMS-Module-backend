@@ -10,10 +10,10 @@ model Note {
   projectId     String?
   attachmentUrl String?
   voiceNoteUrl  String?
-  archived      Boolean  @default(false)
   isPinned      Boolean  @default(false)
   mood          String?
-  tags          Json   @default("[]")
+  tags          Json     @default("[]")
+  archived      Boolean  @default(false)
   notionPageId  String?  @unique
   bookmarkPage  Int?
   bookmarks     Json?    @default("[]")

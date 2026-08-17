@@ -10,17 +10,19 @@ model User {
   createdAt                DateTime                  @default(now())
   updatedAt                DateTime                  @updatedAt
   recoveryEmail            String?
-  notionConnection         NotionConnection?
-  integrationLogs          IntegrationLog[]
+  coachChats               AICoachChat[]
+  aiPreferences            AIPreference?
   focusSessions            FocusSession[]
   focusTimeLogs            FocusTimeLog[]
+  goals                    Goal[]
   googleCalendarConnection GoogleCalendarConnection?
   googleCalendarSyncItems  GoogleCalendarSyncItem[]
   habits                   Habit[]
-  goals                    Goal[]
+  integrationLogs          IntegrationLog[]
   notes                    Note[]
   notifications            NotificationLog[]
   notificationPreferences  NotificationPreference?
+  notionConnection         NotionConnection?
   passwordResetTokens      PasswordResetToken[]
   pointLedger              PointLedger[]
   projects                 Project[]
@@ -28,7 +30,5 @@ model User {
   taskActivities           TaskActivity[]
   taskTimeEntries          TaskTimeEntry[]
   achievements             UserAchievement[]
-  aiPreferences            AIPreference?
-  coachChats               AICoachChat[]
   preferences              UserPreference?
 }

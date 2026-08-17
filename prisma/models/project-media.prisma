@@ -2,7 +2,7 @@ model ProjectMedia {
   id        String   @id @default(cuid())
   projectId String
   url       String
-  type      String // "attachment" | "voice_note"
+  type      String
   fileName  String?
   mimeType  String?
   size      Int?

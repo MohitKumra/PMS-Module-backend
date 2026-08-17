@@ -1,6 +1,6 @@
 model NotionConnection {
   userId        String    @id
-  accessToken   String // Encrypted
+  accessToken   String
   workspaceName String?
   workspaceIcon String?
   connectedAt   DateTime  @default(now())
@@ -11,9 +11,9 @@ model NotionConnection {
 model IntegrationLog {
   id         String   @id @default(cuid())
   userId     String
-  source     String // 'notion'
-  action     String // 'import_tasks', 'import_notes', 'sync'
-  status     String // 'success', 'partial', 'failed'
+  source     String
+  action     String
+  status     String
   itemsCount Int      @default(0)
   errorLog   Json?
   createdAt  DateTime @default(now())

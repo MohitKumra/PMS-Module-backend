@@ -1,17 +1,12 @@
 model Task {
   id                String          @id @default(cuid())
   userId            String
-  goalId            String?
   title             String
   description       String?
   status            TaskStatus      @default(TODO)
   priority          Priority        @default(MEDIUM)
   dueDate           DateTime?
-  dueTime           String?
-  reminderTime      String?
-  reminderMessage   String?
   recurrenceRule    String?
-  recurrenceConfig  Json?
   parentTaskId      String?
   attachmentUrl     String?
   createdAt         DateTime        @default(now())
@@ -22,14 +17,19 @@ model Task {
   inProgressAt      DateTime?
   estimatedDuration Int?
   voiceNoteUrl      String?
+  dueTime           String?
+  reminderTime      String?
+  reminderMessage   String?
+  goalId            String?
   notionPageId      String?         @unique
+  recurrenceConfig  Json?
   notes             Note[]
   projectTasks      ProjectTask?
   subTasks          SubTask[]
-  media             TaskMedia[]
+  goal              Goal?           @relation("GoalTasks", fields: [goalId], references: [id])
   user              User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  goal              Goal?           @relation("GoalTasks", fields: [goalId], references: [id], onDelete: SetNull)
   activity          TaskActivity[]
+  media             TaskMedia[]
   timeEntries       TaskTimeEntry[]
 
   @@unique([parentTaskId, dueDate])

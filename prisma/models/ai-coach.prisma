@@ -1,20 +1,14 @@
-enum CoachChatRole {
-  USER
-  ASSISTANT
-}
-
 model AICoachChat {
-  id            String   @id @default(cuid())
+  id            String           @id @default(cuid())
   userId        String
-  title         String   @default("New chat")
-  summary       String   @default("")
-  messageCount  Int      @default(0)
-  lastMessageAt DateTime @default(now())
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-
-  user     User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  messages AICoachMessage[]
+  title         String           @default("New chat")
+  summary       String           @default("")
+  messageCount  Int              @default(0)
+  lastMessageAt DateTime         @default(now())
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  user          User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages      AICoachMessage[]
 
   @@index([userId, lastMessageAt])
   @@index([userId, createdAt])
@@ -25,10 +19,14 @@ model AICoachMessage {
   chatId    String
   role      CoachChatRole
   content   String
-  imageUrls String? // JSON-encoded string[] — image URLs attached to this message
   createdAt DateTime      @default(now())
-
-  chat AICoachChat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  imageUrls String?
+  chat      AICoachChat   @relation(fields: [chatId], references: [id], onDelete: Cascade)
 
   @@index([chatId, createdAt])
+}
+
+enum CoachChatRole {
+  USER
+  ASSISTANT
 }
