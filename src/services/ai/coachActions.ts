@@ -123,6 +123,20 @@ function coerceTime(value: string | null | undefined): string | null {
 }
 
 /**
+ * The LLM emits every optional field in entityDraft.fields and uses `null` for
+ * missing ones (`fields` is typed `Record<string, string | null>`). Zod's
+ * `.optional()` only accepts `undefined`, not explicit `null`, so those nulls
+ * must be stripped before validating. Removing them is safe because every
+ * underlying Create*Request field is optional and the service already falls
+ * back to its default (?? default / ?? undefined / ?? null) when omitted.
+ */
+function stripNulls<T extends Record<string, unknown>>(obj: T): Partial<T> {
+  return Object.fromEntries(
+    Object.entries(obj).filter(([, value]) => value != null),
+  ) as Partial<T>;
+}
+
+/**
  * Coerce the habit skip-days option chips (day-name strings) to numeric indices.
  * 0=Mon … 6=Sun, matching the backend convention used in habit.service.ts
  */
@@ -264,7 +278,7 @@ export async function createTaskFromCoach(
   userId: string,
   draft: CoachTaskDraft,
 ): Promise<TaskDTO> {
-  const parsed = CoachTaskDraftSchema.safeParse(draft);
+  const parsed = CoachTaskDraftSchema.safeParse(stripNulls(draft));
   if (!parsed.success) {
     console.error('[Coach] Task draft validation failed:', parsed.error);
     throw createError(400, 'INVALID_TASK_DRAFT', 'Invalid task draft from coach');
@@ -307,7 +321,7 @@ export async function createHabitFromCoach(
   userId: string,
   draft: CoachHabitDraft,
 ): Promise<HabitDTO> {
-  const parsed = CoachHabitDraftSchema.safeParse(draft);
+  const parsed = CoachHabitDraftSchema.safeParse(stripNulls(draft));
   if (!parsed.success) {
     throw createError(400, 'INVALID_HABIT_DRAFT', 'Invalid habit draft from coach');
   }
@@ -344,7 +358,7 @@ export async function createGoalFromCoach(
   userId: string,
   draft: CoachGoalDraft,
 ): Promise<GoalDTO> {
-  const parsed = CoachGoalDraftSchema.safeParse(draft);
+  const parsed = CoachGoalDraftSchema.safeParse(stripNulls(draft));
   if (!parsed.success) {
     throw createError(400, 'INVALID_GOAL_DRAFT', 'Invalid goal draft from coach');
   }
@@ -381,7 +395,7 @@ export async function createProjectFromCoach(
   userId: string,
   draft: CoachProjectDraft,
 ): Promise<ProjectDTO> {
-  const parsed = CoachProjectDraftSchema.safeParse(draft);
+  const parsed = CoachProjectDraftSchema.safeParse(stripNulls(draft));
   if (!parsed.success) {
     throw createError(400, 'INVALID_PROJECT_DRAFT', 'Invalid project draft from coach');
   }

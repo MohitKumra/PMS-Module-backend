@@ -376,10 +376,13 @@ export async function generateAICoach(
     return buildFallbackCoachResult(data);
   }
 
-  // Vision responses need more tokens — the model describes the image before
-  // producing the JSON, so the tight 160-token chat cap causes truncated/invalid JSON.
+  // Responses need enough tokens for the normal fields *plus* an optional
+  // entityDraft (title + all fields). A tight cap truncates the JSON mid-string
+  // ("Unterminated string"), which silently drops the draft and falls back.
+  // Vision responses need even more — the model describes the image before
+  // producing the JSON.
   const hasImages = Boolean(data.imageUrls && data.imageUrls.length > 0);
-  const chatTokens = hasImages ? 400 : 160;
+  const chatTokens = hasImages ? 600 : 400;
 
   const response = await complete({
     systemPrompt: COACH_SYSTEM_PROMPT,
