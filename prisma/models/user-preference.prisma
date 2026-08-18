@@ -2,9 +2,11 @@ model UserPreference {
   userId           String   @id
   themePreference  String   @default("SYSTEM")
   layoutPreference String   @default("COMFORTABLE")
-  calendarView     String   @default("month")
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-  taskView         String   @default("board")
-  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  calendarView           String   @default("month")
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+  taskView               String   @default("board")
+  pageTransitionsEnabled Boolean  @default(true)
+  floatingAnimationsEnabled Boolean @default(true)
+  user                   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

@@ -17,6 +17,8 @@ const DEFAULT_APPEARANCE: AppearanceSettingsDTO = {
   layoutPreference: 'COMFORTABLE',
   calendarView: 'month',
   taskView: 'board',
+  pageTransitionsEnabled: true,
+  floatingAnimationsEnabled: true,
 };
 
 const DEFAULT_NOTIFICATIONS: NotificationPreferenceDTO = {
@@ -90,6 +92,8 @@ export async function getSettings(userId: string): Promise<SettingsDTO> {
       calendarView:
         (appearance?.calendarView as AppearanceSettingsDTO['calendarView']) ?? DEFAULT_APPEARANCE.calendarView,
       taskView: (appearance?.taskView as TaskViewPreference) ?? DEFAULT_APPEARANCE.taskView,
+      pageTransitionsEnabled: appearance?.pageTransitionsEnabled ?? DEFAULT_APPEARANCE.pageTransitionsEnabled,
+      floatingAnimationsEnabled: appearance?.floatingAnimationsEnabled ?? DEFAULT_APPEARANCE.floatingAnimationsEnabled,
     },
     notifications: {
       taskDue: notifications?.taskDue ?? DEFAULT_NOTIFICATIONS.taskDue,
@@ -141,12 +145,18 @@ export async function updateAppearance(
       layoutPreference: data.layoutPreference ?? DEFAULT_APPEARANCE.layoutPreference,
       calendarView: data.calendarView ?? DEFAULT_APPEARANCE.calendarView,
       taskView: data.taskView ?? DEFAULT_APPEARANCE.taskView,
+      pageTransitionsEnabled: data.pageTransitionsEnabled ?? DEFAULT_APPEARANCE.pageTransitionsEnabled,
+      floatingAnimationsEnabled: data.floatingAnimationsEnabled ?? DEFAULT_APPEARANCE.floatingAnimationsEnabled,
     },
     update: {
       ...(data.themePreference ? { themePreference: data.themePreference } : {}),
       ...(data.layoutPreference ? { layoutPreference: data.layoutPreference } : {}),
       ...(data.calendarView ? { calendarView: data.calendarView } : {}),
       ...(data.taskView ? { taskView: data.taskView } : {}),
+      ...(typeof data.pageTransitionsEnabled === 'boolean' ? { pageTransitionsEnabled: data.pageTransitionsEnabled } : {}),
+      ...(typeof data.floatingAnimationsEnabled === 'boolean'
+        ? { floatingAnimationsEnabled: data.floatingAnimationsEnabled }
+        : {}),
     },
   });
 
@@ -155,6 +165,8 @@ export async function updateAppearance(
     layoutPreference: updated.layoutPreference as LayoutPreference,
     calendarView: updated.calendarView as AppearanceSettingsDTO['calendarView'],
     taskView: updated.taskView as TaskViewPreference,
+    pageTransitionsEnabled: updated.pageTransitionsEnabled,
+    floatingAnimationsEnabled: updated.floatingAnimationsEnabled,
   };
 }
 

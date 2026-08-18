@@ -53,6 +53,8 @@ export interface AppearanceSettingsDTO {
   layoutPreference: LayoutPreference;
   calendarView: 'day' | 'week' | 'month' | 'agenda';
   taskView: TaskViewPreference;
+  pageTransitionsEnabled: boolean;
+  floatingAnimationsEnabled: boolean;
 }
 
 export interface GoogleCalendarIntegrationDTO {
@@ -180,6 +182,8 @@ export interface UpdateAppearanceRequest {
   layoutPreference?: LayoutPreference;
   calendarView?: 'day' | 'week' | 'month' | 'agenda';
   taskView?: TaskViewPreference;
+  pageTransitionsEnabled?: boolean;
+  floatingAnimationsEnabled?: boolean;
 }
 
 export interface UpdateNotificationPreferencesRequest extends NotificationPreferenceDTO {}
