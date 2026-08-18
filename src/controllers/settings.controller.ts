@@ -56,7 +56,14 @@ export async function googleCalendarStart(req: Request, res: Response, next: Nex
         ? req.query.returnTo.trim()
         : '/settings?integration=google-calendar';
     const absoluteReturnTo = `${env.FRONTEND_URL}${returnTo.startsWith('/') ? returnTo : `/${returnTo}`}`;
-    const { url } = buildGoogleAuthRedirect('calendar-connect', absoluteReturnTo);
+    const nonce = typeof req.query.nonce === 'string' && req.query.nonce.trim() ? req.query.nonce.trim() : undefined;
+    const { url } = buildGoogleAuthRedirect('calendar-connect', absoluteReturnTo, nonce);
+    // Redirect mode lets the frontend open OAuth synchronously in a popup
+    // (window.open) without an async round-trip that would trip popup blockers.
+    if (req.query.redirect === '1' || req.query.redirect === 'true') {
+      res.redirect(302, url);
+      return;
+    }
     res.json({ url });
   } catch (err) {
     next(err);

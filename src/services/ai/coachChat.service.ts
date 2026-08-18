@@ -6,7 +6,14 @@ import { prisma } from '../../lib/prismaClient';
 import { createError } from '../../middleware/errorHandler';
 import { getSummary } from '../analytics.service';
 import { calcStreak, getDayOfWeek, parseSkipDays, toDateStr } from '../habit.service';
-import { classifyIntent, intentNeedsLiveData, intentTargetEntity, CoachIntent } from './coachIntent';
+import {
+  classifyIntent,
+  intentNeedsLiveData,
+  intentSnapshotDomains,
+  ALL_SNAPSHOT_DOMAINS,
+  CoachIntent,
+} from './coachIntent';
+import type { CoachSnapshotDomain } from './coachIntent';
 import type {
   CoachChatDTO,
   CoachChatListDTO,
@@ -19,6 +26,7 @@ import type {
   CoachHabitSnapshot,
   CoachMilestoneSnapshot,
   CoachPromptData,
+  CoachTaskSnapshot,
 } from './prompts/coachPrompts';
 
 const db = prisma as any;
@@ -212,32 +220,54 @@ async function loadLiveStats(userId: string): Promise<LiveStats> {
 // ─── Tier 3: Entity snapshot (only when intent targets a specific entity) ──────
 
 interface EntitySnapshot {
+  tasks: CoachTaskSnapshot[];
   goals: CoachGoalSnapshot[];
   habits: CoachHabitSnapshot[];
   milestones: CoachMilestoneSnapshot[];
 }
 
 const EMPTY_ENTITY_SNAPSHOT: EntitySnapshot = {
+  tasks: [],
   goals: [],
   habits: [],
   milestones: [],
 };
 
+const PRIORITY_WEIGHT: Record<string, number> = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
+
 async function loadEntitySnapshot(
   userId: string,
-  entity: 'task' | 'habit' | 'goal' | 'project' | null,
+  domains: CoachSnapshotDomain[],
 ): Promise<EntitySnapshot> {
   const today = utcToday();
   const todayStr = toDateStr(today);
   const weekStart = new Date(today);
   weekStart.setUTCDate(weekStart.getUTCDate() - 6);
 
-  // Only load the data relevant to the targeted entity type
-  const needsGoals = entity === 'goal' || entity === null;
-  const needsHabits = entity === 'habit' || entity === null;
-  const needsMilestones = entity === 'goal' || entity === null;
+  // Only load the data relevant to the requested domains — never the whole DB.
+  const needsTasks = domains.includes('tasks');
+  const needsGoals = domains.includes('goals');
+  const needsHabits = domains.includes('habits');
+  const needsMilestones = domains.includes('milestones');
 
-  const [rawGoals, rawHabits, rawMilestones] = await Promise.all([
+  const [rawTasks, rawGoals, rawHabits, rawMilestones] = await Promise.all([
+    needsTasks
+      ? db.task
+          .findMany({
+            where: { userId, status: { in: ['TODO', 'IN_PROGRESS'] } },
+            orderBy: [{ updatedAt: 'desc' }],
+            take: 12,
+            select: {
+              title: true,
+              priority: true,
+              status: true,
+              dueDate: true,
+              _count: { select: { subTasks: true } },
+            },
+          })
+          .catch(() => [])
+      : Promise.resolve([]),
+
     needsGoals
       ? db.goal
           .findMany({
@@ -329,7 +359,39 @@ async function loadEntitySnapshot(
     status: m.status,
   }));
 
-  return { goals: goalSnapshots, habits: habitSnapshots, milestones: milestoneSnapshots };
+  // Open tasks — sorted so the most urgent items surface first (overdue and
+  // higher priority win), then keep only the top few for the prompt.
+  const taskSnapshots: CoachTaskSnapshot[] = rawTasks
+    .map((task: any) => {
+      const due = task.dueDate ? new Date(task.dueDate) : null;
+      return {
+        title: task.title,
+        priority: task.priority as CoachTaskSnapshot['priority'],
+        status: task.status as CoachTaskSnapshot['status'],
+        dueDate: due ? due.toISOString() : null,
+        overdue: Boolean(
+          due &&
+            due.getTime() < today.getTime() &&
+            task.status !== 'DONE' &&
+            task.status !== 'CANCELLED',
+        ),
+        subtasksOpen: task._count?.subTasks ?? 0,
+      };
+    })
+    .sort((a: CoachTaskSnapshot, b: CoachTaskSnapshot) => {
+      const pa = PRIORITY_WEIGHT[a.priority] ?? 9;
+      const pb = PRIORITY_WEIGHT[b.priority] ?? 9;
+      if (pa !== pb) return pa - pb;
+      return a.overdue === b.overdue ? 0 : a.overdue ? -1 : 1;
+    })
+    .slice(0, 6);
+
+  return {
+    tasks: taskSnapshots,
+    goals: goalSnapshots,
+    habits: habitSnapshots,
+    milestones: milestoneSnapshots,
+  };
 }
 
 // ─── Chat title / memory helpers ──────────────────────────────────────────────
@@ -490,18 +552,15 @@ export async function buildCoachPromptData(
   const needsLive = !isChatMode || intentNeedsLiveData(intent);
   const liveStats = needsLive ? await loadLiveStats(userId) : EMPTY_LIVE_STATS;
 
-  // ── Entity snapshot — only when intent targets a specific entity or summary mode ──
-  const targetEntity = intentTargetEntity(intent);
-  const needsEntitySnapshot =
-    !isChatMode ||
-    targetEntity !== null ||
-    intent === CoachIntent.PROGRESS_REVIEW ||
-    intent === CoachIntent.HABIT_STATUS ||
-    intent === CoachIntent.TASK_STATUS;
+  // ── Entity snapshot — only the domains the current intent actually needs ──
+  // Chat mode sends ONLY what the user asked about (e.g. tasks for
+  // TASK_STATUS). Summary mode (PROGRESS_REVIEW) loads everything.
+  const snapshotDomains = isChatMode ? intentSnapshotDomains(intent) : ALL_SNAPSHOT_DOMAINS;
 
-  const entitySnapshot = needsEntitySnapshot
-    ? await loadEntitySnapshot(userId, targetEntity)
-    : EMPTY_ENTITY_SNAPSHOT;
+  const entitySnapshot =
+    snapshotDomains.length > 0
+      ? await loadEntitySnapshot(userId, snapshotDomains)
+      : EMPTY_ENTITY_SNAPSHOT;
 
   return {
     mode,
@@ -518,14 +577,15 @@ export async function buildCoachPromptData(
     tasksOverdue: liveStats.tasksOverdue,
     focusMinutesToday: liveStats.focusMinutesToday,
 
-    // Persistent
-    timeOfDay: persistent.timeOfDay,
-    recentActivity: persistent.recentActivity,
-
     // Entity snapshots
+    tasks: entitySnapshot.tasks,
     goals: entitySnapshot.goals,
     habits: entitySnapshot.habits,
     milestones: entitySnapshot.milestones,
+
+    // Persistent
+    timeOfDay: persistent.timeOfDay,
+    recentActivity: persistent.recentActivity,
 
     // Session / conversation
     session: {

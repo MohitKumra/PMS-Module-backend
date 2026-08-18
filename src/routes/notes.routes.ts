@@ -41,6 +41,7 @@ const createSchema = z.object({
   archived: z.boolean().optional(),
   bookmarkPage: z.number().nullable().optional(), // Legacy single bookmark
   bookmarks: z.array(bookmarkSchema).max(5).optional(), // Multi-bookmark system (max 5)
+  contentVersion: z.number().int().min(1).optional(),
 });
 const idParams = z.object({ id: z.string() });
 

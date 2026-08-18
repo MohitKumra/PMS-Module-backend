@@ -202,10 +202,19 @@ export async function postCoachChat(req: Request, res: Response) {
       return;
     }
 
-    // Classify intent from the last user message
-    const lastUser = [...conversation].reverse().find((t) => t.role === 'user');
-    const prevUser = [...conversation].reverse().filter((t) => t.role === 'user').slice(1, 2)[0];
+    // Classify intent from the last two user turns so follow-up questions
+    // (e.g. "yes that's what I'm asking") inherit the previous turn's domain.
+    const userTurns = [...conversation].reverse().filter((t) => t.role === 'user');
+    const lastUser = userTurns[0];
+    const prevUser = userTurns[1];
     const intent = classifyIntent(lastUser?.content ?? '', prevUser?.content);
+
+    // Build a lightweight session summary from the conversation tail so the
+    // AI has continuity even in stateless mode (no persisted chat thread).
+    const summaryParts = conversation
+      .slice(-4)
+      .map((t) => `${t.role === 'user' ? 'U' : 'A'}: ${t.content.slice(0, 80)}`)
+      .join(' | ');
 
     const result = await generateAICoach(
       userId,
@@ -213,8 +222,8 @@ export async function postCoachChat(req: Request, res: Response) {
         mode: 'chat',
         intent,
         session: {
-          title: 'Coach',
-          summary: '',
+          title: lastUser?.content ? lastUser.content.slice(0, 48) : 'Coach',
+          summary: summaryParts,
           messageCount: conversation.length,
         },
         conversation,

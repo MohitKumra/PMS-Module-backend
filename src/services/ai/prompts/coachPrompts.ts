@@ -2,6 +2,7 @@
 // Prompt templates for the AI Coach feature.
 
 import type { CoachIntent } from '../coachIntent';
+import { intentSnapshotDomains, ALL_SNAPSHOT_DOMAINS } from '../coachIntent';
 import { generateEntityCreationPrompt } from '../entitySchemas';
 
 export type AICoachActionType =
@@ -50,6 +51,15 @@ export interface CoachMilestoneSnapshot {
   status: 'PENDING' | 'COMPLETED' | 'SKIPPED';
 }
 
+export interface CoachTaskSnapshot {
+  title: string;
+  dueDate: string | null;
+  priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  status: 'TODO' | 'IN_PROGRESS' | 'DONE' | 'CANCELLED';
+  overdue: boolean;
+  subtasksOpen: number;
+}
+
 // ─── Wander budget ────────────────────────────────────────────────────────────
 // How many consecutive off-topic user turns trigger a hard redirect.
 export const OFF_TOPIC_WANDER_LIMIT = 2;
@@ -71,6 +81,7 @@ export interface CoachPromptData {
   recentActivity: string;
 
   // ── Entity snapshots — only loaded when intent targets them ───────────────
+  tasks: CoachTaskSnapshot[];
   goals: CoachGoalSnapshot[];
   habits: CoachHabitSnapshot[];
   milestones: CoachMilestoneSnapshot[];
@@ -139,6 +150,8 @@ ${ENTITY_CREATION_SECTION}
 
 DATA RULES:
   • Use only the JSON payload provided. Do not invent data.
+  • When a domain snapshot is present in the payload (even as an empty array), it means the database WAS queried for that user. An empty array means zero items exist — say so clearly (e.g. "You have no pending tasks" or "All caught up — no open tasks right now").
+  • NEVER say "I can't see your tasks/habits/goals" or "I don't have your list" when the corresponding array key IS present in the payload (even if empty). That phrase is only valid when the key is completely absent from the payload.
   • In chat mode, rely on the recent conversation for continuity; avoid replaying stats every turn.
   • If the user says hello or is very vague, respond naturally and ask one follow-up question.
 
@@ -225,9 +238,33 @@ export function buildCoachUserPrompt(data: CoachPromptData): string {
     payload.offTopicStreak = data.consecutiveOffTopicTurns;
   }
 
-  // Entity snapshots — only attached when the loader actually fetched them
-  // (i.e. goals/habits/milestones arrays are non-empty or mode is summary)
-  if (!isChatMode && data.goals.length > 0) {
+  // Entity snapshots — only attached when the current intent targets them.
+  // In chat mode this sends ONLY the domain the user asked about (e.g. just
+  // tasks for TASK_STATUS), keeping every per-message payload small. Summary
+  // mode (intent = PROGRESS_REVIEW) includes all non-empty snapshots.
+  //
+  // IMPORTANT: We always include the key for every loaded domain, even when
+  // the array is empty. This tells the AI "we checked the DB and found nothing"
+  // rather than leaving the key absent (which the AI interprets as "no data
+  // available"). An absent key means the domain was not loaded for this turn.
+  const domains = isChatMode
+    ? intentSnapshotDomains(data.intent ?? 'coaching')
+    : ALL_SNAPSHOT_DOMAINS;
+
+  if (domains.includes('tasks')) {
+    payload.tasks = data.tasks.slice(0, 6).map((task) => ({
+      title: cleanSnippet(task.title, 60),
+      dueDate: task.dueDate,
+      priority: task.priority,
+      status: task.status,
+      overdue: task.overdue,
+      subtasksOpen: task.subtasksOpen,
+    }));
+    // Add a count hint so the AI can give a precise number even when we cap the list
+    payload.tasksTotal = data.tasks.length;
+  }
+
+  if (domains.includes('goals')) {
     payload.goals = data.goals.slice(0, 3).map((goal) => ({
       title: cleanSnippet(goal.title, 60),
       progress: goal.progress,
@@ -237,7 +274,7 @@ export function buildCoachUserPrompt(data: CoachPromptData): string {
     }));
   }
 
-  if (!isChatMode && data.habits.length > 0) {
+  if (domains.includes('habits')) {
     payload.habits = data.habits.slice(0, 4).map((habit) => ({
       title: cleanSnippet(habit.title, 60),
       streak: habit.currentStreak,
@@ -246,7 +283,7 @@ export function buildCoachUserPrompt(data: CoachPromptData): string {
     }));
   }
 
-  if (!isChatMode && data.milestones.length > 0) {
+  if (domains.includes('milestones')) {
     payload.milestones = data.milestones.slice(0, 3).map((milestone) => ({
       goal: cleanSnippet(milestone.goalTitle, 60),
       title: cleanSnippet(milestone.title, 60),

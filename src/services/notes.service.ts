@@ -32,6 +32,7 @@ export function toNoteDTO(n: any): NoteDTO {
     archived: n.archived ?? false,
     bookmarkPage: n.bookmarkPage ?? null,
     bookmarks: Array.isArray(n.bookmarks) ? n.bookmarks : [],
+    contentVersion: typeof n.contentVersion === 'number' ? n.contentVersion : 1,
     createdAt: n.createdAt instanceof Date ? n.createdAt.toISOString() : n.createdAt,
     updatedAt: n.updatedAt instanceof Date ? n.updatedAt.toISOString() : n.updatedAt,
   };
@@ -184,14 +185,26 @@ export async function updateNote(userId: string, noteId: string, data: UpdateNot
     const project = await prisma.project.findFirst({ where: { id: data.projectId, userId } });
     if (!project) throw createError(404, 'PROJECT_NOT_FOUND', 'Project not found');
   }
+
+  const currentVersion = typeof existing.contentVersion === 'number' ? existing.contentVersion : 1;
+  // Optimistic concurrency: a stale save must not replace a newer complete document.
+  if (data.content !== undefined && data.contentVersion !== undefined && data.contentVersion !== currentVersion) {
+    throw createError(
+      409,
+      'STALE_CONTENT',
+      'A newer version of this journal has already been saved. Your local document was not overwritten.'
+    );
+  }
+
   const previousAttachmentUrl = existing.attachmentUrl;
   const previousVoiceNoteUrl = existing.voiceNoteUrl;
+  const nextVersion = data.content !== undefined ? currentVersion + 1 : currentVersion;
 
   const note = await prisma.note.update({
     where: { id: noteId },
     data: {
       ...(data.title !== undefined && { title: data.title ?? null }),
-      ...(data.content !== undefined && { content: data.content }),
+      ...(data.content !== undefined && { content: data.content, contentVersion: nextVersion }),
       ...(data.isJournal !== undefined && { isJournal: data.isJournal }),
       ...(data.taskId !== undefined && { taskId: data.taskId ?? null }),
       ...(data.projectId !== undefined && { projectId: data.projectId ?? null }),

@@ -150,6 +150,15 @@ export interface CoachMilestoneSnapshot {
   status: 'PENDING' | 'COMPLETED' | 'SKIPPED';
 }
 
+export interface CoachTaskSnapshot {
+  title: string;
+  dueDate: string | null;
+  priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  status: 'TODO' | 'IN_PROGRESS' | 'DONE' | 'CANCELLED';
+  overdue: boolean;
+  subtasksOpen: number;
+}
+
 export interface AISettingsDTO {
   ai: AIPreferenceDTO;
 }
@@ -645,6 +654,7 @@ export interface NoteDTO {
   archived: boolean;
   bookmarkPage?: number | null; // Legacy single bookmark support
   bookmarks?: Bookmark[]; // Multi-bookmark system
+  contentVersion: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -676,6 +686,7 @@ export interface UpdateNoteRequest {
   archived?: boolean;
   bookmarkPage?: number | null;
   bookmarks?: Bookmark[];
+  contentVersion?: number;
 }
 
 export interface NoteListFilters {

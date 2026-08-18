@@ -134,6 +134,7 @@ function buildCoachSignalText(data: CoachPromptData): string {
     .slice(0, 3)
     .map((turn) => turn.content);
 
+  const taskSignals = data.tasks.flatMap((task) => [task.title].filter(Boolean) as string[]);
   const goalSignals = data.goals.flatMap((goal) => [goal.title, goal.nextMilestoneTitle].filter(Boolean) as string[]);
   const habitSignals = data.habits.flatMap((habit) => [habit.title, habit.goalTitle].filter(Boolean) as string[]);
   const milestoneSignals = data.milestones.flatMap((milestone) => [milestone.goalTitle, milestone.title].filter(Boolean) as string[]);
@@ -143,6 +144,7 @@ function buildCoachSignalText(data: CoachPromptData): string {
     mode === 'chat' ? '' : data.session.summary,
     data.recentActivity,
     ...userMessages,
+    ...taskSignals,
     ...goalSignals,
     ...habitSignals,
     ...milestoneSignals,

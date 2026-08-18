@@ -87,6 +87,14 @@ export const INTENT_KEYWORDS: Record<CoachIntent, string[]> = {
     'help me set a goal',
     'create goal',
     'add goal',
+    'how many goals',
+    'my goals',
+    'list my goals',
+    'show my goals',
+    'what goals',
+    'which goals',
+    'goals do i',
+    'goals have i',
   ],
   [CoachIntent.PROJECT_CREATE]: [
     'create a project',
@@ -98,6 +106,13 @@ export const INTENT_KEYWORDS: Record<CoachIntent, string[]> = {
     'add project',
     'make a project',
     'project for',
+    'how many projects',
+    'my projects',
+    'list my projects',
+    'show my projects',
+    'what projects',
+    'which projects',
+    'projects do i',
   ],
   [CoachIntent.PLAN]: [
     'build a plan',
@@ -119,9 +134,14 @@ export const INTENT_KEYWORDS: Record<CoachIntent, string[]> = {
     'my tasks',
     'overdue tasks',
     'tasks due',
+    'tasks are due',
     'pending tasks',
+    'are pending',
+    'is pending',
+    'tasks pending',
     'task list',
     'what tasks',
+    'what are my',
     'tasks today',
     'tasks this week',
     'how many tasks',
@@ -130,6 +150,28 @@ export const INTENT_KEYWORDS: Record<CoachIntent, string[]> = {
     'task backlog',
     'outstanding tasks',
     'tasks left',
+    'tasks are overdue',
+    'are overdue',
+    'open tasks',
+    'count my tasks',
+    'count tasks',
+    'do i have any tasks',
+    'do i have tasks',
+    'list my tasks',
+    'list tasks',
+    'any pending',
+    'any overdue',
+    'which tasks',
+    'incomplete tasks',
+    'unfinished tasks',
+    'tasks remaining',
+    'remaining tasks',
+    'not done',
+    'still open',
+    'what do i have',
+    'what have i got',
+    'tasks should i',
+    'tasks do i',
   ],
   [CoachIntent.HABIT_STATUS]: [
     'my habits',
@@ -144,6 +186,20 @@ export const INTENT_KEYWORDS: Record<CoachIntent, string[]> = {
     'show my habits',
     'review my habits',
     'missed habits',
+    'list my habits',
+    'list habits',
+    'habits do i',
+    'habits have i',
+    'which habits',
+    'habit check',
+    'habit status',
+    'any habits',
+    'habits pending',
+    'habits left',
+    'habits remaining',
+    'habits completed',
+    'did i do my habits',
+    'have i done my',
   ],
   [CoachIntent.PROGRESS_REVIEW]: [
     'how am i doing',
@@ -162,6 +218,16 @@ export const INTENT_KEYWORDS: Record<CoachIntent, string[]> = {
     'summary',
     'week summary',
     'show my progress',
+    'give me a summary',
+    'give me an overview',
+    'overview of my',
+    'how have i been',
+    'update on my',
+    'catch me up',
+    'where am i',
+    'where do i stand',
+    'status update',
+    'full report',
   ],
   [CoachIntent.CHITCHAT]: [
     'hello',
@@ -238,20 +304,55 @@ function hasKeyword(normalized: string, keywords: string[]): boolean {
 }
 
 /**
- * Classify the user's intent from up to the last 2 user turns.
- * Falls back to COACHING when no keyword matches.
+ * Classify the intent of the current user message.
  *
- * @param latestUserMessage  The current user message (required).
+ * Strategy (current-message-first):
+ *  1. Run the classifier on the CURRENT message alone. If it yields a
+ *     non-COACHING, non-CHITCHAT intent that is concrete enough → use it.
+ *  2. Only fall back to blending with the previous message when the current
+ *     message is genuinely ambiguous: it matched nothing, OR it matched only
+ *     CHITCHAT (pure follow-up like "yes that's what I'm asking").
+ *
+ * This prevents a previous turn's domain keywords from hijacking a fresh,
+ * clearly different question (e.g. "how many habits do i have" after a task
+ * thread should not inherit TASK_STATUS from the prior turn).
+ *
+ * @param latestUserMessage   The current user message (required).
  * @param previousUserMessage Optional previous user message for continuity.
  */
 export function classifyIntent(
   latestUserMessage: string,
   previousUserMessage?: string,
 ): CoachIntent {
-  const combined = normalize(
-    [latestUserMessage, previousUserMessage ?? ''].filter(Boolean).join(' '),
-  );
+  const currentNorm = normalize(latestUserMessage);
 
+  // ── Step 1: classify current message alone ────────────────────────────────
+  let currentIntent: CoachIntent = CoachIntent.COACHING;
+  for (const intent of PRIORITY_ORDER) {
+    const keywords = INTENT_KEYWORDS[intent];
+    if (keywords.length > 0 && hasKeyword(currentNorm, keywords)) {
+      currentIntent = intent;
+      break;
+    }
+  }
+
+  // If the current message resolved to a concrete, domain-specific intent
+  // (anything other than COACHING or CHITCHAT), trust it directly.
+  // This stops a previous turn from polluting a fresh, unambiguous question.
+  if (
+    currentIntent !== CoachIntent.COACHING &&
+    currentIntent !== CoachIntent.CHITCHAT
+  ) {
+    return currentIntent;
+  }
+
+  // ── Step 2: ambiguous current message — blend with previous turn ──────────
+  // The current message hit nothing useful (or is pure chitchat/follow-up).
+  // Blending lets short follow-ups like "yes that's what I'm asking" inherit
+  // context from the previous question.
+  if (!previousUserMessage) return currentIntent;
+
+  const combined = normalize(`${latestUserMessage} ${previousUserMessage}`);
   for (const intent of PRIORITY_ORDER) {
     const keywords = INTENT_KEYWORDS[intent];
     if (keywords.length > 0 && hasKeyword(combined, keywords)) {
@@ -273,6 +374,41 @@ export function intentNeedsLiveData(intent: CoachIntent): boolean {
     intent === CoachIntent.TASK_STATUS ||
     intent === CoachIntent.HABIT_STATUS
   );
+}
+
+/**
+ * The granular data domains that can be loaded as an entity "snapshot".
+ * Each one maps to a focused DB query so the coach never reads the whole
+ * user's database — only what the current intent actually needs.
+ */
+export type CoachSnapshotDomain = 'tasks' | 'habits' | 'goals' | 'milestones';
+
+/** All snapshot domains — used for summary mode / broad progress reviews. */
+export const ALL_SNAPSHOT_DOMAINS: CoachSnapshotDomain[] = ['tasks', 'habits', 'goals', 'milestones'];
+
+/**
+ * Map an intent to the exact set of snapshot domains it needs.
+ * CHITCHAT / COACHING return an empty list → the coach sends no entity
+ * snapshots at all, saving the most tokens.
+ */
+export function intentSnapshotDomains(intent: CoachIntent): CoachSnapshotDomain[] {
+  switch (intent) {
+    case CoachIntent.TASK_CREATE:
+    case CoachIntent.TASK_STATUS:
+      return ['tasks'];
+    case CoachIntent.HABIT_CREATE:
+    case CoachIntent.HABIT_STATUS:
+      return ['habits'];
+    case CoachIntent.GOAL_CREATE:
+    case CoachIntent.PLAN:
+      return ['goals', 'milestones'];
+    case CoachIntent.PROJECT_CREATE:
+      return [];
+    case CoachIntent.PROGRESS_REVIEW:
+      return ALL_SNAPSHOT_DOMAINS;
+    default:
+      return [];
+  }
 }
 
 /**
