@@ -50,19 +50,44 @@ const createSchema = z.object({
     .transform((v) => (v === '' ? null : v)),
   coverStyle: z
     .object({
+      templateId:        z.string().max(100).optional(),
       titleFont:         z.string().max(200).optional(),
       titleSize:         z.number().min(14).max(72).optional(),
       titleColor:        z.string().max(50).optional(),
       titleWeight:       z.number().min(100).max(900).optional(),
       titleAlign:        z.enum(['left', 'center', 'right']).optional(),
       titleShadow:       z.boolean().optional(),
+      titleItalic:       z.boolean().optional(),
+      titlePosition:     z.enum(['top', 'center', 'bottom']).optional(),
+      titleTransform:    z.enum(['none', 'uppercase', 'capitalize']).optional(),
       subtitleColor:     z.string().max(50).optional(),
       subtitleSize:      z.number().min(9).max(24).optional(),
+      subtitleFont:      z.string().max(200).optional(),
+      subtitleWeight:    z.number().min(100).max(900).optional(),
+      subtitleAlign:     z.enum(['left', 'center', 'right']).optional(),
       authorColor:       z.string().max(50).optional(),
+      authorFont:        z.string().max(200).optional(),
+      authorSize:        z.number().min(8).max(32).optional(),
+      authorWeight:      z.number().min(100).max(900).optional(),
+      authorAlign:       z.enum(['left', 'center', 'right']).optional(),
+      authorText:        z.string().max(120).optional(),
       showBorder:        z.boolean().optional(),
       borderColor:       z.string().max(50).optional(),
+      borderWidth:       z.number().min(0).max(10).optional(),
+      borderStyle:       z.enum(['solid', 'double', 'dashed', 'dotted', 'none']).optional(),
+      dividerColor:      z.string().max(50).optional(),
+      showEmblem:        z.boolean().optional(),
+      coverBackground:   z.string().max(500).optional(),
       overlayOpacity:    z.number().min(0).max(1).optional(),
       titleLetterSpacing:z.number().min(-0.1).max(0.5).optional(),
+    })
+    .nullable()
+    .optional(),
+  bookStyle: z
+    .object({
+      theme:    z.string().max(50).optional(),
+      font:     z.string().max(50).optional(),
+      fontSize: z.string().max(10).optional(),
     })
     .nullable()
     .optional(),

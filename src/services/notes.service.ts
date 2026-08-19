@@ -35,6 +35,7 @@ export function toNoteDTO(n: any): NoteDTO {
     contentVersion: typeof n.contentVersion === 'number' ? n.contentVersion : 1,
     coverUrl: n.coverUrl ?? null,
     coverStyle: n.coverStyle && typeof n.coverStyle === 'object' ? n.coverStyle : null,
+    bookStyle: n.bookStyle && typeof n.bookStyle === 'object' ? n.bookStyle : null,
     createdAt: n.createdAt instanceof Date ? n.createdAt.toISOString() : n.createdAt,
     updatedAt: n.updatedAt instanceof Date ? n.updatedAt.toISOString() : n.updatedAt,
   };
@@ -173,7 +174,8 @@ export async function createNote(userId: string, data: CreateNoteRequest): Promi
       bookmarkPage: data.bookmarkPage ?? null,
       coverUrl: normalizeMediaUrl(data.coverUrl),
       ...(data.coverStyle !== undefined && { coverStyle: data.coverStyle ?? null }),
-    },
+      ...(data.bookStyle !== undefined && { bookStyle: data.bookStyle ?? null }),
+    } as unknown as Prisma.NoteUncheckedCreateInput,
   });
   return toNoteDTO(note);
 }
@@ -223,7 +225,8 @@ export async function updateNote(userId: string, noteId: string, data: UpdateNot
       ...(data.bookmarks !== undefined && { bookmarks: data.bookmarks as any }),
       ...(data.coverUrl !== undefined && { coverUrl: normalizeMediaUrl(data.coverUrl) }),
       ...(data.coverStyle !== undefined && { coverStyle: data.coverStyle ?? null }),
-    },
+      ...(data.bookStyle !== undefined && { bookStyle: data.bookStyle ?? null }),
+    } as unknown as Prisma.NoteUncheckedUpdateInput,
   });
   if (data.attachmentUrl !== undefined && data.attachmentUrl !== previousAttachmentUrl) {
     await deleteStoredFile(previousAttachmentUrl);

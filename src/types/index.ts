@@ -647,6 +647,8 @@ export interface Bookmark {
  * All fields are optional — defaults are applied in the UI when absent.
  */
 export interface CoverStyle {
+  /** Selected cover template id (e.g. 'dark-leather'). Empty/null = no template. */
+  templateId?: string;
   /** CSS font-family string for the title */
   titleFont?: string;
   /** Title font size in px (range: 14–72) */
@@ -659,20 +661,65 @@ export interface CoverStyle {
   titleAlign?: 'left' | 'center' | 'right';
   /** Enable/disable title text shadow */
   titleShadow?: boolean;
+  /** Italicize the title */
+  titleItalic?: boolean;
+  /** Vertical placement of the cover text block */
+  titlePosition?: 'top' | 'center' | 'bottom';
+  /** Title text-transform: 'none' | 'uppercase' | 'capitalize' */
+  titleTransform?: 'none' | 'uppercase' | 'capitalize';
   /** Subtitle (date line) color */
   subtitleColor?: string;
   /** Subtitle font size in px (range: 9–24) */
   subtitleSize?: number;
+  /** Subtitle font family */
+  subtitleFont?: string;
+  /** Subtitle font weight */
+  subtitleWeight?: number;
+  /** Subtitle text-align */
+  subtitleAlign?: 'left' | 'center' | 'right';
   /** Author line color */
   authorColor?: string;
+  /** Author font family */
+  authorFont?: string;
+  /** Author font size in px */
+  authorSize?: number;
+  /** Author font weight */
+  authorWeight?: number;
+  /** Author text-align */
+  authorAlign?: 'left' | 'center' | 'right';
+  /** Custom text for the author/edition line (defaults to built-in phrase) */
+  authorText?: string;
   /** Gold border visible: true/false */
   showBorder?: boolean;
   /** Border color */
   borderColor?: string;
+  /** Border thickness in px (range: 1–6) */
+  borderWidth?: number;
+  /** Border style: 'solid' | 'double' | 'dashed' | 'dotted' | 'none' */
+  borderStyle?: 'solid' | 'double' | 'dashed' | 'dotted' | 'none';
+  /** Color of the divider rule under the title */
+  dividerColor?: string;
+  /** Show the sparkles emblem (only when no photo/template) */
+  showEmblem?: boolean;
+  /** Custom CSS background for the cover (used when no photo/template). Empty = default leather. */
+  coverBackground?: string;
   /** Cover overlay darkness 0–1 (applied over custom photo / template) */
   overlayOpacity?: number;
   /** Letter spacing for title in em units (-0.05 – 0.3) */
   titleLetterSpacing?: number;
+}
+
+/**
+ * Reader-side appearance preferences stored per note.
+ * Controls the look of the inside pages (not the cover).
+ */
+export interface BookStyle {
+  /** Page colour theme: 'parchment' | 'sepia' | 'midnight' | 'paper' | 'emerald' */
+  theme?: string;
+  /** Font family preset id: 'serif' | 'book' | 'sans' | 'script' */
+  font?: string;
+  /** Font size preset id: 'sm' | 'md' | 'lg' | 'xl' */
+  fontSize?: string;
 }
 
 export interface NoteDTO {
@@ -696,6 +743,8 @@ export interface NoteDTO {
   coverUrl: string | null;
   /** Cover typography / style customization */
   coverStyle: CoverStyle | null;
+  /** Reader-side page appearance preferences (theme, font, fontSize) */
+  bookStyle: BookStyle | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -713,6 +762,7 @@ export interface CreateNoteRequest {
   bookmarkPage?: number | null;
   coverUrl?: string | null;
   coverStyle?: CoverStyle | null;
+  bookStyle?: BookStyle | null;
 }
 
 export interface UpdateNoteRequest {
@@ -732,6 +782,8 @@ export interface UpdateNoteRequest {
   contentVersion?: number;
   coverUrl?: string | null;
   coverStyle?: CoverStyle | null;
+  /** Reader-side page appearance preferences (theme, font, fontSize) */
+  bookStyle?: BookStyle | null;
 }
 
 export interface NoteListFilters {
