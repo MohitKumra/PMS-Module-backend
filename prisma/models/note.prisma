@@ -1,26 +1,28 @@
 model Note {
-  id            String   @id @default(cuid())
-  userId        String
-  title         String?
-  content       String
-  isJournal     Boolean  @default(false)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  taskId        String?
-  projectId     String?
-  attachmentUrl String?
-  voiceNoteUrl  String?
-  isPinned      Boolean  @default(false)
-  mood          String?
+  id             String   @id @default(cuid())
+  userId         String
+  title          String?
+  content        String
+  isJournal      Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  taskId         String?
+  projectId      String?
+  attachmentUrl  String?
+  coverUrl       String?
+  voiceNoteUrl   String?
+  isPinned       Boolean  @default(false)
+  mood           String?
   tags           Json     @default("[]")
   archived       Boolean  @default(false)
   notionPageId   String?  @unique
   bookmarkPage   Int?
   bookmarks      Json?    @default("[]")
   contentVersion Int      @default(1)
-  project       Project? @relation(fields: [projectId], references: [id])
-  task          Task?    @relation(fields: [taskId], references: [id])
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  coverStyle     Json?    // CoverStyle: title font/size/color/weight/align, subtitle, overlay opacity
+  project        Project? @relation(fields: [projectId], references: [id])
+  task           Task?    @relation(fields: [taskId], references: [id])
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([taskId])
   @@index([projectId])

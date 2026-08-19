@@ -8,7 +8,7 @@ model FocusSession {
   projectId   String?
   elapsedMin  Int       @default(0)
   status      String    @default("IN_PROGRESS")
-  completedAt DateTime?
+  completedAt DateTime? @db.Timestamptz
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, status])

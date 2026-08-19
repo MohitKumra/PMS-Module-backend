@@ -33,6 +33,8 @@ export function toNoteDTO(n: any): NoteDTO {
     bookmarkPage: n.bookmarkPage ?? null,
     bookmarks: Array.isArray(n.bookmarks) ? n.bookmarks : [],
     contentVersion: typeof n.contentVersion === 'number' ? n.contentVersion : 1,
+    coverUrl: n.coverUrl ?? null,
+    coverStyle: n.coverStyle && typeof n.coverStyle === 'object' ? n.coverStyle : null,
     createdAt: n.createdAt instanceof Date ? n.createdAt.toISOString() : n.createdAt,
     updatedAt: n.updatedAt instanceof Date ? n.updatedAt.toISOString() : n.updatedAt,
   };
@@ -169,6 +171,8 @@ export async function createNote(userId: string, data: CreateNoteRequest): Promi
       // (P2007 "malformed array literal: []").
       ...(Array.isArray(data.tags) && data.tags.length > 0 ? { tags: data.tags } : {}),
       bookmarkPage: data.bookmarkPage ?? null,
+      coverUrl: normalizeMediaUrl(data.coverUrl),
+      ...(data.coverStyle !== undefined && { coverStyle: data.coverStyle ?? null }),
     },
   });
   return toNoteDTO(note);
@@ -198,6 +202,7 @@ export async function updateNote(userId: string, noteId: string, data: UpdateNot
 
   const previousAttachmentUrl = existing.attachmentUrl;
   const previousVoiceNoteUrl = existing.voiceNoteUrl;
+  const previousCoverUrl = existing.coverUrl;
   const nextVersion = data.content !== undefined ? currentVersion + 1 : currentVersion;
 
   const note = await prisma.note.update({
@@ -216,6 +221,8 @@ export async function updateNote(userId: string, noteId: string, data: UpdateNot
       ...(data.archived !== undefined && { archived: data.archived }),
       ...(data.bookmarkPage !== undefined && { bookmarkPage: data.bookmarkPage }),
       ...(data.bookmarks !== undefined && { bookmarks: data.bookmarks as any }),
+      ...(data.coverUrl !== undefined && { coverUrl: normalizeMediaUrl(data.coverUrl) }),
+      ...(data.coverStyle !== undefined && { coverStyle: data.coverStyle ?? null }),
     },
   });
   if (data.attachmentUrl !== undefined && data.attachmentUrl !== previousAttachmentUrl) {
@@ -223,6 +230,15 @@ export async function updateNote(userId: string, noteId: string, data: UpdateNot
   }
   if (data.voiceNoteUrl !== undefined && data.voiceNoteUrl !== previousVoiceNoteUrl) {
     await deleteStoredFile(previousVoiceNoteUrl);
+  }
+  // Delete old cover only when replaced with a different file (not just cleared to null
+  // if the old one was already null, and not when the same URL is re-saved).
+  if (
+    data.coverUrl !== undefined &&
+    data.coverUrl !== previousCoverUrl &&
+    previousCoverUrl
+  ) {
+    await deleteStoredFile(previousCoverUrl);
   }
   return toNoteDTO(note);
 }
@@ -232,5 +248,6 @@ export async function deleteNote(userId: string, noteId: string): Promise<void> 
   if (!existing) throw createError(404, 'NOTE_NOT_FOUND', 'Note not found');
   await deleteStoredFile(existing.attachmentUrl);
   await deleteStoredFile(existing.voiceNoteUrl);
+  await deleteStoredFile(existing.coverUrl);
   await prisma.note.delete({ where: { id: noteId } });
 }

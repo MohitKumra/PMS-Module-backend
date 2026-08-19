@@ -642,6 +642,39 @@ export interface Bookmark {
   createdAt: string;
 }
 
+/**
+ * Typography + layout customization for the book cover.
+ * All fields are optional — defaults are applied in the UI when absent.
+ */
+export interface CoverStyle {
+  /** CSS font-family string for the title */
+  titleFont?: string;
+  /** Title font size in px (range: 14–72) */
+  titleSize?: number;
+  /** Title color as a CSS hex/rgba string */
+  titleColor?: string;
+  /** CSS font-weight: 400 | 500 | 600 | 700 | 800 | 900 */
+  titleWeight?: number;
+  /** CSS text-align: 'left' | 'center' | 'right' */
+  titleAlign?: 'left' | 'center' | 'right';
+  /** Enable/disable title text shadow */
+  titleShadow?: boolean;
+  /** Subtitle (date line) color */
+  subtitleColor?: string;
+  /** Subtitle font size in px (range: 9–24) */
+  subtitleSize?: number;
+  /** Author line color */
+  authorColor?: string;
+  /** Gold border visible: true/false */
+  showBorder?: boolean;
+  /** Border color */
+  borderColor?: string;
+  /** Cover overlay darkness 0–1 (applied over custom photo / template) */
+  overlayOpacity?: number;
+  /** Letter spacing for title in em units (-0.05 – 0.3) */
+  titleLetterSpacing?: number;
+}
+
 export interface NoteDTO {
   id: string;
   userId: string;
@@ -659,6 +692,10 @@ export interface NoteDTO {
   bookmarkPage?: number | null; // Legacy single bookmark support
   bookmarks?: Bookmark[]; // Multi-bookmark system
   contentVersion: number;
+  /** Optimized WebP/JPEG book cover photo URL */
+  coverUrl: string | null;
+  /** Cover typography / style customization */
+  coverStyle: CoverStyle | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -674,6 +711,8 @@ export interface CreateNoteRequest {
   mood?: NoteMood;
   tags?: string[];
   bookmarkPage?: number | null;
+  coverUrl?: string | null;
+  coverStyle?: CoverStyle | null;
 }
 
 export interface UpdateNoteRequest {
@@ -691,6 +730,8 @@ export interface UpdateNoteRequest {
   bookmarkPage?: number | null;
   bookmarks?: Bookmark[];
   contentVersion?: number;
+  coverUrl?: string | null;
+  coverStyle?: CoverStyle | null;
 }
 
 export interface NoteListFilters {

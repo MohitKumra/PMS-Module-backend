@@ -11,7 +11,7 @@ import path from 'path';
 import { prisma } from './prismaClient';
 import { createError } from '../middleware/errorHandler';
 
-const MAX_UPLOAD_BYTES = 8 * 1024 * 1024; // 8 MB
+const MAX_UPLOAD_BYTES = 10 * 1024 * 1024; // 10 MB (covers the advertised cover upload limit)
 const BACKEND_URL = (process.env.BACKEND_URL || 'http://localhost:3001').replace(/\/$/, '');
 
 // Root of the uploads directory - relative to the cwd of the running process.
@@ -123,7 +123,7 @@ export async function storeBase64File(input: StoreFileInput): Promise<StoredFile
     throw createError(400, 'EMPTY_FILE', 'File upload is empty');
   }
   if (buffer.length > MAX_UPLOAD_BYTES) {
-    throw createError(400, 'FILE_TOO_LARGE', 'Files must be 8MB or smaller');
+    throw createError(400, 'FILE_TOO_LARGE', 'Files must be 10 MB or smaller');
   }
 
   const ext = safeExt(input.fileName, input.mimeType);

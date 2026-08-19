@@ -42,6 +42,30 @@ const createSchema = z.object({
   bookmarkPage: z.number().nullable().optional(), // Legacy single bookmark
   bookmarks: z.array(bookmarkSchema).max(5).optional(), // Multi-bookmark system (max 5)
   contentVersion: z.number().int().min(1).optional(),
+  coverUrl: z
+    .string()
+    .max(2048)
+    .nullable()
+    .optional()
+    .transform((v) => (v === '' ? null : v)),
+  coverStyle: z
+    .object({
+      titleFont:         z.string().max(200).optional(),
+      titleSize:         z.number().min(14).max(72).optional(),
+      titleColor:        z.string().max(50).optional(),
+      titleWeight:       z.number().min(100).max(900).optional(),
+      titleAlign:        z.enum(['left', 'center', 'right']).optional(),
+      titleShadow:       z.boolean().optional(),
+      subtitleColor:     z.string().max(50).optional(),
+      subtitleSize:      z.number().min(9).max(24).optional(),
+      authorColor:       z.string().max(50).optional(),
+      showBorder:        z.boolean().optional(),
+      borderColor:       z.string().max(50).optional(),
+      overlayOpacity:    z.number().min(0).max(1).optional(),
+      titleLetterSpacing:z.number().min(-0.1).max(0.5).optional(),
+    })
+    .nullable()
+    .optional(),
 });
 const idParams = z.object({ id: z.string() });
 
