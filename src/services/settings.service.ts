@@ -8,6 +8,7 @@ import type {
   ThemePreference,
   LayoutPreference,
   TaskViewPreference,
+  NotesViewPreference,
   UpdateAIPreferencesRequest,
 } from '../types';
 import { getGoogleCalendarIntegration } from './google.service';
@@ -17,6 +18,7 @@ const DEFAULT_APPEARANCE: AppearanceSettingsDTO = {
   layoutPreference: 'COMFORTABLE',
   calendarView: 'month',
   taskView: 'board',
+  notesView: 'grid',
   pageTransitionsEnabled: true,
   floatingAnimationsEnabled: true,
 };
@@ -92,6 +94,7 @@ export async function getSettings(userId: string): Promise<SettingsDTO> {
       calendarView:
         (appearance?.calendarView as AppearanceSettingsDTO['calendarView']) ?? DEFAULT_APPEARANCE.calendarView,
       taskView: (appearance?.taskView as TaskViewPreference) ?? DEFAULT_APPEARANCE.taskView,
+      notesView: (appearance?.notesView as NotesViewPreference) ?? DEFAULT_APPEARANCE.notesView,
       pageTransitionsEnabled: appearance?.pageTransitionsEnabled ?? DEFAULT_APPEARANCE.pageTransitionsEnabled,
       floatingAnimationsEnabled: appearance?.floatingAnimationsEnabled ?? DEFAULT_APPEARANCE.floatingAnimationsEnabled,
     },
@@ -145,6 +148,7 @@ export async function updateAppearance(
       layoutPreference: data.layoutPreference ?? DEFAULT_APPEARANCE.layoutPreference,
       calendarView: data.calendarView ?? DEFAULT_APPEARANCE.calendarView,
       taskView: data.taskView ?? DEFAULT_APPEARANCE.taskView,
+      notesView: data.notesView ?? DEFAULT_APPEARANCE.notesView,
       pageTransitionsEnabled: data.pageTransitionsEnabled ?? DEFAULT_APPEARANCE.pageTransitionsEnabled,
       floatingAnimationsEnabled: data.floatingAnimationsEnabled ?? DEFAULT_APPEARANCE.floatingAnimationsEnabled,
     },
@@ -153,6 +157,7 @@ export async function updateAppearance(
       ...(data.layoutPreference ? { layoutPreference: data.layoutPreference } : {}),
       ...(data.calendarView ? { calendarView: data.calendarView } : {}),
       ...(data.taskView ? { taskView: data.taskView } : {}),
+      ...(data.notesView ? { notesView: data.notesView } : {}),
       ...(typeof data.pageTransitionsEnabled === 'boolean' ? { pageTransitionsEnabled: data.pageTransitionsEnabled } : {}),
       ...(typeof data.floatingAnimationsEnabled === 'boolean'
         ? { floatingAnimationsEnabled: data.floatingAnimationsEnabled }
@@ -165,6 +170,7 @@ export async function updateAppearance(
     layoutPreference: updated.layoutPreference as LayoutPreference,
     calendarView: updated.calendarView as AppearanceSettingsDTO['calendarView'],
     taskView: updated.taskView as TaskViewPreference,
+    notesView: updated.notesView as NotesViewPreference,
     pageTransitionsEnabled: updated.pageTransitionsEnabled,
     floatingAnimationsEnabled: updated.floatingAnimationsEnabled,
   };

@@ -39,6 +39,7 @@ export interface AuthResponse {
 export type ThemePreference = 'LIGHT' | 'DARK' | 'SYSTEM';
 export type LayoutPreference = 'COMFORTABLE' | 'COMPACT' | 'EXPANDED';
 export type TaskViewPreference = 'board' | 'list';
+export type NotesViewPreference = 'grid' | 'list' | '3d';
 
 export interface NotificationPreferenceDTO {
   taskDue: boolean;
@@ -53,6 +54,7 @@ export interface AppearanceSettingsDTO {
   layoutPreference: LayoutPreference;
   calendarView: 'day' | 'week' | 'month' | 'agenda';
   taskView: TaskViewPreference;
+  notesView: NotesViewPreference;
   pageTransitionsEnabled: boolean;
   floatingAnimationsEnabled: boolean;
 }
@@ -182,6 +184,7 @@ export interface UpdateAppearanceRequest {
   layoutPreference?: LayoutPreference;
   calendarView?: 'day' | 'week' | 'month' | 'agenda';
   taskView?: TaskViewPreference;
+  notesView?: NotesViewPreference;
   pageTransitionsEnabled?: boolean;
   floatingAnimationsEnabled?: boolean;
 }

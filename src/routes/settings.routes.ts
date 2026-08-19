@@ -12,6 +12,7 @@ const appearanceSchema = z.object({
   layoutPreference: z.enum(['COMFORTABLE', 'COMPACT', 'EXPANDED']).optional(),
   calendarView: z.enum(['day', 'week', 'month', 'agenda']).optional(),
   taskView: z.enum(['board', 'list']).optional(),
+  notesView: z.enum(['grid', 'list', '3d']).optional(),
   pageTransitionsEnabled: z.boolean().optional(),
   floatingAnimationsEnabled: z.boolean().optional(),
 });
