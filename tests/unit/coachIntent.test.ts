@@ -153,4 +153,63 @@ describe('classifyIntent', () => {
   it('falls back to chitchat for greetings', () => {
     expect(classifyIntent('hello there')).toBe(CoachIntent.CHITCHAT);
   });
+
+  // ── New context taxonomy (spec §3.1) ────────────────────────────────────────
+  it.each([
+    'what should i do',
+    'what should i work on',
+    'which task should i do',
+    'recommend a task',
+  ])('classifies "%s" as task recommend', (phrase) => {
+    expect(classifyIntent(phrase)).toBe(CoachIntent.TASK_RECOMMEND);
+  });
+
+  it.each([
+    'whats my most important task',
+    'which task is most important',
+    'prioritize my tasks',
+    'what should i focus on today',
+  ])('classifies "%s" as task prioritize', (phrase) => {
+    expect(classifyIntent(phrase)).toBe(CoachIntent.TASK_PRIORITIZE);
+  });
+
+  it.each(['whats next', 'next task', 'what should i do next', 'what do i work on next'])(
+    'classifies "%s" as task next',
+    (phrase) => {
+      expect(classifyIntent(phrase)).toBe(CoachIntent.TASK_NEXT);
+    },
+  );
+
+  it.each([
+    'mark the landing page complete',
+    'finish the investor deck',
+    'complete the presentation',
+  ])('classifies "%s" as task complete', (phrase) => {
+    expect(classifyIntent(phrase)).toBe(CoachIntent.TASK_COMPLETE);
+  });
+
+  it.each([
+    'move the presentation to tomorrow',
+    'reschedule the meeting',
+    'postpone the review',
+  ])('classifies "%s" as task reschedule', (phrase) => {
+    expect(classifyIntent(phrase)).toBe(CoachIntent.TASK_RESCHEDULE);
+  });
+
+  it.each(['find my presentation task', 'search for the invoice'])('classifies "%s" as task search', (phrase) => {
+    expect(classifyIntent(phrase)).toBe(CoachIntent.TASK_SEARCH);
+  });
+
+  it.each(['tell me about the presentation task', 'what about the landing page'])(
+    'classifies "%s" as task details',
+    (phrase) => {
+      expect(classifyIntent(phrase)).toBe(CoachIntent.TASK_DETAILS);
+    },
+  );
+
+  it('classifies a multi-word recommendation phrase despite previous habit turn intent', () => {
+    expect(classifyIntent('what should i work on', 'what are my pending tasks')).toBe(
+      CoachIntent.TASK_RECOMMEND,
+    );
+  });
 });

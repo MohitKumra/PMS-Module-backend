@@ -57,7 +57,7 @@ export async function generateAIInsights(
     systemPrompt: INSIGHT_SYSTEM_PROMPT,
     userPrompt: buildInsightUserPrompt(data),
     maxTokens: 600,
-    temperature: 0.7,
+    temperature: 1,
     responseFormat: 'json_object',
   });
 
@@ -391,7 +391,7 @@ export async function generateAICoach(
     userPrompt: buildCoachUserPrompt(data),
     imageUrls: data.imageUrls,
     maxTokens: data.mode === 'chat' ? chatTokens : 192,
-    temperature: data.mode === 'chat' ? 0.65 : 0.45,
+    temperature: 1,
     responseFormat: 'json_object',
   });
 
@@ -440,7 +440,7 @@ export async function generateDailyBrief(
     systemPrompt: DAILY_BRIEF_SYSTEM_PROMPT,
     userPrompt: buildDailyBriefUserPrompt(data),
     maxTokens: 300,
-    temperature: 0.7,
+    temperature: 1,
     responseFormat: 'json_object',
   });
 
@@ -506,7 +506,7 @@ export async function analyzeJournalEntry(userId: string, entry: string): Promis
     systemPrompt: JOURNAL_ANALYSIS_SYSTEM_PROMPT,
     userPrompt: buildJournalEntryPrompt(entry),
     maxTokens: 300,
-    temperature: 0.7,
+    temperature: 1,
     responseFormat: 'json_object',
   });
 
@@ -575,7 +575,7 @@ export async function analyzeJournalWeek(
     systemPrompt: JOURNAL_WEEKLY_SYSTEM_PROMPT,
     userPrompt: buildJournalWeeklyPrompt(entries),
     maxTokens: 320,
-    temperature: 0.7,
+    temperature: 1,
     responseFormat: 'json_object',
   });
 
@@ -818,7 +818,7 @@ export async function generateGoalPlan(
     systemPrompt: buildGoalPlannerPrompt(resolvedCtx),
     userPrompt: prompt,
     maxTokens: 1800,
-    temperature: 0.6,
+    temperature: 1,
     responseFormat: 'json_object',
   });
 
@@ -969,7 +969,7 @@ export async function parseTaskFromNaturalLanguage(
     systemPrompt,
     userPrompt: `Parse this task: "${input}"${dueDateHint}`,
     maxTokens: 512,
-    temperature: 0.3,
+    temperature: 1,
     responseFormat: 'json_object',
   });
 

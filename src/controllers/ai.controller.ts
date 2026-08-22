@@ -396,6 +396,8 @@ export async function postCoachChatMessage(req: Request, res: Response) {
       mode: 'chat',
       intent,
       consecutiveOffTopicTurns,
+      message,
+      threadKey: chatId,
       session: {
         title: chat.title,
         summary: chat.summary,

@@ -4,6 +4,8 @@
 import type { CoachIntent } from '../coachIntent';
 import { intentSnapshotDomains, ALL_SNAPSHOT_DOMAINS } from '../coachIntent';
 import { generateEntityCreationPrompt } from '../entitySchemas';
+import type { RecommendationCandidate } from '../context/contextRanker';
+import type { ResolvedEntityInfo } from '../entity/entityTypes';
 
 export type AICoachActionType =
   | 'open_habits'
@@ -26,6 +28,7 @@ export interface CoachSessionSnapshot {
 }
 
 export interface CoachGoalSnapshot {
+  id: string;
   title: string;
   progress: number;
   status: 'ACTIVE' | 'PAUSED' | 'COMPLETED' | 'ARCHIVED';
@@ -35,6 +38,7 @@ export interface CoachGoalSnapshot {
 }
 
 export interface CoachHabitSnapshot {
+  id: string;
   title: string;
   goalTitle: string | null;
   currentStreak: number;
@@ -44,6 +48,7 @@ export interface CoachHabitSnapshot {
 }
 
 export interface CoachMilestoneSnapshot {
+  id: string;
   goalTitle: string;
   goalProgress: number;
   title: string;
@@ -52,12 +57,17 @@ export interface CoachMilestoneSnapshot {
 }
 
 export interface CoachTaskSnapshot {
+  id: string;
   title: string;
   dueDate: string | null;
   priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
   status: 'TODO' | 'IN_PROGRESS' | 'DONE' | 'CANCELLED';
   overdue: boolean;
   subtasksOpen: number;
+  /** Extra fields used by the deterministic ranker. */
+  goalId?: string | null;
+  estimatedDuration?: number | null;
+  updatedAt?: string | null;
 }
 
 // ─── Wander budget ────────────────────────────────────────────────────────────
@@ -101,6 +111,16 @@ export interface CoachPromptData {
   // ── Off-topic tracking ────────────────────────────────────────────────────
   /** Number of consecutive off-topic/chitchat turns in this session */
   consecutiveOffTopicTurns?: number;
+
+  // ── Context intelligence (Phase 1–3) ─────────────────────────────────────
+  /** True when this is a recommendation-style intent that should be ranked. */
+  needsRecommendation?: boolean;
+  /** Deterministically-ranked top-N candidates handed to the LLM (spec §27). */
+  recommendationCandidates?: RecommendationCandidate[];
+  /** A specific entity resolved from the message reference, if any. */
+  resolvedEntity?: ResolvedEntityInfo | null;
+  /** Normalized / preprocessed view of the current user message. */
+  normalizedMessage?: string;
 }
 
 // ─── AICoachResult extension ──────────────────────────────────────────────────
@@ -154,6 +174,19 @@ DATA RULES:
   • NEVER say "I can't see your tasks/habits/goals" or "I don't have your list" when the corresponding array key IS present in the payload (even if empty). That phrase is only valid when the key is completely absent from the payload.
   • In chat mode, rely on the recent conversation for continuity; avoid replaying stats every turn.
   • If the user says hello or is very vague, respond naturally and ask one follow-up question.
+
+CONTEXT AWARENESS RULE (spec §36):
+  • The application provides authoritative workspace data in the context payload.
+  • If the requested answer can be derived from provided data, use that data directly.
+  • NEVER ask the user to provide information that already exists in the payload.
+  • NEVER ask "What tasks do you have?" when tasks are present, or "What goals are you working toward?" when goals are present, or "What should we do with it?" when a resolved entity is present.
+  • NEVER claim you cannot access user data when the relevant data is included.
+  • Only ask for clarification when (1) the info is genuinely unavailable, (2) multiple entities match and cannot be safely resolved, (3) the user must choose between materially different interpretations, or (4) a required action parameter is missing.
+
+DATA TRUTHFULNESS RULE (spec §37):
+  • The context payload is authoritative. Never invent task titles, IDs, due dates, priorities, completion status, goals, habits, projects, milestones, or statistics.
+  • If a "recommendationCandidates" array is present, choose and explain from those candidates — do not invent tasks that are not listed.
+  • If a resolved entity is present, answer about THAT entity; if it is absent and you need it, say what is missing rather than fabricating one.
 
 RESPONSE FORMAT — return valid JSON only:
 {
@@ -253,6 +286,7 @@ export function buildCoachUserPrompt(data: CoachPromptData): string {
 
   if (domains.includes('tasks')) {
     payload.tasks = data.tasks.slice(0, 6).map((task) => ({
+      id: task.id,
       title: cleanSnippet(task.title, 60),
       dueDate: task.dueDate,
       priority: task.priority,
@@ -266,6 +300,7 @@ export function buildCoachUserPrompt(data: CoachPromptData): string {
 
   if (domains.includes('goals')) {
     payload.goals = data.goals.slice(0, 3).map((goal) => ({
+      id: goal.id,
       title: cleanSnippet(goal.title, 60),
       progress: goal.progress,
       status: goal.status,
@@ -276,6 +311,7 @@ export function buildCoachUserPrompt(data: CoachPromptData): string {
 
   if (domains.includes('habits')) {
     payload.habits = data.habits.slice(0, 4).map((habit) => ({
+      id: habit.id,
       title: cleanSnippet(habit.title, 60),
       streak: habit.currentStreak,
       doneToday: habit.completedToday,
@@ -285,10 +321,39 @@ export function buildCoachUserPrompt(data: CoachPromptData): string {
 
   if (domains.includes('milestones')) {
     payload.milestones = data.milestones.slice(0, 3).map((milestone) => ({
+      id: milestone.id,
       goal: cleanSnippet(milestone.goalTitle, 60),
       title: cleanSnippet(milestone.title, 60),
       dueDate: milestone.dueDate,
     }));
+  }
+
+  // ── Recommendation / resolved-entity context (spec §27, §53) ─────────────
+  if (
+    isChatMode &&
+    data.needsRecommendation === true &&
+    data.recommendationCandidates &&
+    data.recommendationCandidates.length > 0
+  ) {
+    payload.recommendationCandidates = data.recommendationCandidates.map((c) => ({
+      id: c.id,
+      title: cleanSnippet(c.title, 60),
+      priority: c.priority,
+      dueDate: c.dueDate,
+      status: c.status,
+      score: c.score,
+      reasons: (c.reasons ?? []).slice(0, 4),
+    }));
+  }
+
+  if (isChatMode && data.resolvedEntity) {
+    payload.resolvedEntity = {
+      id: data.resolvedEntity.id,
+      type: data.resolvedEntity.type,
+      title: data.resolvedEntity.title,
+      confidence: data.resolvedEntity.confidence,
+      method: data.resolvedEntity.method,
+    };
   }
 
   return JSON.stringify(payload);

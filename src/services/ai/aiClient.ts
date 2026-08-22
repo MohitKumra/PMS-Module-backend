@@ -89,6 +89,7 @@ function resolveAIConfig(): ResolvedAIConfig | null {
 
 type CachedClient = {
   config: ResolvedAIConfig;
+  
   client: OpenAI;
 };
 
@@ -160,7 +161,7 @@ export async function complete(options: AIRequestOptions): Promise<AIResponse | 
   }
 
   const maxTokens = options.maxTokens ?? parseInt(env.AI_max_completion_tokens || '1024', 10);
-  const temperature = options.temperature ?? parseFloat(env.AI_TEMPERATURE || '0.7');
+  const temperature = options.temperature ?? parseFloat(env.AI_TEMPERATURE || '1');
   const hasImages = Boolean(options.imageUrls && options.imageUrls.length > 0);
 
   // When the request includes images, automatically switch to a vision-capable

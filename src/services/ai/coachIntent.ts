@@ -2,27 +2,70 @@
 // Deterministic keyword-based intent classifier for the AI coach.
 // Zero LLM cost — fully testable. Pluggable for an LLM classifier later.
 
+import {
+  intentSnapshotDomains as strategySnapshotDomains,
+  intentNeedsLiveData as strategyNeedsLiveData,
+} from './context/contextStrategy';
+
 export const CoachIntent = {
   /** Pure off-topic / casual exchange */
   CHITCHAT: 'chitchat',
-  /** User wants to create a single task */
+
+  // ── Task intents ──────────────────────────────────────────────────────────
   TASK_CREATE: 'task_create',
-  /** User wants to create a single habit */
-  HABIT_CREATE: 'habit_create',
-  /** User wants to create a single goal */
-  GOAL_CREATE: 'goal_create',
-  /** User wants to create a single project */
-  PROJECT_CREATE: 'project_create',
-  /** User wants to build a full goal plan/workspace */
-  PLAN: 'plan',
-  /** User is asking about their task list / overdue / status */
+  TASK_UPDATE: 'task_update',
+  TASK_COMPLETE: 'task_complete',
+  TASK_DELETE: 'task_delete',
   TASK_STATUS: 'task_status',
-  /** User is asking about habit streaks / completions */
+  TASK_RECOMMEND: 'task_recommend',
+  TASK_PRIORITIZE: 'task_prioritize',
+  TASK_NEXT: 'task_next',
+  TASK_SEARCH: 'task_search',
+  TASK_DETAILS: 'task_details',
+  TASK_SCHEDULE: 'task_schedule',
+  TASK_RESCHEDULE: 'task_reschedule',
+
+  // ── Habit intents ─────────────────────────────────────────────────────────
+  HABIT_CREATE: 'habit_create',
+  HABIT_UPDATE: 'habit_update',
+  HABIT_COMPLETE: 'habit_complete',
   HABIT_STATUS: 'habit_status',
-  /** User is requesting a broader progress review */
+  HABIT_RECOMMEND: 'habit_recommend',
+  HABIT_SEARCH: 'habit_search',
+  HABIT_DETAILS: 'habit_details',
+
+  // ── Goal intents ──────────────────────────────────────────────────────────
+  GOAL_CREATE: 'goal_create',
+  GOAL_UPDATE: 'goal_update',
+  GOAL_STATUS: 'goal_status',
+  GOAL_PROGRESS: 'goal_progress',
+  GOAL_RECOMMEND: 'goal_recommend',
+  GOAL_DETAILS: 'goal_details',
+
+  // ── Project intents ───────────────────────────────────────────────────────
+  PROJECT_CREATE: 'project_create',
+  PROJECT_UPDATE: 'project_update',
+  PROJECT_STATUS: 'project_status',
+  PROJECT_DETAILS: 'project_details',
+  PROJECT_SEARCH: 'project_search',
+
+  // ── Planning intents ──────────────────────────────────────────────────────
+  PLAN: 'plan',
+  PLAN_DAY: 'plan_day',
+  PLAN_WEEK: 'plan_week',
+  PLAN_PROJECT: 'plan_project',
+  PLAN_GOAL: 'plan_goal',
+  PLAN_TASKS: 'plan_tasks',
+
+  // ── Analytics intents ─────────────────────────────────────────────────────
   PROGRESS_REVIEW: 'progress_review',
-  /** General coaching — no specific CRUD intent detected */
+  PRODUCTIVITY_REVIEW: 'productivity_review',
+  FOCUS_REVIEW: 'focus_review',
+  HABIT_REVIEW: 'habit_review',
+
+  // ── General ───────────────────────────────────────────────────────────────
   COACHING: 'coaching',
+  UNKNOWN: 'unknown',
 } as const;
 
 export type CoachIntent = (typeof CoachIntent)[keyof typeof CoachIntent];
@@ -33,6 +76,108 @@ export type CoachIntent = (typeof CoachIntent)[keyof typeof CoachIntent];
 // can give them a head-start over the generic COACHING fallback.
 
 export const INTENT_KEYWORDS: Record<CoachIntent, string[]> = {
+  // ── Task update / complete / delete / schedule ────────────────────────────
+  [CoachIntent.TASK_UPDATE]: [
+    'update the',
+    'update task',
+    'edit the',
+    'edit task',
+    'change the task',
+    'change task',
+    'rename the task',
+    'rename task',
+  ],
+  [CoachIntent.TASK_COMPLETE]: [
+    'mark complete',
+    'mark it complete',
+    'complete the',
+    'finish the',
+    'finish task',
+    'mark the',
+    'mark as done',
+    'mark as complete',
+    'check off',
+    'complete it',
+    'actually complete',
+  ],
+  [CoachIntent.TASK_DELETE]: [
+    'delete the',
+    'delete task',
+    'delete it',
+    'remove the',
+    'remove task',
+    'remove it',
+    'cancel the task',
+    'get rid of',
+    'delete this',
+  ],
+  [CoachIntent.TASK_RESCHEDULE]: [
+    'move the',
+    'move it',
+    'move task',
+    'reschedule',
+    'postpone',
+    'push to',
+    'push back',
+    'move this',
+  ],
+  [CoachIntent.TASK_SCHEDULE]: [
+    'schedule the',
+    'schedule task',
+    'schedule it',
+    'set a time for',
+    'put it on my calendar',
+  ],
+  [CoachIntent.TASK_RECOMMEND]: [
+    'what should i do',
+    'what should i work on',
+    'what task should i',
+    'which task should i',
+    'what task to do',
+    'recommend a task',
+    'recommend task',
+    'which task do i',
+    'what should i tackle',
+  ],
+  [CoachIntent.TASK_PRIORITIZE]: [
+    'most important task',
+    'which task is most important',
+    'priority task',
+    'prioritize',
+    'whats most important',
+    'top priority task',
+    'most urgent task',
+    'which task first',
+    'what should i focus on',
+  ],
+  [CoachIntent.TASK_NEXT]: [
+    'next task',
+    'work on next',
+    'whats next',
+    'do next',
+    'should i do next',
+    'after that',
+    'what next',
+  ],
+  [CoachIntent.TASK_SEARCH]: [
+    'find my',
+    'find the',
+    'find task',
+    'search for',
+    'search my',
+    'look for my',
+    'look for the',
+    'search task',
+  ],
+  [CoachIntent.TASK_DETAILS]: [
+    'tell me about',
+    'tell me more about',
+    'what about the',
+    'what about my',
+    'more info on',
+    'info on the',
+    'which one is',
+  ],
   [CoachIntent.TASK_CREATE]: [
     'add a task',
     'create a task',
@@ -229,6 +374,40 @@ export const INTENT_KEYWORDS: Record<CoachIntent, string[]> = {
     'status update',
     'full report',
   ],
+  [CoachIntent.HABIT_UPDATE]: ['update habit', 'edit habit', 'change habit'],
+  [CoachIntent.HABIT_COMPLETE]: [
+    'mark habit complete',
+    'complete the habit',
+    'completed my habit',
+    'did my habit',
+    'check off habit',
+    'finish the habit',
+  ],
+  [CoachIntent.HABIT_RECOMMEND]: ['recommend a habit', 'which habit should i', 'what habit should i'],
+  [CoachIntent.HABIT_SEARCH]: ['find my habit', 'find the habit', 'search habits'],
+  [CoachIntent.HABIT_DETAILS]: ['tell me about the habit', 'habit details'],
+
+  [CoachIntent.GOAL_UPDATE]: ['update goal', 'edit goal', 'change my goal'],
+  [CoachIntent.GOAL_STATUS]: ['goal status', 'how is my goal', 'how are my goals', 'goals going'],
+  [CoachIntent.GOAL_PROGRESS]: ['goal progress', 'progress on my goal', 'how far along'],
+  [CoachIntent.GOAL_RECOMMEND]: ['recommend a goal', 'which goal should i', 'what goal should i focus'],
+  [CoachIntent.GOAL_DETAILS]: ['tell me about the goal', 'goal details', 'about my goal'],
+
+  [CoachIntent.PROJECT_UPDATE]: ['update project', 'edit project', 'change the project'],
+  [CoachIntent.PROJECT_STATUS]: ['project status', 'how is the project', 'how are my projects going'],
+  [CoachIntent.PROJECT_DETAILS]: ['tell me about the project', 'project details'],
+  [CoachIntent.PROJECT_SEARCH]: ['find my project', 'find the project', 'search projects'],
+
+  [CoachIntent.PLAN_DAY]: ['plan my day', 'plan today', 'plan the day', 'schedule today'],
+  [CoachIntent.PLAN_WEEK]: ['plan my week', 'plan the week', 'plan this week', 'weekly plan'],
+  [CoachIntent.PLAN_PROJECT]: ['plan the project', 'project plan', 'plan for the project'],
+  [CoachIntent.PLAN_GOAL]: ['plan my goal', 'goal plan', 'plan toward'],
+  [CoachIntent.PLAN_TASKS]: ['plan my tasks', 'plan tasks', 'schedule my tasks'],
+
+  [CoachIntent.PRODUCTIVITY_REVIEW]: ['am i productive', 'productivity review', 'how productive'],
+  [CoachIntent.FOCUS_REVIEW]: ['focus review', 'how was my focus', 'focus time this week'],
+  [CoachIntent.HABIT_REVIEW]: ['habit review', 'review my habits', 'habit consistency'],
+
   [CoachIntent.CHITCHAT]: [
     'hello',
     'hi ',
@@ -266,26 +445,60 @@ export const INTENT_KEYWORDS: Record<CoachIntent, string[]> = {
     'nope',
   ],
   [CoachIntent.COACHING]: [], // fallback — never matched by keywords
+  [CoachIntent.UNKNOWN]: [],
 };
 
 // ─── Classifier ───────────────────────────────────────────────────────────────
 
 /**
- * Priority order: CRUD create intents > status intents > plan > progress review
- * > chitchat > general coaching.
+ * Priority order: CRUD task intents > habit > goal > project > planning >
+ * status/recommend/search/detail > analytics > chitchat > general coaching.
  * The first intent that gets at least one keyword hit wins.
  */
 const PRIORITY_ORDER: CoachIntent[] = [
   CoachIntent.TASK_CREATE,
+  CoachIntent.TASK_COMPLETE,
+  CoachIntent.TASK_RESCHEDULE,
+  CoachIntent.TASK_SCHEDULE,
+  CoachIntent.TASK_UPDATE,
+  CoachIntent.TASK_DELETE,
   CoachIntent.HABIT_CREATE,
+  CoachIntent.HABIT_COMPLETE,
+  CoachIntent.HABIT_UPDATE,
   CoachIntent.GOAL_CREATE,
+  CoachIntent.GOAL_UPDATE,
   CoachIntent.PROJECT_CREATE,
+  CoachIntent.PROJECT_UPDATE,
   CoachIntent.PLAN,
+  CoachIntent.PLAN_DAY,
+  CoachIntent.PLAN_WEEK,
+  CoachIntent.PLAN_PROJECT,
+  CoachIntent.PLAN_GOAL,
+  CoachIntent.PLAN_TASKS,
+  CoachIntent.TASK_NEXT,
+  CoachIntent.TASK_PRIORITIZE,
+  CoachIntent.TASK_RECOMMEND,
+  CoachIntent.TASK_SEARCH,
+  CoachIntent.TASK_DETAILS,
   CoachIntent.TASK_STATUS,
+  CoachIntent.HABIT_RECOMMEND,
+  CoachIntent.HABIT_SEARCH,
+  CoachIntent.HABIT_DETAILS,
   CoachIntent.HABIT_STATUS,
+  CoachIntent.GOAL_RECOMMEND,
+  CoachIntent.GOAL_PROGRESS,
+  CoachIntent.GOAL_STATUS,
+  CoachIntent.GOAL_DETAILS,
+  CoachIntent.PROJECT_STATUS,
+  CoachIntent.PROJECT_DETAILS,
+  CoachIntent.PROJECT_SEARCH,
   CoachIntent.PROGRESS_REVIEW,
+  CoachIntent.PRODUCTIVITY_REVIEW,
+  CoachIntent.FOCUS_REVIEW,
+  CoachIntent.HABIT_REVIEW,
   CoachIntent.CHITCHAT,
   CoachIntent.COACHING,
+  CoachIntent.UNKNOWN,
 ];
 
 function normalize(text: string): string {
@@ -364,23 +577,15 @@ export function classifyIntent(
 }
 
 // ─── Intent metadata ──────────────────────────────────────────────────────────
+// These are now thin delegates into the context strategy layer so there is a
+// single source of truth for "what does this intent need".
 
-/**
- * Whether this intent requires pulling live DB stats (summary, focus, streaks).
- */
+/** Whether this intent requires pulling live DB stats (summary, focus, streaks). */
 export function intentNeedsLiveData(intent: CoachIntent): boolean {
-  return (
-    intent === CoachIntent.PROGRESS_REVIEW ||
-    intent === CoachIntent.TASK_STATUS ||
-    intent === CoachIntent.HABIT_STATUS
-  );
+  return strategyNeedsLiveData(intent);
 }
 
-/**
- * The granular data domains that can be loaded as an entity "snapshot".
- * Each one maps to a focused DB query so the coach never reads the whole
- * user's database — only what the current intent actually needs.
- */
+/** Entity snapshot domain type — kept for backward compatibility. */
 export type CoachSnapshotDomain = 'tasks' | 'habits' | 'goals' | 'milestones';
 
 /** All snapshot domains — used for summary mode / broad progress reviews. */
@@ -388,44 +593,53 @@ export const ALL_SNAPSHOT_DOMAINS: CoachSnapshotDomain[] = ['tasks', 'habits', '
 
 /**
  * Map an intent to the exact set of snapshot domains it needs.
- * CHITCHAT / COACHING return an empty list → the coach sends no entity
- * snapshots at all, saving the most tokens.
+ * Delegates to context/contextStrategy so recommendations also load tasks.
  */
 export function intentSnapshotDomains(intent: CoachIntent): CoachSnapshotDomain[] {
-  switch (intent) {
-    case CoachIntent.TASK_CREATE:
-    case CoachIntent.TASK_STATUS:
-      return ['tasks'];
-    case CoachIntent.HABIT_CREATE:
-    case CoachIntent.HABIT_STATUS:
-      return ['habits'];
-    case CoachIntent.GOAL_CREATE:
-    case CoachIntent.PLAN:
-      return ['goals', 'milestones'];
-    case CoachIntent.PROJECT_CREATE:
-      return [];
-    case CoachIntent.PROGRESS_REVIEW:
-      return ALL_SNAPSHOT_DOMAINS;
-    default:
-      return [];
-  }
+  return strategySnapshotDomains(intent);
 }
 
 /**
- * Which entity type (if any) this intent targets for CRUD.
- * Returns null for non-CRUD intents.
+ * Which entity type (if any) this intent targets for CRUD / resolution.
+ * Returns null for non-entity intents.
  */
 export function intentTargetEntity(
   intent: CoachIntent,
 ): 'task' | 'habit' | 'goal' | 'project' | null {
   switch (intent) {
     case CoachIntent.TASK_CREATE:
+    case CoachIntent.TASK_UPDATE:
+    case CoachIntent.TASK_COMPLETE:
+    case CoachIntent.TASK_DELETE:
+    case CoachIntent.TASK_STATUS:
+    case CoachIntent.TASK_SEARCH:
+    case CoachIntent.TASK_DETAILS:
+    case CoachIntent.TASK_SCHEDULE:
+    case CoachIntent.TASK_RESCHEDULE:
+    case CoachIntent.TASK_RECOMMEND:
+    case CoachIntent.TASK_PRIORITIZE:
+    case CoachIntent.TASK_NEXT:
       return 'task';
     case CoachIntent.HABIT_CREATE:
+    case CoachIntent.HABIT_UPDATE:
+    case CoachIntent.HABIT_COMPLETE:
+    case CoachIntent.HABIT_STATUS:
+    case CoachIntent.HABIT_RECOMMEND:
+    case CoachIntent.HABIT_SEARCH:
+    case CoachIntent.HABIT_DETAILS:
       return 'habit';
     case CoachIntent.GOAL_CREATE:
+    case CoachIntent.GOAL_UPDATE:
+    case CoachIntent.GOAL_STATUS:
+    case CoachIntent.GOAL_PROGRESS:
+    case CoachIntent.GOAL_RECOMMEND:
+    case CoachIntent.GOAL_DETAILS:
       return 'goal';
     case CoachIntent.PROJECT_CREATE:
+    case CoachIntent.PROJECT_UPDATE:
+    case CoachIntent.PROJECT_STATUS:
+    case CoachIntent.PROJECT_DETAILS:
+    case CoachIntent.PROJECT_SEARCH:
       return 'project';
     default:
       return null;

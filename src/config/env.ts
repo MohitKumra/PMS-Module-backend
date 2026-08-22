@@ -49,7 +49,7 @@ const envSchema = z.object({
   AI_VISION_MODEL: z.string().optional(),
   AI_BASE_URL: z.string().optional(),
   AI_max_completion_tokens: z.string().default('1024'),
-  AI_TEMPERATURE: z.string().default('0.7'),
+  AI_TEMPERATURE: z.string().default('1'),
 });
 
 const parsed = envSchema.safeParse(process.env);

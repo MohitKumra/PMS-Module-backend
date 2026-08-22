@@ -10,10 +10,25 @@ import {
   classifyIntent,
   intentNeedsLiveData,
   intentSnapshotDomains,
+  intentTargetEntity,
   ALL_SNAPSHOT_DOMAINS,
   CoachIntent,
+  type CoachSnapshotDomain,
 } from './coachIntent';
-import type { CoachSnapshotDomain } from './coachIntent';
+import { preprocessMessage } from './messagePreprocessor';
+import { splitMultiIntent } from './multiIntent';
+import { rankTasks, type RecommendableTask } from './context/contextRanker';
+import { resolveEntity } from './entity/entityResolver';
+import {
+  getConversationState,
+  saveConversationState,
+  createEmptyState,
+  recordPresented,
+  setActiveEntity,
+  type ConversationState,
+  type StateEntityRef,
+} from './memory/conversationState';
+import type { EntityType, ResolvedEntityInfo } from './entity/entityTypes';
 import type {
   CoachChatDTO,
   CoachChatListDTO,
@@ -233,8 +248,6 @@ const EMPTY_ENTITY_SNAPSHOT: EntitySnapshot = {
   milestones: [],
 };
 
-const PRIORITY_WEIGHT: Record<string, number> = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
-
 async function loadEntitySnapshot(
   userId: string,
   domains: CoachSnapshotDomain[],
@@ -256,12 +269,16 @@ async function loadEntitySnapshot(
           .findMany({
             where: { userId, status: { in: ['TODO', 'IN_PROGRESS'] } },
             orderBy: [{ updatedAt: 'desc' }],
-            take: 12,
+            take: 50,
             select: {
+              id: true,
               title: true,
               priority: true,
               status: true,
               dueDate: true,
+              goalId: true,
+              estimatedDuration: true,
+              updatedAt: true,
               _count: { select: { subTasks: true } },
             },
           })
@@ -275,6 +292,7 @@ async function loadEntitySnapshot(
             orderBy: [{ updatedAt: 'desc' }],
             take: 3,
             select: {
+              id: true,
               title: true,
               progress: true,
               status: true,
@@ -297,6 +315,7 @@ async function loadEntitySnapshot(
             orderBy: [{ createdAt: 'desc' }],
             take: 4,
             select: {
+              id: true,
               title: true,
               targetPerWeek: true,
               skipDays: true,
@@ -315,6 +334,7 @@ async function loadEntitySnapshot(
             orderBy: [{ dueDate: 'asc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }],
             take: 4,
             select: {
+              id: true,
               title: true,
               dueDate: true,
               status: true,
@@ -333,6 +353,7 @@ async function loadEntitySnapshot(
       (d: string) => d >= toDateStr(weekStart) && d <= todayStr,
     ).length;
     return {
+      id: habit.id,
       title: habit.title,
       goalTitle: habit.goal?.title ?? null,
       currentStreak: calcStreak(dateStrings, skipDays),
@@ -343,6 +364,7 @@ async function loadEntitySnapshot(
   });
 
   const goalSnapshots: CoachGoalSnapshot[] = rawGoals.map((goal: any) => ({
+    id: goal.id,
     title: goal.title,
     progress: goal.progress,
     status: goal.status as CoachGoalSnapshot['status'],
@@ -352,6 +374,7 @@ async function loadEntitySnapshot(
   }));
 
   const milestoneSnapshots: CoachMilestoneSnapshot[] = rawMilestones.map((m: any) => ({
+    id: m.id,
     goalTitle: m.goal.title,
     goalProgress: m.goal.progress,
     title: m.title,
@@ -359,32 +382,28 @@ async function loadEntitySnapshot(
     status: m.status,
   }));
 
-  // Open tasks — sorted so the most urgent items surface first (overdue and
-  // higher priority win), then keep only the top few for the prompt.
-  const taskSnapshots: CoachTaskSnapshot[] = rawTasks
-    .map((task: any) => {
-      const due = task.dueDate ? new Date(task.dueDate) : null;
-      return {
-        title: task.title,
-        priority: task.priority as CoachTaskSnapshot['priority'],
-        status: task.status as CoachTaskSnapshot['status'],
-        dueDate: due ? due.toISOString() : null,
-        overdue: Boolean(
-          due &&
-            due.getTime() < today.getTime() &&
-            task.status !== 'DONE' &&
-            task.status !== 'CANCELLED',
-        ),
-        subtasksOpen: task._count?.subTasks ?? 0,
-      };
-    })
-    .sort((a: CoachTaskSnapshot, b: CoachTaskSnapshot) => {
-      const pa = PRIORITY_WEIGHT[a.priority] ?? 9;
-      const pb = PRIORITY_WEIGHT[b.priority] ?? 9;
-      if (pa !== pb) return pa - pb;
-      return a.overdue === b.overdue ? 0 : a.overdue ? -1 : 1;
-    })
-    .slice(0, 6);
+  // Open tasks — retain the full candidate set so the deterministic ranker can
+  // use ALL relevant tasks (spec §26), not just the top few by priority.
+  const taskSnapshots: CoachTaskSnapshot[] = rawTasks.map((task: any) => {
+    const due = task.dueDate ? new Date(task.dueDate) : null;
+    return {
+      id: task.id,
+      title: task.title,
+      priority: task.priority as CoachTaskSnapshot['priority'],
+      status: task.status as CoachTaskSnapshot['status'],
+      dueDate: due ? due.toISOString() : null,
+      overdue: Boolean(
+        due &&
+          due.getTime() < today.getTime() &&
+          task.status !== 'DONE' &&
+          task.status !== 'CANCELLED',
+      ),
+      subtasksOpen: task._count?.subTasks ?? 0,
+      goalId: task.goalId ?? null,
+      estimatedDuration: task.estimatedDuration ?? null,
+      updatedAt: task.updatedAt?.toISOString() ?? null,
+    };
+  });
 
   return {
     tasks: taskSnapshots,
@@ -511,6 +530,32 @@ function mapChat(chat: {
 
 // ─── Intent-aware prompt data builder ────────────────────────────────────────
 
+/** Intents that should produce deterministic recommendation candidates. */
+const RECOMMENDATION_INTENTS = new Set<CoachIntent>([
+  CoachIntent.TASK_RECOMMEND,
+  CoachIntent.TASK_PRIORITIZE,
+  CoachIntent.TASK_NEXT,
+  CoachIntent.GOAL_RECOMMEND,
+  CoachIntent.HABIT_RECOMMEND,
+]);
+
+/** Build the resolver candidate list for a target entity type. */
+function entityCandidatesFor(
+  type: EntityType,
+  snapshot: EntitySnapshot,
+): { id: string; title: string }[] {
+  switch (type) {
+    case 'task':
+      return snapshot.tasks.map((t) => ({ id: t.id, title: t.title }));
+    case 'goal':
+      return snapshot.goals.map((g) => ({ id: g.id, title: g.title }));
+    case 'habit':
+      return snapshot.habits.map((h) => ({ id: h.id, title: h.title }));
+    case 'project':
+      return [];
+  }
+}
+
 export async function buildCoachPromptData(
   userId: string,
   options: {
@@ -522,6 +567,10 @@ export async function buildCoachPromptData(
     intent?: CoachIntent;
     /** Consecutive off-topic turns in this session */
     consecutiveOffTopicTurns?: number;
+    /** Raw current user message — used for preprocessing / entity resolution */
+    message?: string;
+    /** Thread (chat) id — key for the structured conversation state store */
+    threadKey?: string;
   } = {},
 ): Promise<CoachPromptData> {
   const mode = options.mode ?? (options.conversation?.length ? 'chat' : 'summary');
@@ -530,12 +579,25 @@ export async function buildCoachPromptData(
   // ── Persistent context — always cheap ────────────────────────────────────
   const persistent = await loadPersistentContext(userId);
 
+  // ── Phase 1: message preprocessing + multi-intent (spec §5, §6) ───────────
+  // Preprocess the raw message for normalization/typo+date/reference signals.
+  let normalizedMessage: string | undefined;
+  let resolveRef: string | undefined;
+  if (isChatMode && options.message) {
+    const processed = preprocessMessage(options.message, persistent.timezone);
+    normalizedMessage = processed.normalizedMessage;
+    const multi = splitMultiIntent(processed.normalizedMessage);
+    resolveRef = multi.operations[0]?.entityReference;
+  }
+
   // ── Determine intent ──────────────────────────────────────────────────────
   // Summary mode (dashboard widget) always loads full context.
   // Chat mode only loads what the intent needs.
   let intent = options.intent;
   if (!intent) {
-    if (isChatMode && options.conversation && options.conversation.length > 0) {
+    if (isChatMode && normalizedMessage) {
+      intent = classifyIntent(normalizedMessage);
+    } else if (isChatMode && options.conversation && options.conversation.length > 0) {
       const lastUser = [...options.conversation].reverse().find((t) => t.role === 'user');
       const prevUser = [...options.conversation]
         .reverse()
@@ -561,6 +623,72 @@ export async function buildCoachPromptData(
     snapshotDomains.length > 0
       ? await loadEntitySnapshot(userId, snapshotDomains)
       : EMPTY_ENTITY_SNAPSHOT;
+
+  // ── Phase 3: structured conversation state (spec §14) ─────────────────────
+  const state: ConversationState = options.threadKey
+    ? getConversationState(options.threadKey)
+    : createEmptyState();
+  state.lastIntent = intent;
+
+  // ── Phase 1: deterministic task recommendation ranking (spec §27) ─────────
+  const isRecommendation = RECOMMENDATION_INTENTS.has(intent);
+  let recommendationCandidates: CoachPromptData['recommendationCandidates'];
+  if (isChatMode && isRecommendation) {
+    const activeGoalId =
+      entitySnapshot.goals.find((g) => g.status === 'ACTIVE')?.id ?? null;
+    const rankable: RecommendableTask[] = entitySnapshot.tasks.map((t) => ({
+      id: t.id,
+      title: t.title,
+      priority: t.priority,
+      status: t.status,
+      dueDate: t.dueDate,
+      estimatedDuration: t.estimatedDuration,
+      goalId: t.goalId,
+      updatedAt: t.updatedAt,
+    }));
+    recommendationCandidates = rankTasks(rankable, {
+      activeGoalId,
+      excludedEntityIds: state.excludedEntities.map((e) => e.id),
+    });
+  }
+
+  // ── Phase 2: entity resolution from the message reference (spec §8) ───────
+  let resolvedEntity: ResolvedEntityInfo | null = null;
+  if (isChatMode) {
+    const target = intentTargetEntity(intent);
+    if (target && resolveRef) {
+      const candidates = entityCandidatesFor(target, entitySnapshot);
+      const result = resolveEntity({
+        reference: resolveRef,
+        candidates,
+        entityType: target,
+        conversationState: state,
+      });
+      if (result.entityId) {
+        const title = candidates.find((c) => c.id === result.entityId)?.title;
+        resolvedEntity = {
+          id: result.entityId,
+          type: target,
+          title,
+          confidence: result.confidence,
+          method: result.method,
+        };
+        setActiveEntity(state, { type: target, id: result.entityId, title });
+      }
+      // Ambiguous (result.matches) is not surfaced here — the model or a later
+      // semantic resolver asks a concise clarification instead.
+    }
+  }
+
+  // Track last-presented entities for first/second/last + pronoun references.
+  const presentedRefs: StateEntityRef[] = (
+    recommendationCandidates ?? entitySnapshot.tasks
+  )
+    .slice(0, 5)
+    .map((t) => ({ type: 'task' as const, id: t.id, title: t.title }));
+  recordPresented(state, presentedRefs);
+
+  if (options.threadKey) saveConversationState(options.threadKey, state);
 
   return {
     mode,
@@ -596,6 +724,13 @@ export async function buildCoachPromptData(
     },
     conversation: options.conversation,
     imageUrls: options.imageUrls,
+
+    // Context intelligence (Phase 1–3)
+    normalizedMessage,
+    needsRecommendation:
+      isChatMode && isRecommendation && (recommendationCandidates?.length ?? 0) > 0,
+    recommendationCandidates,
+    resolvedEntity,
   };
 }
 
