@@ -13,9 +13,9 @@ describe('intentSnapshotDomains', () => {
     expect(intentSnapshotDomains(CoachIntent.TASK_CREATE)).toEqual(['tasks']);
   });
 
-  it('loads only habits for habit intents', () => {
+  it('loads only habits for habit status, but habits + goals for habit create', () => {
     expect(intentSnapshotDomains(CoachIntent.HABIT_STATUS)).toEqual(['habits']);
-    expect(intentSnapshotDomains(CoachIntent.HABIT_CREATE)).toEqual(['habits']);
+    expect(intentSnapshotDomains(CoachIntent.HABIT_CREATE)).toEqual(['habits', 'goals', 'milestones']);
   });
 
   it('loads goals + milestones for goal/plan intents', () => {
@@ -105,9 +105,9 @@ describe('classifyIntent', () => {
   // ── Cross-domain bleed prevention ─────────────────────────────────────────
   // A fresh clear question should NEVER inherit the previous turn's domain.
   it('does not let a task-status previous turn override a habit-status current message', () => {
-    expect(
-      classifyIntent('how many habits do i have', 'yes thats what im asking what are my pending tasks'),
-    ).toBe(CoachIntent.HABIT_STATUS);
+    expect(classifyIntent('how many habits do i have', 'yes thats what im asking what are my pending tasks')).toBe(
+      CoachIntent.HABIT_STATUS
+    );
   });
 
   it('does not let a habit-status previous turn override a goals current message', () => {
@@ -119,23 +119,19 @@ describe('classifyIntent', () => {
   });
 
   it('does not let a task previous turn override a habit creation current message', () => {
-    expect(
-      classifyIntent('add a habit to drink water daily', 'how many tasks are pending'),
-    ).toBe(CoachIntent.HABIT_CREATE);
+    expect(classifyIntent('add a habit to drink water daily', 'how many tasks are pending')).toBe(
+      CoachIntent.HABIT_CREATE
+    );
   });
 
   // ── Follow-up inheritance ──────────────────────────────────────────────────
   // Short / ambiguous follow-ups SHOULD inherit the previous turn's domain.
   it('inherits task status intent from previous turn for ambiguous follow-up', () => {
-    expect(
-      classifyIntent('yes thats what im asking', 'how many tasks are pending'),
-    ).toBe(CoachIntent.TASK_STATUS);
+    expect(classifyIntent('yes thats what im asking', 'how many tasks are pending')).toBe(CoachIntent.TASK_STATUS);
   });
 
   it('inherits task status intent from previous turn for "ok show me"', () => {
-    expect(
-      classifyIntent('ok show me', 'what are my overdue tasks'),
-    ).toBe(CoachIntent.TASK_STATUS);
+    expect(classifyIntent('ok show me', 'what are my overdue tasks')).toBe(CoachIntent.TASK_STATUS);
   });
 
   it('classifies a habit status request', () => {
@@ -155,14 +151,12 @@ describe('classifyIntent', () => {
   });
 
   // ── New context taxonomy (spec §3.1) ────────────────────────────────────────
-  it.each([
-    'what should i do',
-    'what should i work on',
-    'which task should i do',
-    'recommend a task',
-  ])('classifies "%s" as task recommend', (phrase) => {
-    expect(classifyIntent(phrase)).toBe(CoachIntent.TASK_RECOMMEND);
-  });
+  it.each(['what should i do', 'what should i work on', 'which task should i do', 'recommend a task'])(
+    'classifies "%s" as task recommend',
+    (phrase) => {
+      expect(classifyIntent(phrase)).toBe(CoachIntent.TASK_RECOMMEND);
+    }
+  );
 
   it.each([
     'whats my most important task',
@@ -177,24 +171,22 @@ describe('classifyIntent', () => {
     'classifies "%s" as task next',
     (phrase) => {
       expect(classifyIntent(phrase)).toBe(CoachIntent.TASK_NEXT);
-    },
+    }
   );
 
-  it.each([
-    'mark the landing page complete',
-    'finish the investor deck',
-    'complete the presentation',
-  ])('classifies "%s" as task complete', (phrase) => {
-    expect(classifyIntent(phrase)).toBe(CoachIntent.TASK_COMPLETE);
-  });
+  it.each(['mark the landing page complete', 'finish the investor deck', 'complete the presentation'])(
+    'classifies "%s" as task complete',
+    (phrase) => {
+      expect(classifyIntent(phrase)).toBe(CoachIntent.TASK_COMPLETE);
+    }
+  );
 
-  it.each([
-    'move the presentation to tomorrow',
-    'reschedule the meeting',
-    'postpone the review',
-  ])('classifies "%s" as task reschedule', (phrase) => {
-    expect(classifyIntent(phrase)).toBe(CoachIntent.TASK_RESCHEDULE);
-  });
+  it.each(['move the presentation to tomorrow', 'reschedule the meeting', 'postpone the review'])(
+    'classifies "%s" as task reschedule',
+    (phrase) => {
+      expect(classifyIntent(phrase)).toBe(CoachIntent.TASK_RESCHEDULE);
+    }
+  );
 
   it.each(['find my presentation task', 'search for the invoice'])('classifies "%s" as task search', (phrase) => {
     expect(classifyIntent(phrase)).toBe(CoachIntent.TASK_SEARCH);
@@ -204,12 +196,10 @@ describe('classifyIntent', () => {
     'classifies "%s" as task details',
     (phrase) => {
       expect(classifyIntent(phrase)).toBe(CoachIntent.TASK_DETAILS);
-    },
+    }
   );
 
   it('classifies a multi-word recommendation phrase despite previous habit turn intent', () => {
-    expect(classifyIntent('what should i work on', 'what are my pending tasks')).toBe(
-      CoachIntent.TASK_RECOMMEND,
-    );
+    expect(classifyIntent('what should i work on', 'what are my pending tasks')).toBe(CoachIntent.TASK_RECOMMEND);
   });
 });

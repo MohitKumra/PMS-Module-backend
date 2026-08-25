@@ -31,9 +31,13 @@ import uploadsRoutes from './routes/uploads.routes';
 import mediaFileRoutes from './routes/media-file.routes';
 import schedulerRoutes from './routes/scheduler.routes';
 import notionRoutes from './routes/notion.routes';
+import adminRoutes from './routes/admin.routes';
+import billingRoutes from './routes/billing.routes';
+import webhookRoutes from './routes/webhook.routes';
 import projectsController from './controllers/projects.controller';
 import { errorHandler } from './middleware/errorHandler';
 import { startScheduler } from './jobs/reminderScheduler';
+import { bootstrapAdmin } from './services/adminAuth.service';
 import { prisma } from './lib/prismaClient';
 
 const app = express();
@@ -120,6 +124,9 @@ app.use('/api/media', uploadsRoutes);
 app.use('/api/scheduler', schedulerRoutes);
 app.use('/api/notion', notionRoutes);
 app.use('/api/projects', projectsController);
+app.use('/api/billing', billingRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api/webhooks', webhookRoutes);
 
 // ─── 404 catch ────────────────────────────────────────────────────────────────
 app.use((_req, res) => res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Route not found' } }));
@@ -130,9 +137,11 @@ app.use(errorHandler);
 // ─── Start server ─────────────────────────────────────────────────────────────
 const port = parseInt(env.PORT, 10);
 startScheduler();
+bootstrapAdmin().catch((err) => console.error('Failed to bootstrap initial admin:', err));
 app.listen(port, () => {
   console.log(`🚀  Backend running at http://localhost:${port}`);
   console.log(`📊  Health: http://localhost:${port}/health`);
 });
 
 export default app;
+

@@ -9,6 +9,7 @@ import { env } from '../config/env';
 export interface JwtPayload {
   sub: string; // userId
   email: string;
+  tokenVersion?: number;
 }
 
 /** Signs a short-lived access token (default 15m). */

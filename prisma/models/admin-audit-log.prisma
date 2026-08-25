@@ -1,0 +1,19 @@
+model AdminAuditLog {
+  id             String       @id @default(cuid())
+  adminAccountId String
+  action         String
+  entityType     String
+  entityId       String?
+  before         Json?
+  after          Json?
+  reason         String?
+  ipAddress      String?
+  userAgent      String?
+  requestId      String?
+  createdAt      DateTime     @default(now())
+  adminAccount   AdminAccount @relation(fields: [adminAccountId], references: [id], onDelete: Cascade)
+
+  @@index([adminAccountId])
+  @@index([entityType, entityId])
+  @@index([action, createdAt])
+}

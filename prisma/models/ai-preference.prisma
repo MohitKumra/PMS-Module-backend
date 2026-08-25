@@ -17,6 +17,8 @@ model AIPreference {
   tokensThisMonth        Int       @default(0)
   tokensTotal            Int       @default(0)
   aiCallsTotal           Int       @default(0)
+  aiRequestsThisMonth    Int       @default(0)
+  aiRequestsTotal        Int       @default(0)
   lastTokenUseAt         DateTime?
   user                   User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

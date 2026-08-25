@@ -1,15 +1,24 @@
-// backend/src/controllers/notion.controller.ts
-// Notion integration controller — handles OAuth, database listing, and imports.
-// Supports both legacy Database API and new Data Source API.
-
 import type { Request, Response, NextFunction } from 'express';
 import * as notionService from '../services/notion.service';
 import { createError } from '../middleware/errorHandler';
+import { checkUserEntitlement } from '../services/entitlement.service';
 
 export async function startOAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const returnTo = (req.query.returnTo as string) || '/settings?tab=integrations';
     const userId = req.user!.sub;
+
+    const entitlement = await checkUserEntitlement(userId, 'notionSync');
+    if (!entitlement.allowed) {
+      res.status(403).json({
+        error: {
+          code: 'FEATURE_LOCKED',
+          message: `Notion Sync is not available on your current plan (${entitlement.currentEffectivePlan}). Please upgrade to Basic or above to unlock.`,
+        },
+      });
+      return;
+    }
+
     const url = notionService.buildNotionAuthUrl(returnTo, userId);
     res.json({ url });
   } catch (err) {

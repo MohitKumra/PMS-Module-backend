@@ -1,0 +1,9 @@
+model CouponPlan {
+  couponId  String
+  planId    String
+  createdAt DateTime @default(now())
+  coupon    Coupon   @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  plan      Plan     @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@id([couponId, planId])
+}

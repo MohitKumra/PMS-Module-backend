@@ -61,13 +61,13 @@ export async function signup(
   name?: string,
   timezone?: string | null
 ): Promise<AuthResponse> {
-  const existing = await prisma.user.findUnique({ where: { email } });
+  const sanitizedEmail = email.trim().toLowerCase()
+  const existing = await prisma.user.findUnique({ where: { email : sanitizedEmail } });
   if (existing) throw createError(409, 'EMAIL_IN_USE', 'An account with this email already exists');
-
   const passwordHash = await bcrypt.hash(password, 12);
   const user = await prisma.user.create({
     data: {
-      email,
+      email : sanitizedEmail,
       passwordHash,
       name: name ?? null,
       timezone: normalizeTimezone(timezone) ?? 'UTC',
@@ -90,26 +90,64 @@ export async function signup(
 export async function login(
   email: string,
   password: string,
-  timezone?: string | null
+  timezone?: string | null,
+  context?: { ipAddress?: string; userAgent?: string }
 ): Promise<{ response: AuthResponse; refreshToken: string }> {
-  const user = await prisma.user.findUnique({ where: { email } });
+  const sanitizedEmail = email.trim().toLowerCase();
+
+  const user = await prisma.user.findUnique({ where: { email: sanitizedEmail } });
   if (!user || !user.passwordHash) {
     throw createError(401, 'INVALID_CREDENTIALS', 'Email or password is incorrect');
   }
 
   const valid = await bcrypt.compare(password, user.passwordHash);
-  if (!valid) throw createError(401, 'INVALID_CREDENTIALS', 'Email or password is incorrect');
+  if (!valid) {
+    // Record failed login event
+    try {
+      await prisma.userLoginEvent.create({
+        data: {
+          userId: user.id,
+          provider: 'LOCAL',
+          success: false,
+          ipAddress: context?.ipAddress,
+          userAgent: context?.userAgent,
+        },
+      });
+    } catch {}
+    throw createError(401, 'INVALID_CREDENTIALS', 'Email or password is incorrect');
+  }
+
+  if (user.status === 'BANNED') {
+    throw createError(403, 'ACCOUNT_BANNED', user.statusReason || 'This account has been permanently banned.');
+  }
+
+  if (user.status === 'DEACTIVATED') {
+    throw createError(403, 'ACCOUNT_DEACTIVATED', 'This account has been deactivated. Please contact support.');
+  }
 
   const normalizedTimezone = normalizeTimezone(timezone);
-  const effectiveUser =
-    normalizedTimezone && normalizedTimezone !== user.timezone
-      ? await prisma.user.update({
-          where: { id: user.id },
-          data: { timezone: normalizedTimezone },
-        })
-      : user;
+  const effectiveUser = await prisma.user.update({
+    where: { id: user.id },
+    data: {
+      lastLoginAt: new Date(),
+      timezone: normalizedTimezone && normalizedTimezone !== user.timezone ? normalizedTimezone : user.timezone,
+    },
+  });
 
-  const payload = { sub: effectiveUser.id, email: effectiveUser.email };
+  // Record successful login event
+  try {
+    await prisma.userLoginEvent.create({
+      data: {
+        userId: user.id,
+        provider: 'LOCAL',
+        success: true,
+        ipAddress: context?.ipAddress,
+        userAgent: context?.userAgent,
+      },
+    });
+  } catch {}
+
+  const payload = { sub: effectiveUser.id, email: effectiveUser.email, tokenVersion: effectiveUser.tokenVersion };
   return {
     response: { accessToken: signAccessToken(payload), user: toUserDTO(effectiveUser) },
     refreshToken: signRefreshToken(payload),
@@ -131,19 +169,33 @@ export async function refreshTokens(refreshToken: string): Promise<{ accessToken
   const user = await prisma.user.findUnique({ where: { id: payload.sub } });
   if (!user) throw createError(401, 'USER_NOT_FOUND', 'User no longer exists');
 
-  const newPayload = { sub: user.id, email: user.email };
+  if (user.status === 'BANNED') {
+    throw createError(403, 'ACCOUNT_BANNED', 'This account has been permanently banned.');
+  }
+
+  if (user.status === 'DEACTIVATED') {
+    throw createError(403, 'ACCOUNT_DEACTIVATED', 'This account has been deactivated.');
+  }
+
+  if (payload.tokenVersion !== undefined && payload.tokenVersion !== user.tokenVersion) {
+    throw createError(401, 'SESSION_REVOKED', 'Session has been invalidated. Please log in again.');
+  }
+
+  const newPayload = { sub: user.id, email: user.email, tokenVersion: user.tokenVersion };
   return {
     accessToken: signAccessToken(newPayload),
     refreshToken: signRefreshToken(newPayload),
   };
 }
 
+
 // ---------------------------------------------------------------------------
 // Password Reset / Password Change
 // ---------------------------------------------------------------------------
 
 export async function requestPasswordReset(email: string): Promise<void> {
-  const user = await prisma.user.findUnique({ where: { email } });
+  const sanitizedEmail = email.trim().toLowerCase()
+  const user = await prisma.user.findUnique({ where: { email : sanitizedEmail } });
   if (!user) {
     throw createError(404, 'EMAIL_NOT_FOUND', 'No account found with that email address');
   }
@@ -163,7 +215,9 @@ export async function requestPasswordReset(email: string): Promise<void> {
 }
 
 export async function requestPasswordResetByRecoveryEmail(recoveryEmail: string): Promise<void> {
-  const user = await prisma.user.findFirst({ where: { recoveryEmail } });
+  const sanitizedEmail = recoveryEmail.trim().toLowerCase()
+
+  const user = await prisma.user.findFirst({ where: { recoveryEmail : sanitizedEmail } });
   if (!user) {
     throw createError(404, 'RECOVERY_EMAIL_NOT_FOUND', 'No account found with that recovery email');
   }

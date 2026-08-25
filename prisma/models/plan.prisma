@@ -1,0 +1,27 @@
+model Plan {
+  id                   String                @id @default(cuid())
+  slug                 String                @unique
+  name                 String
+  description          String?
+  currency             String                @default("USD")
+  priceCents           Int
+  billingInterval      BillingInterval       @default(MONTH)
+  features             Json
+  sortOrder            Int                   @default(0)
+  isActive             Boolean               @default(true)
+  version              Int                   @default(1)
+  metadata             Json?
+  createdByAdminId     String?
+  updatedByAdminId     String?
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  paymentProviderPlans PaymentProviderPlan[]
+  subscriptions        Subscription[]
+  paymentOrders        PaymentOrder[]
+  billingTransactions  BillingTransaction[]
+  couponPlans          CouponPlan[]
+  entitlementOverrides EntitlementOverride[]
+
+  @@index([slug])
+  @@index([isActive, sortOrder])
+}

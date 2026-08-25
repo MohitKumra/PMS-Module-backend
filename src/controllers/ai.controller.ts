@@ -31,6 +31,7 @@ import { confirmCoachEntity } from '../services/ai/coachActions';
 import { getSummary, getWeeklyProgress, getUpcomingDeadlines } from '../services/analytics.service';
 import { prisma } from '../lib/prismaClient';
 import * as goalService from '../services/goal.service';
+import { checkUserEntitlement } from '../services/entitlement.service';
 
 export type AIFeatureKey =
   | 'dailyBriefEnabled'
@@ -49,6 +50,24 @@ async function isAIFeatureEnabled(userId: string, featureKey: AIFeatureKey): Pro
     return aiPref[featureKey] !== false;
   } catch {
     return true;
+  }
+}
+
+export async function checkAITokenQuota(userId: string): Promise<{ allowed: boolean; message?: string }> {
+  try {
+    const aiPref = await prisma.aIPreference.findUnique({ where: { userId } });
+    const usageCount = aiPref?.aiRequestsThisMonth ?? 0;
+
+    const entitlement = await checkUserEntitlement(userId, 'aiRequestsPerMonth', usageCount + 1);
+    if (!entitlement.allowed) {
+      return {
+        allowed: false,
+        message: `Monthly AI request limit reached (${entitlement.limit} requests on ${entitlement.currentEffectivePlan}). Upgrade your plan to get higher limits.`,
+      };
+    }
+    return { allowed: true };
+  } catch {
+    return { allowed: true };
   }
 }
 
@@ -185,6 +204,19 @@ export async function postCoachChat(req: Request, res: Response) {
         mood: 'encouraging',
         planPrompt: '',
         source: 'fallback',
+      });
+      return;
+    }
+
+    const quota = await checkAITokenQuota(userId);
+    if (!quota.allowed) {
+      res.json({
+        title: 'Monthly AI Limit Reached',
+        message: quota.message || 'You have reached your monthly AI limit. Please upgrade your plan in Settings to unlock more AI requests.',
+        suggestion: { text: 'View Plans', actionLabel: 'Upgrade Plan', actionType: 'open_settings' as const },
+        mood: 'calm',
+        planPrompt: '',
+        source: 'quota_exceeded',
       });
       return;
     }

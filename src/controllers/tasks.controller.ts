@@ -1,6 +1,7 @@
-// backend/src/controllers/tasks.controller.ts
 import type { Request, Response, NextFunction } from 'express';
 import * as taskService from '../services/task.service';
+import { prisma } from '../lib/prismaClient';
+import { checkUserEntitlement } from '../services/entitlement.service';
 
 export async function list(req: Request, res: Response, next: NextFunction) {
   try {
@@ -34,7 +35,21 @@ export async function getOne(req: Request, res: Response, next: NextFunction) {
 
 export async function create(req: Request, res: Response, next: NextFunction) {
   try {
-    const task = await taskService.createTask(req.user!.sub, req.body);
+    const userId = req.user!.sub;
+    const currentCount = await prisma.task.count({ where: { userId } });
+    const entitlement = await checkUserEntitlement(userId, 'tasks', currentCount + 1);
+    if (!entitlement.allowed) {
+      return res.status(403).json({
+        error: {
+          code: 'PLAN_LIMIT_REACHED',
+          message: `Your current plan (${entitlement.currentEffectivePlan}) allows up to ${entitlement.limit} active tasks. Please upgrade to create more tasks.`,
+          currentEffectivePlan: entitlement.currentEffectivePlan,
+          limit: entitlement.limit,
+        },
+      });
+    }
+
+    const task = await taskService.createTask(userId, req.body);
     res.status(201).json(task);
   } catch (err) {
     next(err);

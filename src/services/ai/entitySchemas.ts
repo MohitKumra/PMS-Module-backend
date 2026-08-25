@@ -3,15 +3,7 @@
 // This provides field definitions for tasks, habits, goals, and projects
 // so the LLM knows EXACTLY what fields are available.
 
-export type EntityFieldType = 
-  | 'string' 
-  | 'date' 
-  | 'time' 
-  | 'number' 
-  | 'boolean' 
-  | 'enum' 
-  | 'array'
-  | 'recurrence';
+export type EntityFieldType = 'string' | 'date' | 'time' | 'number' | 'boolean' | 'enum' | 'array' | 'recurrence';
 
 export interface EntityFieldDef {
   name: string;
@@ -113,7 +105,8 @@ const TASK_SCHEMA: EntitySchemaDef = {
     {
       name: 'recurrence',
       type: 'recurrence',
-      description: 'Recurrence pattern as simple string: "daily", "daily-skip:sunday", "weekly:monday,wednesday", "monthly:15", "quarterly", "yearly"',
+      description:
+        'Recurrence pattern as simple string: "daily", "daily-skip:sunday", "weekly:monday,wednesday", "monthly:15", "quarterly", "yearly"',
       required: false,
       default: null,
       example: 'daily-skip:sunday',
@@ -136,7 +129,7 @@ const TASK_SCHEMA: EntitySchemaDef = {
       example: 'goal_456',
     },
     {
-      name: 'subtasks',
+      name: 'subTasks',
       type: 'array',
       description: 'Array of subtask titles',
       required: false,
@@ -195,10 +188,11 @@ const HABIT_SCHEMA: EntitySchemaDef = {
     {
       name: 'skipDays',
       type: 'array',
-      description: 'Array of day numbers to skip: 0=Monday, 1=Tuesday, 2=Wednesday, 3=Thursday, 4=Friday, 5=Saturday, 6=Sunday',
+      description:
+        'Array of FULL day names the habit is skipped on, e.g. ["Saturday","Sunday"]. Use day names (not numbers): monday,tuesday,wednesday,thursday,friday,saturday,sunday',
       required: false,
       default: null,
-      example: '[5, 6] for skip Saturday and Sunday',
+      example: '["Saturday", "Sunday"] to skip the weekend',
       entitySpecific: true,
     },
     {
@@ -371,25 +365,23 @@ export function generateEntityFieldsPrompt(entity: 'task' | 'habit' | 'goal' | '
   const schema = ENTITY_SCHEMAS[entity];
   if (!schema) return '';
 
-  const lines: string[] = [
-    `${entity.toUpperCase()} FIELDS (${schema.description}):`,
-  ];
+  const lines: string[] = [`${entity.toUpperCase()} FIELDS (${schema.description}):`];
 
   for (const field of schema.fields) {
     const parts: string[] = [`  • ${field.name} (${field.type})`];
-    
+
     if (field.required) {
       parts.push('REQUIRED');
     } else if (field.default !== undefined) {
       parts.push(`default: ${field.default}`);
     }
-    
+
     if (field.options) {
       parts.push(`options: ${field.options.join('|')}`);
     }
-    
+
     parts.push(`— ${field.description}`);
-    
+
     if (field.example) {
       parts.push(`Example: ${field.example}`);
     }
@@ -425,12 +417,32 @@ export function generateEntityCreationPrompt(): string {
     sections.push('');
   }
 
+  sections.push('ENTITY-TYPE SELECTION RULE (CRITICAL):');
+  sections.push('  • Decide the entity type from the user\'s words FIRST — never default to "task".');
+  sections.push(
+    '  • Words like "habit", "routine", "track", "build a habit" or a repeatable daily/weekly behavior => entity: "habit".'
+  );
+  sections.push('  • "task"/"to-do"/"remind me to" => entity: "task".');
+  sections.push(
+    '  • A habit request MUST NOT be a task. Never put task-only fields (recurrence, priority, status, dueDate) in a habit draft.'
+  );
+  sections.push(
+    '  • Set "entityDraft.entity" to exactly "habit" for any habit request, and use only the habit field set below.'
+  );
+  sections.push(
+    '  • NEGATIVE GUARD: If the user says any of "every day", "daily", "skip ... days", "remind me at", "habit", "routine", "track", "commit for", or names rest days — this is ALWAYS a habit, NEVER a task. Output entity:"habit".'
+  );
+  sections.push('');
   sections.push('SPECIAL FIELD RULES:');
   sections.push('  • Dates: Accept ISO (YYYY-MM-DD) or natural ("tomorrow", "next friday", "end of month")');
   sections.push('  • Times: Accept HH:mm (24h) or natural ("2pm", "14:30", "6am")');
-  sections.push('  • Recurrence (tasks only): Simple strings like "daily", "daily-skip:sunday", "weekly:monday,wednesday", "monthly:15"');
-  sections.push('  • Skip days (habits only): Array of day indices [0-6] where 0=Monday, 6=Sunday');
-  sections.push('  • Subtasks (tasks only): Array of subtask title strings');
+  sections.push(
+    '  • Recurrence (tasks only): Simple strings like "daily", "daily-skip:sunday", "weekly:monday,wednesday", "monthly:15"'
+  );
+  sections.push(
+    '  • Skip days (habits only): Array of FULL day names to skip, e.g. "Saturday" and "Sunday". Use the names, never numbers: ["Saturday","Sunday"].'
+  );
+  sections.push('  • Subtasks (tasks only): Array of subtask title strings under the field "subTasks"');
   sections.push('');
   sections.push('ENTITY-SPECIFIC DIFFERENCES:');
   sections.push('  • TASKS use "recurrence" for repeating patterns');
@@ -447,7 +459,7 @@ export function generateEntityCreationPrompt(): string {
  */
 export function getRequiredFields(entity: 'task' | 'habit' | 'goal' | 'project'): string[] {
   const schema = ENTITY_SCHEMAS[entity];
-  return schema.fields.filter(f => f.required).map(f => f.name);
+  return schema.fields.filter((f) => f.required).map((f) => f.name);
 }
 
 /**
@@ -455,7 +467,7 @@ export function getRequiredFields(entity: 'task' | 'habit' | 'goal' | 'project')
  */
 export function getAllFields(entity: 'task' | 'habit' | 'goal' | 'project'): string[] {
   const schema = ENTITY_SCHEMAS[entity];
-  return schema.fields.map(f => f.name);
+  return schema.fields.map((f) => f.name);
 }
 
 /**
@@ -463,5 +475,5 @@ export function getAllFields(entity: 'task' | 'habit' | 'goal' | 'project'): str
  */
 export function getEntitySpecificFields(entity: 'task' | 'habit' | 'goal' | 'project'): string[] {
   const schema = ENTITY_SCHEMAS[entity];
-  return schema.fields.filter(f => f.entitySpecific).map(f => f.name);
+  return schema.fields.filter((f) => f.entitySpecific).map((f) => f.name);
 }

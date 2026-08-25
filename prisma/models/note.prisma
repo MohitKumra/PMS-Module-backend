@@ -19,8 +19,8 @@ model Note {
   bookmarkPage   Int?
   bookmarks      Json?    @default("[]")
   contentVersion Int      @default(1)
-  coverStyle     Json?    // CoverStyle: title font/size/color/weight/align, subtitle, overlay opacity
-  bookStyle      Json?    // BookStyle: reader-side page theme/font/fontSize preferences
+  coverStyle     Json? // CoverStyle: title font/size/color/weight/align, subtitle, overlay opacity
+  bookStyle      Json? // BookStyle: reader-side page theme/font/fontSize preferences
   project        Project? @relation(fields: [projectId], references: [id])
   task           Task?    @relation(fields: [taskId], references: [id])
   user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)

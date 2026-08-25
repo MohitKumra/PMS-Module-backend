@@ -1,0 +1,4 @@
+enum CouponType {
+  PERCENTAGE
+  FIXED_AMOUNT
+}

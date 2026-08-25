@@ -1,0 +1,7 @@
+enum AdminRole {
+  SUPER_ADMIN
+  ADMIN
+  SUPPORT
+  BILLING
+  ANALYST
+}

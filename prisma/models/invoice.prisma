@@ -1,0 +1,28 @@
+model Invoice {
+  id                String               @id @default(cuid())
+  userId            String
+  subscriptionId    String?
+  orderId           String?
+  provider          String?
+  providerInvoiceId String?
+  invoiceNumber     String               @unique
+  status            InvoiceStatus        @default(DRAFT)
+  currency          String
+  subtotalCents     Int
+  discountCents     Int                  @default(0)
+  taxCents          Int                  @default(0)
+  totalCents        Int
+  issuedAt          DateTime             @default(now())
+  dueAt             DateTime?
+  paidAt            DateTime?
+  pdfUrl            String?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+  user              User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subscription      Subscription?        @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  order             PaymentOrder?        @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  transactions      BillingTransaction[]
+
+  @@unique([provider, providerInvoiceId])
+  @@index([userId, status])
+}

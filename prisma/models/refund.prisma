@@ -1,0 +1,21 @@
+model Refund {
+  id                 String             @id @default(cuid())
+  transactionId      String
+  userId             String
+  provider           String
+  providerRefundId   String?
+  amountCents        Int
+  currency           String
+  status             RefundStatus       @default(PENDING)
+  reason             String?
+  initiatedByAdminId String?
+  processedAt        DateTime?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  transaction        BillingTransaction @relation(fields: [transactionId], references: [id], onDelete: Restrict)
+  user               User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerRefundId])
+  @@index([transactionId])
+  @@index([userId, status])
+}

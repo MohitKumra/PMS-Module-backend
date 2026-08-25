@@ -5,11 +5,7 @@
 // milestones so the model always has authoritative task data.
 
 import type { CoachIntent } from '../coachIntent';
-import {
-  ALL_CONTEXT_DOMAINS,
-  type ContextDomain,
-  type ContextRequirements,
-} from './contextTypes';
+import { ALL_CONTEXT_DOMAINS, type ContextDomain, type ContextRequirements } from './contextTypes';
 
 const TASKS: ContextDomain[] = ['tasks'];
 const HABITS: ContextDomain[] = ['habits'];
@@ -43,8 +39,11 @@ export function intentContextStrategy(intent: CoachIntent): ContextRequirements 
       return { domains: TASKS_GOALS_MILESTONES, requiresLiveStats: false };
 
     // ── Habit intents ───────────────────────────────────────────────────────
+    // habit_create loads goals too so the model can resolve a free-text goal
+    // reference ("link to my fitness goal") to a real goalId from context.
     case 'habit_create':
     case 'habit_update':
+      return { domains: ['habits', 'goals', 'milestones'], requiresLiveStats: false };
     case 'habit_complete':
     case 'habit_search':
     case 'habit_details':

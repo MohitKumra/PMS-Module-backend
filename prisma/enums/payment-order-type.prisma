@@ -1,0 +1,5 @@
+enum PaymentOrderType {
+  ONE_TIME
+  SUBSCRIPTION_INITIAL
+  SUBSCRIPTION_RENEWAL
+}

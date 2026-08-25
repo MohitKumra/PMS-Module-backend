@@ -9,7 +9,7 @@ import { createTask } from '../task.service';
 import { createHabit } from '../habit.service';
 import { createGoal } from '../goal.service';
 import { createProject } from '../project.service';
-import type { TaskDTO, HabitDTO, GoalDTO, ProjectDTO } from '../../types';
+import type { TaskDTO, HabitDTO, GoalDTO, ProjectDTO, TaskRecurrenceConfig } from '../../types';
 import {
   TASK_PRIORITY_OPTIONS,
   TASK_STATUS_OPTIONS,
@@ -36,7 +36,7 @@ function coerceDate(value: string | null | undefined): string | null {
 
   const today = new Date();
   today.setUTCHours(0, 0, 0, 0);
-  
+
   const addDays = (n: number) => {
     const d = new Date(today);
     d.setUTCDate(d.getUTCDate() + n);
@@ -49,7 +49,7 @@ function coerceDate(value: string | null | undefined): string | null {
   };
 
   const v = value.toLowerCase().trim().replace(/\s+/g, ' ');
-  
+
   // Exact matches
   if (v === 'today') return addDays(0);
   if (v === 'tomorrow') return addDays(1);
@@ -65,12 +65,12 @@ function coerceDate(value: string | null | undefined): string | null {
   // Day of week handling: "friday", "next friday", "this friday"
   const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
   const isNext = v.startsWith('next ');
-  const dayMatch = dayNames.findIndex(day => v.endsWith(day) || v === day);
-  
+  const dayMatch = dayNames.findIndex((day) => v.endsWith(day) || v === day);
+
   if (dayMatch !== -1) {
     const currentDay = today.getUTCDay();
     let daysUntil = dayMatch - currentDay;
-    
+
     if (isNext) {
       // "next friday" always means the friday in the next week
       daysUntil = daysUntil <= 0 ? daysUntil + 7 : daysUntil + 7;
@@ -78,7 +78,7 @@ function coerceDate(value: string | null | undefined): string | null {
       // "friday" or "this friday" means upcoming occurrence (including today if it's friday)
       if (daysUntil < 0) daysUntil += 7;
     }
-    
+
     return addDays(daysUntil);
   }
 
@@ -91,34 +91,34 @@ function coerceDate(value: string | null | undefined): string | null {
  */
 function coerceTime(value: string | null | undefined): string | null {
   if (!value || value === 'No reminder') return null;
-  
+
   // Already in HH:mm format
   if (TIME_RE.test(value)) return value;
-  
+
   // Extract from parentheses: "Morning (09:00)"
   const parenMatch = value.match(/\((\d{2}:\d{2})\)/);
   if (parenMatch) return parenMatch[1];
-  
+
   // Handle common time formats: "2pm", "2:30pm", "14:00", "2:30 pm"
   const v = value.toLowerCase().trim().replace(/\s+/g, '');
-  
+
   // Match "2pm", "14:30", "2:30pm"
   const timeMatch = v.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/);
   if (timeMatch) {
     let hours = parseInt(timeMatch[1], 10);
     const minutes = timeMatch[2] ? parseInt(timeMatch[2], 10) : 0;
     const meridiem = timeMatch[3];
-    
+
     // Convert 12-hour to 24-hour
     if (meridiem === 'pm' && hours < 12) hours += 12;
     if (meridiem === 'am' && hours === 12) hours = 0;
-    
+
     // Validate
     if (hours >= 0 && hours < 24 && minutes >= 0 && minutes < 60) {
       return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
     }
   }
-  
+
   return null;
 }
 
@@ -131,25 +131,86 @@ function coerceTime(value: string | null | undefined): string | null {
  * back to its default (?? default / ?? undefined / ?? null) when omitted.
  */
 function stripNulls<T extends Record<string, unknown>>(obj: T): Partial<T> {
-  return Object.fromEntries(
-    Object.entries(obj).filter(([, value]) => value != null),
-  ) as Partial<T>;
+  return Object.fromEntries(Object.entries(obj).filter(([, value]) => value != null)) as Partial<T>;
 }
 
 /**
- * Coerce the habit skip-days option chips (day-name strings) to numeric indices.
+ * Coerce the habit skip-days field (day names, numeric indices, or numeric
+ * strings) to a sorted, de-duplicated array of numeric indices.
  * 0=Mon … 6=Sun, matching the backend convention used in habit.service.ts
+ * The LLM may emit any of: "Saturday"/["Saturday","Sunday"], [5,6], ["5","6"].
  */
-function coerceSkipDays(value: string | string[] | null | undefined): number[] {
+export function coerceSkipDays(value: unknown): number[] {
   const DAY_MAP: Record<string, number> = {
-    monday: 0, tuesday: 1, wednesday: 2, thursday: 3,
-    friday: 4, saturday: 5, sunday: 6,
+    monday: 0,
+    tuesday: 1,
+    wednesday: 2,
+    thursday: 3,
+    friday: 4,
+    saturday: 5,
+    sunday: 6,
   };
-  if (!value) return [];
+  if (value == null || value === '') return [];
+
   const arr = Array.isArray(value) ? value : [value];
-  return arr
-    .map((d) => DAY_MAP[d.toLowerCase().trim()])
-    .filter((n): n is number => n !== undefined);
+  const result = new Set<number>();
+
+  for (const item of arr) {
+    if (item == null) continue;
+
+    // Already a numeric index (0-6)
+    if (typeof item === 'number') {
+      if (Number.isInteger(item) && item >= 0 && item <= 6) result.add(item);
+      continue;
+    }
+
+    const raw = String(item).trim().toLowerCase();
+    if (!raw) continue;
+
+    // Handle comma-delimited single string: "Saturday, Sunday" or "5,6"
+    const pieces = raw.includes(',') ? raw.split(',').map((p) => p.trim()) : [raw];
+
+    for (const s of pieces) {
+      if (!s) continue;
+      // Day name: "saturday", "Saturday"
+      const named = DAY_MAP[s];
+      if (named !== undefined) {
+        result.add(named);
+        continue;
+      }
+      // Numeric string: "5" or "6"
+      const numeric = Number(s);
+      if (Number.isInteger(numeric) && numeric >= 0 && numeric <= 6) result.add(numeric);
+    }
+  }
+
+  return [...result].sort((a, b) => a - b);
+}
+
+/**
+ * Normalize the subtask drafts the LLM produced into the shape createTask()
+ * expects: `{ title, order }[]`. Accepts an array of plain title strings
+ * and/or objects. Titles are trimmed and empty entries dropped, then ordered.
+ */
+export function normalizeSubTasks(
+  value: Array<{ title?: string } | string> | { title?: string } | string | null | undefined
+): Array<{ title: string; order: number }> {
+  const arr = Array.isArray(value) ? value : value == null ? [] : [value];
+  const result: Array<{ title: string; order: number }> = [];
+
+  arr.forEach((item) => {
+    const title = typeof item === 'string' ? item : item?.title;
+    const t = (title ?? '').trim();
+    if (!t) return;
+    // Preserve existing order when provided, otherwise use array position.
+    const order =
+      typeof item === 'object' && item !== null && (item as { order?: number }).order != null
+        ? (item as { order?: number }).order!
+        : result.length;
+    result.push({ title: t, order });
+  });
+
+  return result;
 }
 
 // ─── Task ─────────────────────────────────────────────────────────────────────
@@ -163,7 +224,9 @@ const CoachTaskDraftSchema = z.object({
   reminderTime: z.string().optional().nullable(),
   reminderMessage: z.string().max(200).optional().nullable(),
   status: z.enum(TASK_STATUS_OPTIONS).optional(),
-  subTasks: z.array(z.object({ title: z.string().min(1).max(200) })).optional(),
+  subTasks: z
+    .union([z.array(z.object({ title: z.string().min(1).max(200) })), z.array(z.string().min(1).max(200))])
+    .optional(),
   recurrence: z.string().optional().nullable(),
 });
 
@@ -172,17 +235,17 @@ export type CoachTaskDraft = z.infer<typeof CoachTaskDraftSchema>;
 function parseRecurrencePattern(
   pattern: string | null | undefined,
   dueDate: string | null
-): import('../../types').TaskRecurrenceConfig | undefined {
+): TaskRecurrenceConfig | undefined {
   if (!pattern || pattern === 'none') return undefined;
   const startsAt = dueDate ?? new Date().toISOString().slice(0, 10);
   const parts = pattern.toLowerCase().split(':');
   const base = parts[0];
-  const options = parts[1]?.split(',').map(s => s.trim());
+  const options = parts[1]?.split(',').map((s) => s.trim());
 
   if (base === 'daily-skip' && options) {
     const allDays = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
-    const skipDays = options.map(d => d.toLowerCase());
-    const includeDays = allDays.filter(d => !skipDays.includes(d));
+    const skipDays = options.map((d) => d.toLowerCase());
+    const includeDays = allDays.filter((d) => !skipDays.includes(d));
     return {
       enabled: true,
       frequency: 'week',
@@ -274,10 +337,7 @@ function parseRecurrencePattern(
   return undefined;
 }
 
-export async function createTaskFromCoach(
-  userId: string,
-  draft: CoachTaskDraft,
-): Promise<TaskDTO> {
+export async function createTaskFromCoach(userId: string, draft: CoachTaskDraft): Promise<TaskDTO> {
   const parsed = CoachTaskDraftSchema.safeParse(stripNulls(draft));
   if (!parsed.success) {
     console.error('[Coach] Task draft validation failed:', parsed.error);
@@ -299,7 +359,7 @@ export async function createTaskFromCoach(
     dueTime,
     reminderTime,
     reminderMessage: d.reminderMessage ?? null,
-    subTasks: d.subTasks,
+    subTasks: normalizeSubTasks(d.subTasks as Array<{ title?: string } | string> | undefined),
     recurrenceConfig,
   });
 }
@@ -310,17 +370,17 @@ const CoachHabitDraftSchema = z.object({
   title: z.string().min(1).max(200),
   reminderTime: z.string().optional().nullable(),
   reminderMessage: z.string().max(200).optional().nullable(),
-  skipDays: z.union([z.string(), z.array(z.string())]).optional().nullable(),
+  skipDays: z
+    .union([z.string(), z.number(), z.array(z.union([z.string(), z.number()]))])
+    .optional()
+    .nullable(),
   durationDays: z.number().int().positive().optional().nullable(),
   goalId: z.string().optional().nullable(),
 });
 
 export type CoachHabitDraft = z.infer<typeof CoachHabitDraftSchema>;
 
-export async function createHabitFromCoach(
-  userId: string,
-  draft: CoachHabitDraft,
-): Promise<HabitDTO> {
+export async function createHabitFromCoach(userId: string, draft: CoachHabitDraft): Promise<HabitDTO> {
   const parsed = CoachHabitDraftSchema.safeParse(stripNulls(draft));
   if (!parsed.success) {
     throw createError(400, 'INVALID_HABIT_DRAFT', 'Invalid habit draft from coach');
@@ -354,10 +414,7 @@ const CoachGoalDraftSchema = z.object({
 
 export type CoachGoalDraft = z.infer<typeof CoachGoalDraftSchema>;
 
-export async function createGoalFromCoach(
-  userId: string,
-  draft: CoachGoalDraft,
-): Promise<GoalDTO> {
+export async function createGoalFromCoach(userId: string, draft: CoachGoalDraft): Promise<GoalDTO> {
   const parsed = CoachGoalDraftSchema.safeParse(stripNulls(draft));
   if (!parsed.success) {
     throw createError(400, 'INVALID_GOAL_DRAFT', 'Invalid goal draft from coach');
@@ -391,10 +448,7 @@ const CoachProjectDraftSchema = z.object({
 
 export type CoachProjectDraft = z.infer<typeof CoachProjectDraftSchema>;
 
-export async function createProjectFromCoach(
-  userId: string,
-  draft: CoachProjectDraft,
-): Promise<ProjectDTO> {
+export async function createProjectFromCoach(userId: string, draft: CoachProjectDraft): Promise<ProjectDTO> {
   const parsed = CoachProjectDraftSchema.safeParse(stripNulls(draft));
   if (!parsed.success) {
     throw createError(400, 'INVALID_PROJECT_DRAFT', 'Invalid project draft from coach');
@@ -430,7 +484,7 @@ export type CoachConfirmEntityResponse =
 
 export async function confirmCoachEntity(
   userId: string,
-  req: CoachConfirmEntityRequest,
+  req: CoachConfirmEntityRequest
 ): Promise<CoachConfirmEntityResponse> {
   switch (req.entity) {
     case 'task':

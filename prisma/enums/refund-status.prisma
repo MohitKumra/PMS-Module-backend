@@ -1,0 +1,6 @@
+enum RefundStatus {
+  PENDING
+  PROCESSED
+  FAILED
+  CANCELLED
+}

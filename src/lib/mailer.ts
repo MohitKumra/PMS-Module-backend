@@ -160,6 +160,10 @@ export function renderRecoveryByEmail(vars: { resetUrl: string; primaryEmail: st
   return renderTemplate('recovery-by-email', vars);
 }
 
+export function renderAdminOtp(vars: { otp: string }): string {
+  return renderTemplate('admin-otp', vars);
+}
+
 // ─── Legacy helper functions ────────────────────────────────────
 
 export function passwordResetEmail(resetUrl: string): string {
@@ -169,3 +173,8 @@ export function passwordResetEmail(resetUrl: string): string {
 export function recoveryByEmailEmail(resetUrl: string, primaryEmail: string): string {
   return renderRecoveryByEmail({ resetUrl, primaryEmail });
 }
+
+export function adminOtpEmail(otp: string): string {
+  return renderAdminOtp({ otp });
+}
+

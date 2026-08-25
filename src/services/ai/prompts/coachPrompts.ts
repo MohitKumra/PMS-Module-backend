@@ -1,25 +1,19 @@
 // backend/src/services/ai/prompts/coachPrompts.ts
 // Prompt templates for the AI Coach feature.
 
-import type { CoachIntent } from '../coachIntent';
-import { intentSnapshotDomains, ALL_SNAPSHOT_DOMAINS } from '../coachIntent';
+import { CoachIntent, intentSnapshotDomains, intentTargetEntity, ALL_SNAPSHOT_DOMAINS } from '../coachIntent';
 import { generateEntityCreationPrompt } from '../entitySchemas';
 import type { RecommendationCandidate } from '../context/contextRanker';
 import type { ResolvedEntityInfo } from '../entity/entityTypes';
 
 export type AICoachActionType =
-  | 'open_habits'
-  | 'open_tasks'
-  | 'open_goals'
-  | 'open_focus'
-  | 'open_dashboard'
-  | 'open_coach'
-  | 'create_plan';
+  'open_habits' | 'open_tasks' | 'open_goals' | 'open_focus' | 'open_dashboard' | 'open_coach' | 'create_plan';
 
 export interface CoachConversationTurn {
   role: 'user' | 'assistant';
   content: string;
 }
+
 
 export interface CoachSessionSnapshot {
   title: string;
@@ -280,9 +274,7 @@ export function buildCoachUserPrompt(data: CoachPromptData): string {
   // the array is empty. This tells the AI "we checked the DB and found nothing"
   // rather than leaving the key absent (which the AI interprets as "no data
   // available"). An absent key means the domain was not loaded for this turn.
-  const domains = isChatMode
-    ? intentSnapshotDomains(data.intent ?? 'coaching')
-    : ALL_SNAPSHOT_DOMAINS;
+  const domains = isChatMode ? intentSnapshotDomains(data.intent ?? 'coaching') : ALL_SNAPSHOT_DOMAINS;
 
   if (domains.includes('tasks')) {
     payload.tasks = data.tasks.slice(0, 6).map((task) => ({
@@ -353,6 +345,31 @@ export function buildCoachUserPrompt(data: CoachPromptData): string {
       title: data.resolvedEntity.title,
       confidence: data.resolvedEntity.confidence,
       method: data.resolvedEntity.method,
+    };
+  }
+
+  const CREATE_INTENTS: ReadonlySet<CoachIntent> = new Set([
+    CoachIntent.TASK_CREATE,
+    CoachIntent.HABIT_CREATE,
+    CoachIntent.GOAL_CREATE,
+    CoachIntent.PROJECT_CREATE,
+  ]);
+
+  // Force the model to draft the correct entity type for create intents.
+  // The shared creation prompt lists all four field sets, and weaker models
+  // default to "task" for habit/goal/project requests. Asserting the one entity
+  // here — with its allowed field names — prevents a habit from being created
+  // as a task (which loses skipDays, reminders, and shows `recurrence` chips).
+  const intentNow = data.intent ?? 'coaching';
+  const createEntity = isChatMode && CREATE_INTENTS.has(intentNow) ? intentTargetEntity(intentNow) : undefined;
+  if (createEntity) {
+    const isHabit = createEntity === 'habit';
+    const typeHint = isHabit
+      ? '"habit". HABITS use skipDays + reminderTime + reminderMessage + targetPerWeek + durationDays. HABITS do NOT have priority, status, dueDate, or recurrence.'
+      : `"${createEntity}". Use ONLY the ${createEntity} field set.`;
+    payload.entityCreation = {
+      entity: createEntity,
+      instruction: `This turn is requesting to CREATE a ${createEntity}. You MUST set entityDraft.entity to ${typeHint} Never use fields from another entity type.`,
     };
   }
 

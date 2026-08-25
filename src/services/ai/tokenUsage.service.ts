@@ -64,6 +64,8 @@ export async function recordTokenUsage(userId: string, totalTokens: number): Pro
           tokensThisMonth: totalTokens,
           tokensTotal: totalTokens,
           aiCallsTotal: 1,
+          aiRequestsThisMonth: 1,
+          aiRequestsTotal: 1,
           lastTokenUseAt: now,
           tokenPeriodStart: now,
         },
@@ -93,6 +95,7 @@ export async function recordTokenUsage(userId: string, totalTokens: number): Pro
           ...(crossedDay ? { tokensToday: 0 } : {}),
           ...(crossedWeek ? { tokensThisWeek: 0 } : {}),
           ...(crossedMonth ? { tokensThisMonth: 0 } : {}),
+          ...(crossedMonth ? { aiRequestsThisMonth: 0 } : {}),
           tokenPeriodStart: now,
         },
       });
@@ -107,6 +110,8 @@ export async function recordTokenUsage(userId: string, totalTokens: number): Pro
         tokensThisMonth: { increment: totalTokens },
         tokensTotal: { increment: totalTokens },
         aiCallsTotal: { increment: 1 },
+        aiRequestsThisMonth: { increment: 1 },
+        aiRequestsTotal: { increment: 1 },
         lastTokenUseAt: now,
       },
     });
@@ -152,6 +157,7 @@ export async function getTokenUsage(userId: string): Promise<TokenUsageSnapshot>
         ...(crossedDay ? { tokensToday: 0 } : {}),
         ...(crossedWeek ? { tokensThisWeek: 0 } : {}),
         ...(crossedMonth ? { tokensThisMonth: 0 } : {}),
+        ...(crossedMonth ? { aiRequestsThisMonth: 0 } : {}),
         tokenPeriodStart: now,
       },
     });

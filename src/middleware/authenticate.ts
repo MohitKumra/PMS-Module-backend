@@ -29,12 +29,35 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
   try {
     const payload = verifyAccessToken(token);
 
-    // Verify the user still exists in the database.
-    // If the user was deleted, reject the request immediately instead of
-    // letting downstream services fail with foreign key constraint violations.
+    // Verify the user still exists in the database and is active.
     const user = await prisma.user.findUnique({ where: { id: payload.sub } });
     if (!user) {
       res.status(401).json({ error: { code: 'USER_NOT_FOUND', message: 'User account no longer exists' } });
+      return;
+    }
+
+    if (user.status === 'BANNED') {
+      res.status(403).json({
+        error: {
+          code: 'ACCOUNT_BANNED',
+          message: user.statusReason ? `Account banned: ${user.statusReason}` : 'This account has been permanently banned.',
+        },
+      });
+      return;
+    }
+
+    if (user.status === 'DEACTIVATED') {
+      res.status(403).json({
+        error: {
+          code: 'ACCOUNT_DEACTIVATED',
+          message: 'This account has been deactivated. Please contact support.',
+        },
+      });
+      return;
+    }
+
+    if (payload.tokenVersion !== undefined && payload.tokenVersion !== user.tokenVersion) {
+      res.status(401).json({ error: { code: 'SESSION_REVOKED', message: 'Session has been invalidated. Please log in again.' } });
       return;
     }
 
@@ -55,3 +78,4 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
     res.status(401).json({ error: { code: 'TOKEN_EXPIRED', message: 'Access token is expired or invalid' } });
   }
 }
+

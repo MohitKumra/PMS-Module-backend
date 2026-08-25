@@ -1,0 +1,14 @@
+model SubscriptionEvent {
+  id              String                @id @default(cuid())
+  subscriptionId  String
+  eventType       SubscriptionEventType
+  provider        String
+  providerEventId String?
+  payload         Json?
+  occurredAt      DateTime
+  createdAt       DateTime              @default(now())
+  subscription    Subscription          @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@index([subscriptionId, occurredAt])
+  @@index([eventType, createdAt])
+}

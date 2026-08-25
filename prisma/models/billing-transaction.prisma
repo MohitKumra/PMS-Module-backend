@@ -1,0 +1,43 @@
+model BillingTransaction {
+  id                     String                 @id @default(cuid())
+  userId                 String
+  subscriptionId         String?
+  orderId                String?
+  invoiceId              String?
+  planId                 String?
+  couponId               String?
+  provider               String
+  providerPaymentId      String?
+  providerOrderId        String?
+  providerInvoiceId      String?
+  providerSubscriptionId String?
+  transactionType        BillingTransactionType
+  status                 PaymentStatus
+  currency               String
+  grossAmountCents       Int
+  discountCents          Int                    @default(0)
+  taxCents               Int                    @default(0)
+  netAmountCents         Int
+  providerFeeCents       Int?
+  paidAt                 DateTime?
+  failedAt               DateTime?
+  failureCode            String?
+  failureReason          String?
+  reference              String?
+  metadata               Json?
+  createdAt              DateTime               @default(now())
+  updatedAt              DateTime               @updatedAt
+  user                   User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subscription           Subscription?          @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  order                  PaymentOrder?          @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  invoice                Invoice?               @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  plan                   Plan?                  @relation(fields: [planId], references: [id], onDelete: SetNull)
+  refunds                Refund[]
+  couponRedemptions      CouponRedemption[]
+
+  @@unique([provider, providerPaymentId])
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@index([providerOrderId])
+  @@index([providerSubscriptionId])
+}

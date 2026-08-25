@@ -1,0 +1,23 @@
+model Coupon {
+  id                 String             @id @default(cuid())
+  code               String             @unique
+  description        String?
+  type               CouponType
+  value              Int
+  currency           String?
+  maxUses            Int?
+  usedCount          Int                @default(0)
+  perUserLimit       Int?               @default(1)
+  minimumAmountCents Int?
+  startsAt           DateTime?
+  expiresAt          DateTime?
+  isActive           Boolean            @default(true)
+  appliesToAllPlans  Boolean            @default(true)
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  couponPlans        CouponPlan[]
+  redemptions        CouponRedemption[]
+
+  @@index([code])
+  @@index([isActive, expiresAt])
+}

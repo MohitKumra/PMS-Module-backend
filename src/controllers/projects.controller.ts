@@ -4,6 +4,8 @@ import { authenticate } from '../middleware/authenticate';
 import * as projectService from '../services/project.service';
 import type { CreateProjectRequest, UpdateProjectRequest, AssignTaskToProjectRequest } from '../types';
 import { deleteStoredFile } from '../lib/fileStorage';
+import { prisma } from '../lib/prismaClient';
+import { checkUserEntitlement } from '../services/entitlement.service';
 
 const router = Router();
 
@@ -36,6 +38,19 @@ router.get('/:id', async (req, res, next) => {
 router.post('/', async (req, res, next) => {
   try {
     const userId = req.user!.sub;
+    const currentCount = await prisma.project.count({ where: { userId } });
+    const entitlement = await checkUserEntitlement(userId, 'projects', currentCount + 1);
+    if (!entitlement.allowed) {
+      return res.status(403).json({
+        error: {
+          code: 'PLAN_LIMIT_REACHED',
+          message: `Your current plan (${entitlement.currentEffectivePlan}) allows up to ${entitlement.limit} projects. Please upgrade to create more.`,
+          currentEffectivePlan: entitlement.currentEffectivePlan,
+          limit: entitlement.limit,
+        },
+      });
+    }
+
     const body: CreateProjectRequest = req.body;
     const project = await projectService.createProject(userId, body);
     res.status(201).json(project);

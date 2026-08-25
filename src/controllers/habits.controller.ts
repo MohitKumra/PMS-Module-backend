@@ -1,6 +1,7 @@
-// backend/src/controllers/habits.controller.ts
 import type { Request, Response, NextFunction } from 'express';
 import * as habitService from '../services/habit.service';
+import { prisma } from '../lib/prismaClient';
+import { checkUserEntitlement } from '../services/entitlement.service';
 
 export async function list(req: Request, res: Response, next: NextFunction) {
   try {
@@ -12,7 +13,21 @@ export async function list(req: Request, res: Response, next: NextFunction) {
 
 export async function create(req: Request, res: Response, next: NextFunction) {
   try {
-    res.status(201).json(await habitService.createHabit(req.user!.sub, req.body));
+    const userId = req.user!.sub;
+    const currentCount = await prisma.habit.count({ where: { userId } });
+    const entitlement = await checkUserEntitlement(userId, 'habits', currentCount + 1);
+    if (!entitlement.allowed) {
+      return res.status(403).json({
+        error: {
+          code: 'PLAN_LIMIT_REACHED',
+          message: `Your current plan (${entitlement.currentEffectivePlan}) allows up to ${entitlement.limit} habits. Please upgrade to track more habits.`,
+          currentEffectivePlan: entitlement.currentEffectivePlan,
+          limit: entitlement.limit,
+        },
+      });
+    }
+
+    res.status(201).json(await habitService.createHabit(userId, req.body));
   } catch (err) {
     next(err);
   }

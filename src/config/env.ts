@@ -38,6 +38,17 @@ const envSchema = z.object({
   BACKEND_URL: z.string().default('http://localhost:3001').transform(normalizeBaseUrl),
   FRONTEND_URL: z.string().default('http://localhost:5173').transform(normalizeBaseUrl),
 
+  JWT_ADMIN_SECRET: z.string().min(32, 'JWT_ADMIN_SECRET must be at least 32 characters').default('super-secret-admin-jwt-key-minimum-32-chars-finamite'),
+  JWT_ADMIN_EXPIRES_IN: z.string().default('15m'),
+  ADMIN_EMAIL: z.string().email().optional().default('admin@finamite.com'),
+  ADMIN_PASSWORD_HASH: z.string().optional(),
+
+  // Razorpay Configuration
+  RAZORPAY_KEY_ID: z.string().optional().default('rzp_test_dummy_key_id'),
+  RAZORPAY_KEY_SECRET: z.string().optional().default('rzp_test_dummy_key_secret'),
+  RAZORPAY_WEBHOOK_SECRET: z.string().optional().default('rzp_webhook_secret_key_123'),
+  RAZORPAY_MODE: z.enum(['test', 'live']).default('test'),
+
   // AI Provider Configuration
   // The env var is named OPENAI_API_KEY for familiarity, but it works with any OpenAI-compatible provider.
   // Set AI_PROVIDER to 'groq' for Groq, 'openai' for OpenAI, or leave blank to disable AI features.

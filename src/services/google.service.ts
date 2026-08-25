@@ -250,52 +250,72 @@ export async function handleGoogleAuthCallback(
     throw createError(401, 'UNAUTHORIZED', 'You must be signed in to connect Google Calendar');
   }
 
-  const updatedUser = await prisma.user.update({
-    where: { id: user.id },
-    data: {
-      email: googleEmail,
-      googleId: profile.sub,
-      name: profile.name ?? user.name,
-      avatarUrl: profile.picture ?? user.avatarUrl,
-    },
-  });
+    if (user.status === 'BANNED') {
+      throw createError(403, 'ACCOUNT_BANNED', user.statusReason || 'This account has been permanently banned.');
+    }
+    if (user.status === 'DEACTIVATED') {
+      throw createError(403, 'ACCOUNT_DEACTIVATED', 'This account has been deactivated. Please contact support.');
+    }
 
-  if (parsedState.purpose === 'calendar-connect') {
-    await prisma.googleCalendarConnection.upsert({
-      where: { userId: updatedUser.id },
-      create: {
-        userId: updatedUser.id,
-        googleAccountId: profile.sub,
-        googleEmail,
-        accessToken: accessTokenEncrypted,
-        refreshToken: refreshTokenEncrypted,
-        scope: tokens.scope ?? GOOGLE_SCOPES['calendar-connect'].join(' '),
-        expiresAt,
-        isActive: true,
-      },
-      update: {
-        googleAccountId: profile.sub,
-        googleEmail,
-        accessToken: accessTokenEncrypted,
-        ...(refreshTokenEncrypted ? { refreshToken: refreshTokenEncrypted } : {}),
-        scope: tokens.scope ?? GOOGLE_SCOPES['calendar-connect'].join(' '),
-        expiresAt,
-        isActive: true,
-        revokedAt: null,
+    const updatedUser = await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        email: googleEmail,
+        googleId: profile.sub,
+        name: profile.name ?? user.name,
+        avatarUrl: profile.picture ?? user.avatarUrl,
+        lastLoginAt: new Date(),
       },
     });
+
+    // Record login event
+    try {
+      await prisma.userLoginEvent.create({
+        data: {
+          userId: updatedUser.id,
+          provider: 'GOOGLE',
+          success: true,
+        },
+      });
+    } catch {}
+
+    if (parsedState.purpose === 'calendar-connect') {
+      await prisma.googleCalendarConnection.upsert({
+        where: { userId: updatedUser.id },
+        create: {
+          userId: updatedUser.id,
+          googleAccountId: profile.sub,
+          googleEmail,
+          accessToken: accessTokenEncrypted,
+          refreshToken: refreshTokenEncrypted,
+          scope: tokens.scope ?? GOOGLE_SCOPES['calendar-connect'].join(' '),
+          expiresAt,
+          isActive: true,
+        },
+        update: {
+          googleAccountId: profile.sub,
+          googleEmail,
+          accessToken: accessTokenEncrypted,
+          ...(refreshTokenEncrypted ? { refreshToken: refreshTokenEncrypted } : {}),
+          scope: tokens.scope ?? GOOGLE_SCOPES['calendar-connect'].join(' '),
+          expiresAt,
+          isActive: true,
+          revokedAt: null,
+        },
+      });
+    }
+
+    const payload = { sub: updatedUser.id, email: updatedUser.email, tokenVersion: updatedUser.tokenVersion };
+    return {
+      user: toUserDTO(updatedUser),
+      accessToken: signAccessToken(payload),
+      refreshToken: signRefreshToken(payload),
+      redirectTo: parsedState.returnTo,
+      purpose: parsedState.purpose,
+      nonce: parsedState.nonce ?? '',
+    };
   }
 
-  const payload = { sub: updatedUser.id, email: updatedUser.email };
-  return {
-    user: toUserDTO(updatedUser),
-    accessToken: signAccessToken(payload),
-    refreshToken: signRefreshToken(payload),
-    redirectTo: parsedState.returnTo,
-    purpose: parsedState.purpose,
-    nonce: parsedState.nonce ?? '',
-  };
-}
 
 /**
  * Safely extracts purpose/nonce from a signed OAuth state string so the

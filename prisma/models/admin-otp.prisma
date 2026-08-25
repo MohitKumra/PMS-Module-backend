@@ -1,0 +1,13 @@
+model AdminOtp {
+  id             String       @id @default(cuid())
+  adminAccountId String
+  codeHash       String
+  expiresAt      DateTime
+  consumedAt     DateTime?
+  attempts       Int          @default(0)
+  maxAttempts    Int          @default(5)
+  createdAt      DateTime     @default(now())
+  adminAccount   AdminAccount @relation(fields: [adminAccountId], references: [id], onDelete: Cascade)
+
+  @@index([adminAccountId, expiresAt])
+}

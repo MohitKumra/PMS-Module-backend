@@ -89,7 +89,7 @@ function resolveAIConfig(): ResolvedAIConfig | null {
 
 type CachedClient = {
   config: ResolvedAIConfig;
-  
+
   client: OpenAI;
 };
 
@@ -153,6 +153,85 @@ export function getAIModel(): string {
   return resolveAIConfig()?.model || 'unknown';
 }
 
+/**
+ * Extract usable text from a Chat Completions choice.
+ * Handles three sources:
+ *   • `message.content`  — the normal assistant reply (string or null).
+ *   • `message.reasoning_content` — some reasoning models put the visible
+ *     answer here while leaving `content` empty.
+ *   • (deprecated `message.content` array) — not expected by the SDK but
+ *     tolerated as flattened text.
+ * Returns the trimmed text, or null if the model truly returned nothing.
+ */
+export function extractChatContent(
+  message: {
+    content?: string | Array<{ text?: string }> | null;
+    reasoning_content?: string | null;
+    refusal?: string | null;
+  } | null
+): string | null {
+  if (!message) return null;
+
+  let text = '';
+  const content = message.content;
+  if (typeof content === 'string') text = content;
+  else if (Array.isArray(content))
+    text = content
+      .map((part) => (part && typeof part === 'object' && typeof part.text === 'string' ? part.text : ''))
+      .join('');
+
+  // Secondary source: some models return reasoning in a separate field with
+  // an empty `content`.
+  if (!text && typeof message.reasoning_content === 'string') text = message.reasoning_content;
+
+  return text.trim() || null;
+}
+
+/**
+ * Extract the final assistant text from an OpenAI Responses API `Response`.
+ * Prefers the SDK's `output_text` convenience field, then flattens any
+ * `output` content blocks of type `output_text` (covers tool-call outputs).
+ */
+export function extractResponseText(response: {
+  output_text?: string | null;
+  output?: Array<{
+    type?: string;
+    text?: string | null;
+    content?: Array<{ type?: string; text?: string | null }> | null;
+  }>;
+}): string | null {
+  if (typeof response.output_text === 'string' && response.output_text.trim()) {
+    return response.output_text.trim();
+  }
+
+  const chunks: string[] = [];
+  for (const item of response.output ?? []) {
+    if (!item) continue;
+    if (item.type === 'output_text' && typeof item.text === 'string' && item.text) {
+      chunks.push(item.text);
+      continue;
+    }
+    // Nested content array (e.g. message.output_text items).
+    if (Array.isArray(item.content)) {
+      for (const part of item.content) {
+        if (part?.type === 'output_text' && typeof part.text === 'string' && part.text) {
+          chunks.push(part.text);
+        }
+      }
+    }
+  }
+  const text = chunks.join('');
+  return text.trim() || null;
+}
+
+/** Strip any <think>...</think> block that some models wrap around their output. */
+export function stripThinkBlock(text: string): string {
+  return text
+    .replace(/<\/think>\s*/i, '')
+    .replace(/<think>[\s\S]*?$/i, '')
+    .trim();
+}
+
 export async function complete(options: AIRequestOptions): Promise<AIResponse | null> {
   const cached = getClient();
   if (!cached) {
@@ -176,21 +255,18 @@ export async function complete(options: AIRequestOptions): Promise<AIResponse | 
 
   try {
     // Build the user message — plain text or vision content array when images are present
-    const userMessage: OpenAI.Chat.Completions.ChatCompletionMessageParam =
-      hasImages
-        ? {
-            role: 'user',
-            content: [
-              { type: 'text', text: options.userPrompt },
-              ...options.imageUrls!.map(
-                (url): OpenAI.Chat.Completions.ChatCompletionContentPartImage => ({
-                  type: 'image_url',
-                  image_url: { url, detail: 'auto' },
-                }),
-              ),
-            ],
-          }
-        : { role: 'user', content: options.userPrompt };
+    const userMessage: OpenAI.Chat.Completions.ChatCompletionMessageParam = hasImages
+      ? {
+          role: 'user',
+          content: [
+            { type: 'text', text: options.userPrompt },
+            ...options.imageUrls!.map((url): OpenAI.Chat.Completions.ChatCompletionContentPartImage => ({
+              type: 'image_url',
+              image_url: { url, detail: 'auto' },
+            })),
+          ],
+        }
+      : { role: 'user', content: options.userPrompt };
 
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
       { role: 'system', content: options.systemPrompt },
@@ -209,17 +285,40 @@ export async function complete(options: AIRequestOptions): Promise<AIResponse | 
     });
 
     const choice = completion.choices[0];
-    if (!choice?.message?.content) {
-      console.warn('[AI] Empty response from provider');
+    let content = extractChatContent(choice?.message ?? null);
+
+    // If chat completions returned no usable text and this provider serves
+    // Responses-API models (OpenAI), fall back to client.responses. Some
+    // models (e.g. gpt-5.* reasoning models) return model output on the
+    // Responses API while the Chat Completions `message.content` is empty.
+    if (!content && cached.config.provider === 'openai') {
+      const response = await cached.client.responses.create({
+        model: modelToUse,
+        input: `System: ${options.systemPrompt}\n\nUser: ${options.userPrompt}`,
+        max_output_tokens: maxTokens,
+        ...(options.responseFormat === 'json_object' ? { text: { format: { type: 'json_object' as const } } } : {}),
+      });
+      content = extractResponseText(response);
+
+      if (content) {
+        console.log(
+          `[AI] Chat completions returned empty content; got reply via Responses API (model=${completion.model}).`
+        );
+      }
+    }
+
+    if (!content) {
+      console.warn(
+        `[AI] Empty response from provider (provider=${cached.config.provider}, model=${completion.model}, finish_reason=${choice?.finish_reason ?? 'unknown'}, usage=${JSON.stringify(completion.usage ?? null)})`
+      );
       return null;
     }
 
     // Strip any <think>...</think> block that some models emit before the JSON
-    const rawContent = choice.message.content;
-    const content = rawContent.replace(/<think>[\s\S]*?<\/think>\s*/i, '').trim();
+    const finalContent = stripThinkBlock(content);
 
     return {
-      content,
+      content: finalContent,
       model: completion.model,
       provider: cached.config.provider,
       usage: completion.usage
