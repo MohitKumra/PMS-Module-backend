@@ -115,6 +115,7 @@ export async function recordSuccessfulPayment(params: {
   planId?: string;
   couponId?: string;
   discountCents?: number;
+  autoRenew?: boolean;
   metadata?: any;
 }) {
   // Idempotency: Check if transaction already recorded
@@ -140,10 +141,71 @@ export async function recordSuccessfulPayment(params: {
     const grossAmountCents = params.amountCents + discountCents;
     const netAmountCents = params.amountCents;
 
+    // A completed PaymentOrder is the purchase boundary. Activate a Subscription so
+    // the entitlements resolver returns the paid plan (otherwise the user stays
+    // on the Free tier even though the ledger shows the payment as CAPTURED).
+    // autoRenew is true when the user chose recurring Auto-pay and false for a
+    // one-time purchase. Renewals always happen at the full plan price — the
+    // coupon was already applied only to this initial charge.
+    let subscriptionId = params.subscriptionId || null;
+    if (!subscriptionId && params.orderId && params.planId) {
+      // Idempotency: reuse an existing active subscription for this order/plan.
+      const existingSub = await tx.subscription.findFirst({
+        where: {
+          userId: params.userId,
+          planId: params.planId,
+          OR: [
+            { status: { in: ['ACTIVE', 'PAST_DUE'] } },
+            { providerSubscriptionId: `local_${params.orderId}` },
+          ],
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 1,
+      });
+
+      if (existingSub) {
+        subscriptionId = existingSub.id;
+      } else {
+        const plan = await tx.plan.findUnique({ where: { id: params.planId } });
+        const now = new Date();
+        const isYearly = plan?.billingInterval === 'YEAR';
+        const periodEnd = new Date(
+          now.getTime() + (isYearly ? 365 : 30) * 24 * 60 * 60 * 1000
+        );
+
+        const newSub = await tx.subscription.create({
+          data: {
+            userId: params.userId,
+            planId: params.planId,
+            provider: params.provider,
+            providerSubscriptionId: `local_${params.orderId}`,
+            status: 'ACTIVE',
+            billingInterval: plan?.billingInterval || 'MONTH',
+            quantity: 1,
+            currentPeriodStart: now,
+            currentPeriodEnd: periodEnd,
+            startedAt: now,
+            autoRenew: params.autoRenew ?? false,
+          },
+        });
+
+        await tx.subscriptionEvent.create({
+          data: {
+            subscriptionId: newSub.id,
+            eventType: 'ACTIVATED',
+            provider: params.provider,
+            occurredAt: now,
+          },
+        });
+
+        subscriptionId = newSub.id;
+      }
+    }
+
     const invoice = await tx.invoice.create({
       data: {
         userId: params.userId,
-        subscriptionId: params.subscriptionId || null,
+        subscriptionId,
         orderId: params.orderId || null,
         provider: params.provider,
         invoiceNumber,
@@ -160,7 +222,7 @@ export async function recordSuccessfulPayment(params: {
     const transaction = await tx.billingTransaction.create({
       data: {
         userId: params.userId,
-        subscriptionId: params.subscriptionId || null,
+        subscriptionId,
         orderId: params.orderId || null,
         invoiceId: invoice.id,
         planId: params.planId || null,
@@ -169,7 +231,7 @@ export async function recordSuccessfulPayment(params: {
         providerPaymentId: params.providerPaymentId,
         providerOrderId: params.providerOrderId || null,
         providerSubscriptionId: params.providerSubscriptionId || null,
-        transactionType: params.subscriptionId ? 'SUBSCRIPTION_INITIAL' : 'PAYMENT',
+        transactionType: subscriptionId ? 'SUBSCRIPTION_INITIAL' : 'PAYMENT',
         status: 'CAPTURED',
         currency: params.currency,
         grossAmountCents,
@@ -374,15 +436,33 @@ export async function processRazorpayWebhook(rawBody: string, signature: string 
       case 'refund.processed': {
         const refundEntity = event.payload?.refund?.entity;
         if (refundEntity) {
-          await prisma.refund.updateMany({
+          const refund = await prisma.refund.findFirst({
             where: {
               provider: 'razorpay',
               providerRefundId: refundEntity.id,
             },
-            data: {
-              status: 'PROCESSED',
-              processedAt: new Date(),
+          });
+          if (refund) {
+            await prisma.refund.update({
+              where: { id: refund.id },
+              data: { status: 'PROCESSED', processedAt: new Date() },
+            });
+            // Reconcile the parent transaction status and revoke access if fully refunded.
+            await rollupRefundStatus(refund.transactionId);
+          }
+        }
+        break;
+      }
+
+      case 'refund.failed': {
+        const failedEntity = event.payload?.refund?.entity;
+        if (failedEntity) {
+          await prisma.refund.updateMany({
+            where: {
+              provider: 'razorpay',
+              providerRefundId: failedEntity.id,
             },
+            data: { status: 'FAILED' },
           });
         }
         break;
@@ -465,14 +545,8 @@ export async function processRefund(params: {
     },
   });
 
-  const totalRefundedNow = alreadyRefundedCents + refundAmount;
-  const newStatus: PaymentStatus =
-    totalRefundedNow >= transaction.netAmountCents ? 'REFUNDED' : 'PARTIALLY_REFUNDED';
-
-  await prisma.billingTransaction.update({
-    where: { id: transaction.id },
-    data: { status: newStatus },
-  });
+  // Recompute the transaction status and revoke access if it's now fully refunded.
+  await rollupRefundStatus(transaction.id);
 
   await logAdminAction({
     adminAccountId: params.adminAccountId,
@@ -484,6 +558,59 @@ export async function processRefund(params: {
   });
 
   return refund;
+}
+
+/**
+ * Recompute a transaction's ledger status from its PROCESSED refunds and, when a
+ * transaction becomes fully refunded, revoke access by cancelling the linked
+ * subscription immediately. Shared by the admin refund path and the Razorpay
+ * `refund.processed` webhook so both stay consistent.
+ */
+export async function rollupRefundStatus(transactionId: string): Promise<PaymentStatus | null> {
+  const tx = await prisma.billingTransaction.findUnique({
+    where: { id: transactionId },
+    include: { refunds: true },
+  });
+  if (!tx) return null;
+
+  const totalRefundedCents = tx.refunds
+    .filter((r) => r.status === 'PROCESSED')
+    .reduce((acc, r) => acc + r.amountCents, 0);
+
+  let newStatus: PaymentStatus = tx.status;
+  if (totalRefundedCents >= tx.netAmountCents && tx.netAmountCents > 0) {
+    newStatus = 'REFUNDED';
+  } else if (totalRefundedCents > 0) {
+    newStatus = 'PARTIALLY_REFUNDED';
+  }
+
+  if (newStatus !== tx.status) {
+    await prisma.billingTransaction.update({
+      where: { id: transactionId },
+      data: { status: newStatus },
+    });
+  }
+
+  // Full refund: revoke the user's access immediately by cancelling the plan the
+  // refunded payment purchased (if it is still active).
+  if (newStatus === 'REFUNDED' && tx.subscriptionId) {
+    const sub = await prisma.subscription.findUnique({ where: { id: tx.subscriptionId } });
+    if (sub && (sub.status === 'ACTIVE' || sub.status === 'PAST_DUE')) {
+      await prisma.subscription.update({
+        where: { id: sub.id },
+        data: { status: 'CANCELLED', endedAt: new Date(), autoRenew: false, cancelAtPeriodEnd: false },
+      });
+      await recordSubscriptionEvent({
+        subscriptionId: sub.id,
+        eventType: 'CANCELLED',
+        provider: 'razorpay',
+        occurredAt: new Date(),
+        payload: { reason: 'FULL_REFUND', transactionId },
+      });
+    }
+  }
+
+  return newStatus;
 }
 
 export async function listAdminTransactions(params?: {
@@ -554,4 +681,121 @@ export async function getTransactionDetail(id: string) {
   });
   if (!tx) throw createError(404, 'TRANSACTION_NOT_FOUND', 'Transaction not found');
   return tx;
+}
+
+/**
+ * Process due renewals for locally-managed, auto-renewing subscriptions.
+ *
+ * Unified lifecycle: every purchase creates ONE local Subscription. For
+ * subscriptions tied to a real Razorpay subscription (providerSubscriptionId
+ * does NOT start with "local_"), renewals are billed by Razorpay and arrive via
+ * webhooks — this scheduler skips those. For `local_`-managed subscriptions
+ * (test/dummy mode), we simulate the auto-renew: book a SUBSCRIPTION_RENEWAL
+ * transaction at the FULL current plan price with zero coupon/discount, extend
+ * the period, and keep the plan active. The coupon is only ever applied to the
+ * initial charge (it was already redeemed then), so renewals are always at full
+ * price.
+ */
+export async function renewDueLocalSubscriptions(): Promise<number> {
+  const now = new Date();
+  const due = await prisma.subscription.findMany({
+    where: {
+      status: 'ACTIVE',
+      autoRenew: true,
+      currentPeriodEnd: { lte: now },
+      providerSubscriptionId: { startsWith: 'local_' },
+    },
+    include: { plan: true },
+    take: 50,
+  });
+
+  let renewed = 0;
+  for (const sub of due) {
+    const plan = sub.plan;
+    const periodMs =
+      plan.billingInterval === 'YEAR'
+        ? 365 * 24 * 60 * 60 * 1000
+        : 30 * 24 * 60 * 60 * 1000;
+    const nextStart = new Date(sub.currentPeriodEnd);
+    const nextEnd = new Date(nextStart.getTime() + periodMs);
+    const invoiceNumber = `INV-${nextStart.getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`;
+    const simPaymentId = `sim_${sub.id}_${nextStart.getTime()}`;
+    const gross = plan.priceCents;
+
+    await prisma.$transaction(async (tx) => {
+      // Idempotency guard — never book the same renewal period twice.
+      const existing = await tx.billingTransaction.findUnique({
+        where: {
+          provider_providerPaymentId: {
+            provider: 'razorpay',
+            providerPaymentId: simPaymentId,
+          },
+        },
+      });
+      if (existing) return;
+
+      const invoice = await tx.invoice.create({
+        data: {
+          userId: sub.userId,
+          subscriptionId: sub.id,
+          provider: 'razorpay',
+          invoiceNumber,
+          status: 'PAID',
+          currency: plan.currency,
+          subtotalCents: gross,
+          discountCents: 0,
+          taxCents: 0,
+          totalCents: gross,
+          issuedAt: nextStart,
+          paidAt: nextStart,
+        },
+      });
+
+      await tx.billingTransaction.create({
+        data: {
+          userId: sub.userId,
+          subscriptionId: sub.id,
+          invoiceId: invoice.id,
+          planId: plan.id,
+          provider: 'razorpay',
+          providerPaymentId: simPaymentId,
+          providerSubscriptionId: sub.providerSubscriptionId,
+          transactionType: 'SUBSCRIPTION_RENEWAL',
+          status: 'CAPTURED',
+          currency: plan.currency,
+          grossAmountCents: gross,
+          discountCents: 0,
+          taxCents: 0,
+          netAmountCents: gross,
+          paidAt: nextStart,
+          metadata: { simulated: true, reason: 'LOCAL_SIMULATED_RENEWAL' },
+        },
+      });
+
+      await tx.subscription.update({
+        where: { id: sub.id },
+        data: {
+          status: 'ACTIVE',
+          currentPeriodStart: nextStart,
+          currentPeriodEnd: nextEnd,
+        },
+      });
+
+      await tx.subscriptionEvent.create({
+        data: {
+          subscriptionId: sub.id,
+          eventType: 'CHARGED',
+          provider: 'razorpay',
+          occurredAt: nextStart,
+        },
+      });
+    });
+
+    renewed++;
+    console.log(
+      `[Billing] Renewed local subscription ${sub.id} (${plan.name}) until ${nextEnd.toISOString()}.`
+    );
+  }
+
+  return renewed;
 }

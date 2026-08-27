@@ -16,13 +16,10 @@ export interface EffectivePlanResult {
   overrideId?: string | null;
 }
 
-const DEFAULT_FREE_FEATURES: Record<string, any> = {
-  aiRequestsPerMonth: 50,
-  projects: 3,
-  habits: 5,
-  tasks: 100,
-  storageMb: 100,
-};
+// NB: Feature limits come from the database Plan rows (edited via Admin —
+// Plans). This fallback only applies when no free-plan row exists, and never
+// invents a value for admin-controlled limits so the source of truth stays the DB.
+const DEFAULT_FREE_FEATURES: Record<string, any> = {};
 
 /**
  * Resolves the effective plan and entitlement features for a user.
@@ -32,6 +29,8 @@ const DEFAULT_FREE_FEATURES: Record<string, any> = {
  * 3. Active / Grace-Period Paid Subscription.
  * 4. Free / Default Tier.
  */
+
+
 export async function resolveEffectivePlan(userId: string): Promise<EffectivePlanResult> {
   const user = await prisma.user.findUnique({
     where: { id: userId },
@@ -87,12 +86,16 @@ export async function resolveEffectivePlan(userId: string): Promise<EffectivePla
     };
   }
 
-  // Precedence 2: Active Paid Subscription
+  // Precedence 2: Active Paid Subscription (must not be expired)
   if (user.subscriptions.length > 0) {
     const sub = user.subscriptions[0];
     const now = new Date();
-    // Allow past due within grace period
-    const isActive = sub.status === 'ACTIVE' || (sub.status === 'PAST_DUE' && sub.currentPeriodEnd >= now);
+    // A subscription is only "active" if the billing period hasn't ended. Both
+    // ACTIVE and PAST_DUE respect currentPeriodEnd, so an expired subscription
+    // degrades to Free (the "plan expired" case) instead of staying active.
+    const isActive =
+      (sub.status === 'ACTIVE' || sub.status === 'PAST_DUE') &&
+      sub.currentPeriodEnd >= now;
 
     if (isActive) {
       return {
@@ -142,6 +145,10 @@ export async function checkUserEntitlement(
   }
 
   if (typeof featureVal === 'number') {
+    // Sentinel: -1 means unlimited (no cap). A value of 0 means fully locked.
+    if (featureVal === -1) {
+      return { allowed: true, limit: -1, currentEffectivePlan: plan.planName };
+    }
     return {
       allowed: featureVal >= requiredQuantity,
       limit: featureVal,

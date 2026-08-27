@@ -5,6 +5,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { authenticate } from '../middleware/authenticate';
 import { validate } from '../middleware/validate';
+import { requireFeature, requireAIQuota } from '../middleware/requireFeature';
 import * as aiController from '../controllers/ai.controller';
 
 const router = Router();
@@ -45,50 +46,52 @@ const coachChatParamsSchema = z.object({
 router.get('/status', aiController.getStatus);
 
 // GET /api/ai/insights - Generate AI-powered productivity insights
-router.get('/insights', aiController.getInsights);
+router.get('/insights', requireAIQuota(), aiController.getInsights);
 
 // GET /api/ai/coach - Get AI coach message
-router.get('/coach', aiController.getCoach);
+router.get('/coach', requireAIQuota(), requireFeature('aiCoach'), aiController.getCoach);
 
 // POST /api/ai/coach/chat - Continue an AI coach conversation
-router.post('/coach/chat', validate({ body: coachChatSchema }), aiController.postCoachChat);
+router.post('/coach/chat', requireAIQuota(), requireFeature('aiCoach'), validate({ body: coachChatSchema }), aiController.postCoachChat);
 
 // GET /api/ai/coach/chats - List saved coach chats
-router.get('/coach/chats', aiController.getCoachChats);
+router.get('/coach/chats', requireFeature('aiCoach'), aiController.getCoachChats);
 
 // POST /api/ai/coach/chats - Create a new saved coach chat
-router.post('/coach/chats', validate({ body: coachCreateSchema }), aiController.createCoachChatThread);
+router.post('/coach/chats', requireFeature('aiCoach'), validate({ body: coachCreateSchema }), aiController.createCoachChatThread);
 
 // GET /api/ai/coach/chats/:chatId - Open a saved coach chat
-router.get('/coach/chats/:chatId', validate({ params: coachChatParamsSchema }), aiController.getCoachChatThread);
+router.get('/coach/chats/:chatId', requireFeature('aiCoach'), validate({ params: coachChatParamsSchema }), aiController.getCoachChatThread);
 
 // DELETE /api/ai/coach/chats/:chatId - Delete a saved coach chat
-router.delete('/coach/chats/:chatId', validate({ params: coachChatParamsSchema }), aiController.deleteCoachChatThread);
+router.delete('/coach/chats/:chatId', requireFeature('aiCoach'), validate({ params: coachChatParamsSchema }), aiController.deleteCoachChatThread);
 
 // POST /api/ai/coach/chats/:chatId/messages - Send a message in a saved coach chat
 router.post(
   '/coach/chats/:chatId/messages',
+  requireAIQuota(),
+  requireFeature('aiCoach'),
   validate({ params: coachChatParamsSchema, body: coachChatMessageSchema }),
   aiController.postCoachChatMessage
 );
 
 // GET /api/ai/daily-brief - Get AI daily briefing
-router.get('/daily-brief', aiController.getDailyBrief);
+router.get('/daily-brief', requireAIQuota(), aiController.getDailyBrief);
 
 // POST /api/ai/analyze-journal - Analyze a journal entry
-router.post('/analyze-journal', aiController.postAnalyzeJournal);
+router.post('/analyze-journal', requireAIQuota(), aiController.postAnalyzeJournal);
 
 // GET /api/ai/journal-weekly - Get weekly journal analysis
-router.get('/journal-weekly', aiController.getJournalWeekly);
+router.get('/journal-weekly', requireAIQuota(), aiController.getJournalWeekly);
 
 // POST /api/ai/parse-task - Parse natural language into task data
-router.post('/parse-task', aiController.postParseTask);
+router.post('/parse-task', requireAIQuota(), aiController.postParseTask);
 
 // POST /api/ai/goal-plan - Generate a full workspace plan from a single prompt
-router.post('/goal-plan', aiController.postGoalPlan);
+router.post('/goal-plan', requireAIQuota(), requireFeature('aiCoach'), aiController.postGoalPlan);
 
 // POST /api/ai/goal-workspace - Create goal, milestones, tasks, habits, and projects from a plan
-router.post('/goal-workspace', aiController.postGoalWorkspace);
+router.post('/goal-workspace', requireAIQuota(), requireFeature('aiCoach'), aiController.postGoalWorkspace);
 
 // ─── Coach entity confirm ─────────────────────────────────────────────────────
 
@@ -100,6 +103,7 @@ const coachConfirmEntitySchema = z.object({
 // POST /api/ai/coach/actions/confirm - Validate and write the entity the coach gathered
 router.post(
   '/coach/actions/confirm',
+  requireAIQuota(),
   validate({ body: coachConfirmEntitySchema }),
   aiController.postCoachConfirmEntity,
 );

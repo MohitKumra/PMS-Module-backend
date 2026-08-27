@@ -45,6 +45,7 @@ model User {
   couponRedemptions        CouponRedemption[]
   entitlementOverrides     EntitlementOverride[]
   loginEvents              UserLoginEvent[]
+  storageFiles             UserStorageFile[]
 
   @@index([email])
   @@index([status])

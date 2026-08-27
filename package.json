@@ -20,6 +20,7 @@
     "prisma:studio": "prisma studio --schema=./prisma",
     "prisma:format": "prisma format --schema=./prisma",
     "db:seed": "ts-node --transpile-only scripts/seed.ts",
+    "backfill:subscriptions": "ts-node --transpile-only scripts/backfill-orphan-subscriptions.ts",
     "migration:test": "ts-node --transpile-only scripts/test-migrations.ts",
     "migration:consistency": "ts-node --transpile-only scripts/check-migration-consistency.ts",
     "migration:destructive": "ts-node --transpile-only scripts/check-destructive-migrations.ts",

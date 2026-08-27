@@ -4,6 +4,7 @@ import { prisma } from '../lib/prismaClient';
 import { createError } from '../middleware/errorHandler';
 import { listPlans, getPlanById } from '../services/plan.service';
 import { resolveEffectivePlan } from '../services/entitlement.service';
+import { getUserStorageUsedBytes, getUserStorageLimitBytes } from '../services/storage.service';
 import {
   createCheckoutOrder,
   recordSuccessfulPayment,
@@ -45,13 +46,17 @@ export async function getUserSubscription(req: Request, res: Response, next: Nex
       orderBy: { createdAt: 'desc' },
     });
 
-    const [projectsCount, habitsCount, tasksCount, aiUsageCount] = await Promise.all([
+    const [projectsCount, habitsCount, tasksCount, aiUsageCount, notesCount, journalsCount, storageUsedBytes, storageLimitBytes] = await Promise.all([
       prisma.project.count({ where: { userId } }),
       prisma.habit.count({ where: { userId } }),
       prisma.task.count({ where: { userId } }),
       prisma.aIPreference
         .findUnique({ where: { userId } })
         .then((p) => p?.aiRequestsThisMonth ?? 0),
+      prisma.note.count({ where: { userId, isJournal: false, archived: false } }),
+      prisma.note.count({ where: { userId, isJournal: true, archived: false } }),
+      getUserStorageUsedBytes(userId),
+      getUserStorageLimitBytes(userId),
     ]);
 
     // Recent billing transactions
@@ -71,6 +76,10 @@ export async function getUserSubscription(req: Request, res: Response, next: Nex
           habits: habitsCount,
           tasks: tasksCount,
           aiRequests: aiUsageCount,
+          notes: notesCount,
+          journals: journalsCount,
+          storageUsedBytes,
+          storageLimitBytes,
         },
         transactions,
       },
@@ -124,17 +133,23 @@ export async function previewCoupon(req: Request, res: Response, next: NextFunct
 export async function createCheckout(req: Request, res: Response, next: NextFunction) {
   try {
     const userId = req.user!.sub || (req.user as any)!.id;
-    const { planId, couponCode, idempotencyKey } = req.body;
+    const { planId, couponCode, idempotencyKey, type } = req.body;
 
     if (!planId) {
       throw createError(400, 'MISSING_PLAN_ID', 'Plan ID is required.');
     }
+
+    // Users may pay once or opt into recurring auto-pay. Validate the allowed
+    // set explicitly (never trust arbitrary input).
+    const paymentType: 'ONE_TIME' | 'SUBSCRIPTION_INITIAL' =
+      type === 'SUBSCRIPTION_INITIAL' ? 'SUBSCRIPTION_INITIAL' : 'ONE_TIME';
 
     const checkoutData = await createCheckoutOrder({
       userId,
       planId,
       couponCode,
       idempotencyKey,
+      type: paymentType,
     });
 
     return res.json({ data: checkoutData });
@@ -195,6 +210,7 @@ export async function verifyPayment(req: Request, res: Response, next: NextFunct
       orderId: order.id,
       planId: order.planId || undefined,
       couponId: order.couponId || undefined,
+      autoRenew: order.type === 'SUBSCRIPTION_INITIAL',
       metadata: {
         verifiedVia: 'CLIENT_CHECKOUT_VERIFICATION',
       },

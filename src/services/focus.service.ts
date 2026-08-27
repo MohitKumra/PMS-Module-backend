@@ -4,6 +4,8 @@
 // XP is only awarded on complete, never on pause/autosave/cancel.
 
 import { prisma } from '../lib/prismaClient';
+import { createError } from '../middleware/errorHandler';
+import { checkUserEntitlement } from './entitlement.service';
 import type {
   FocusSessionDTO,
   FocusSessionStatus,
@@ -16,6 +18,16 @@ import * as notifService from './notification.service';
 import { awardFocusSession } from './gamification.service';
 
 // ─── DTO helpers ─────────────────────────────────────────────────────────────
+
+// The free tier allows only the standard Pomodoro preset durations.
+const STANDARD_FOCUS_MIN = 25;
+const STANDARD_BREAK_MIN = 5;
+const STANDARD_LONG_BREAK_MIN = 15;
+
+function isStandardFocusDuration(durationMin: number, isBreak: boolean): boolean {
+  if (isBreak) return durationMin === STANDARD_BREAK_MIN || durationMin === STANDARD_LONG_BREAK_MIN;
+  return durationMin === STANDARD_FOCUS_MIN;
+}
 
 function toDTO(s: any): FocusSessionDTO {
   return {
@@ -65,6 +77,24 @@ export async function listSessions(
 export async function createSession(userId: string, data: CreateFocusSessionRequest): Promise<FocusSessionDTO> {
   let taskId = data.taskId?.trim() || null;
   let projectId = data.projectId?.trim() || null;
+
+  // Focus "advanced" (custom durations or linking a task/goal/project to the
+  // timer) is a paid feature. The standard 25/5/15 pomodoro stays free.
+  const usesAdvanced =
+    Boolean(taskId) ||
+    Boolean(projectId) ||
+    (typeof data.durationMin === 'number' && !isStandardFocusDuration(data.durationMin, Boolean(data.isBreak)));
+
+  if (usesAdvanced) {
+    const entitlement = await checkUserEntitlement(userId, 'focusAdvanced');
+    if (!entitlement.allowed) {
+      throw createError(
+        403,
+        'FEATURE_LOCKED',
+        `Custom timer durations and linking tasks/goals/projects to the Focus timer require an upgrade (${entitlement.currentEffectivePlan}).`
+      );
+    }
+  }
 
   if (taskId) {
     const task = await prisma.task.findFirst({

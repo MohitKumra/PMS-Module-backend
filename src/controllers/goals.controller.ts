@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
 import * as goalService from '../services/goal.service';
+import { checkUserEntitlement } from '../services/entitlement.service';
 
 export async function list(req: Request, res: Response, next: NextFunction) {
   try {
@@ -19,6 +20,17 @@ export async function getOne(req: Request, res: Response, next: NextFunction) {
 
 export async function create(req: Request, res: Response, next: NextFunction) {
   try {
+    const entitlement = await checkUserEntitlement(req.user!.sub, 'goals');
+    if (!entitlement.allowed) {
+      res.status(403).json({
+        error: {
+          code: 'FEATURE_LOCKED',
+          message: `Goals are not available on your current plan (${entitlement.currentEffectivePlan}). Upgrading unlocks Goals and the AI goal planner.`,
+          currentEffectivePlan: entitlement.currentEffectivePlan,
+        },
+      });
+      return;
+    }
     res.status(201).json(await goalService.createGoal(req.user!.sub, req.body));
   } catch (err) {
     next(err);

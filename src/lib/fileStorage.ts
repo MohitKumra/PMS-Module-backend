@@ -178,6 +178,14 @@ export async function deleteStoredFile(publicPath?: string | null): Promise<void
   } catch {
     // Best-effort cleanup - a missing file should never block a write path.
   }
+
+  // Keep the per-user storage usage sum accurate: remove the tracked row for
+  // this file (matched by its URL). Best-effort; a missing row is not an error.
+  try {
+    await prisma.userStorageFile.deleteMany({ where: { url: { endsWith: relativePath } } });
+  } catch {
+    // Best-effort DB cleanup - never throw on a delete path.
+  }
 }
 
 /**

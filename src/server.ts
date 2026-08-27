@@ -29,6 +29,7 @@ import searchRoutes from './routes/search.routes';
 import usersRoutes from './routes/users.routes';
 import uploadsRoutes from './routes/uploads.routes';
 import mediaFileRoutes from './routes/media-file.routes';
+import storageRoutes from './routes/storage.routes';
 import schedulerRoutes from './routes/scheduler.routes';
 import notionRoutes from './routes/notion.routes';
 import adminRoutes from './routes/admin.routes';
@@ -37,6 +38,10 @@ import webhookRoutes from './routes/webhook.routes';
 import projectsController from './controllers/projects.controller';
 import { errorHandler } from './middleware/errorHandler';
 import { startScheduler } from './jobs/reminderScheduler';
+import { startSubscriptionRenewal } from './jobs/subscriptionRenewal';
+import systemRoutes from './routes/system.routes';
+import { maintenanceMode } from './middleware/maintenanceMode';
+import { loadSystemSettings } from './services/systemSettings.service';
 import { bootstrapAdmin } from './services/adminAuth.service';
 import { prisma } from './lib/prismaClient';
 
@@ -104,6 +109,10 @@ app.use(cookieParser());
 app.get('/health', (_req, res) => res.json({ status: 'ok', ts: new Date().toISOString() }));
 
 // ─── API routes ───────────────────────────────────────────────────────────────
+app.use('/api/system', systemRoutes);
+// ─── Maintenance gate: blocks all non-admin traffic when maintenance is ON ───
+app.use(maintenanceMode);
+
 app.use('/api/ai', aiRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/tasks', tasksRoutes);
@@ -121,6 +130,7 @@ app.use('/api/search', searchRoutes);
 app.use('/api/users', usersRoutes);
 app.use('/api/media', mediaFileRoutes);
 app.use('/api/media', uploadsRoutes);
+app.use('/api/storage', storageRoutes);
 app.use('/api/scheduler', schedulerRoutes);
 app.use('/api/notion', notionRoutes);
 app.use('/api/projects', projectsController);
@@ -136,7 +146,11 @@ app.use(errorHandler);
 
 // ─── Start server ─────────────────────────────────────────────────────────────
 const port = parseInt(env.PORT, 10);
+loadSystemSettings()
+  .then(() => console.info('💾  System settings loaded from database.'))
+  .catch((err) => console.error('Failed to load system settings from database:', err));
 startScheduler();
+startSubscriptionRenewal();
 bootstrapAdmin().catch((err) => console.error('Failed to bootstrap initial admin:', err));
 app.listen(port, () => {
   console.log(`🚀  Backend running at http://localhost:${port}`);

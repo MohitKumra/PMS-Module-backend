@@ -1,0 +1,13 @@
+// Tracks disk-uploaded files per user so storage capacity (storageMb) can be
+// summed and enforced. Size is in bytes.
+model UserStorageFile {
+  id        String   @id @default(cuid())
+  userId    String
+  url       String   @unique
+  sizeBytes Int
+  folder    String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}

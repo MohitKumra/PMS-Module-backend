@@ -5,6 +5,7 @@
 import { prisma } from '../lib/prismaClient';
 import { createError } from '../middleware/errorHandler';
 import { deleteStoredFile } from '../lib/fileStorage';
+import { checkUserEntitlement } from './entitlement.service';
 import type { NoteDTO, CreateNoteRequest, UpdateNoteRequest, NoteListFilters } from '../types';
 import type { Prisma } from '@prisma/client';
 
@@ -147,6 +148,23 @@ export async function getNote(userId: string, noteId: string): Promise<NoteDTO> 
 }
 
 export async function createNote(userId: string, data: CreateNoteRequest): Promise<NoteDTO> {
+  // Enforce plan limits for notes (and journals separately). The entitlement
+  // service treats -1 as unlimited, so paid plans with notes/journals:-1 pass.
+  const isJournal = Boolean(data.isJournal);
+  const featureKey = isJournal ? 'journals' : 'notes';
+  const existingCount = await prisma.note.count({
+    where: { userId, isJournal, archived: false },
+  });
+  const entitlement = await checkUserEntitlement(userId, featureKey, existingCount + 1);
+  if (!entitlement.allowed) {
+    const label = isJournal ? 'journal entries' : 'notes';
+    throw createError(
+      403,
+      'PLAN_LIMIT_REACHED',
+      `Your current plan allows up to ${entitlement.limit === -1 ? 'unlimited' : entitlement.limit} ${label}. Please upgrade to create more.`
+    );
+  }
+
   if (data.taskId) {
     const task = await prisma.task.findFirst({ where: { id: data.taskId, userId } });
     if (!task) throw createError(404, 'TASK_NOT_FOUND', 'Task not found');

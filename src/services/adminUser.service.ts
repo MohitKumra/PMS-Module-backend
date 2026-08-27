@@ -101,7 +101,17 @@ export async function listAdminUsers(params: ListUsersParams) {
         passwordHash: true,
         googleId: true,
         subscriptions: {
-          where: { status: { in: ['ACTIVE', 'PAST_DUE', 'CREATED'] } },
+          where: { status: { in: ['ACTIVE', 'PAST_DUE'] } },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          include: { plan: { select: { id: true, name: true, slug: true } } },
+        },
+        entitlementOverrides: {
+          where: {
+            revokedAt: null,
+            startsAt: { lte: new Date() },
+            OR: [{ endsAt: null }, { endsAt: { gt: new Date() } }],
+          },
           orderBy: { createdAt: 'desc' },
           take: 1,
           include: { plan: { select: { id: true, name: true, slug: true } } },
@@ -115,9 +125,26 @@ export async function listAdminUsers(params: ListUsersParams) {
   ]);
 
   const items = users.map((u) => {
+    const activeOverride = u.entitlementOverrides[0];
     const activeSub = u.subscriptions[0];
     const totalSpentCents = u.billingTransactions.reduce((acc, t) => acc + (t.netAmountCents || 0), 0);
     const loginMethod = computeUserLoginMethod(u);
+    const authMethods = {
+      hasGoogle: Boolean(u.googleId),
+      hasPassword: Boolean(u.passwordHash),
+      primaryMethod: loginMethod,
+    };
+
+    // Match resolveEffectivePlan precedence: admin override > subscription > free.
+    const plan =
+      activeOverride?.plan?.name || (activeSub?.plan?.name ?? 'Free');
+    const planSlug =
+      activeOverride?.plan?.slug || (activeSub?.plan?.slug ?? 'free');
+    const planSource = activeOverride
+      ? 'OVERRIDE'
+      : activeSub
+      ? 'SUBSCRIPTION'
+      : 'FREE';
 
     return {
       id: u.id,
@@ -126,10 +153,12 @@ export async function listAdminUsers(params: ListUsersParams) {
       avatarUrl: u.avatarUrl,
       status: u.status,
       loginMethod,
+      authMethods,
       lastLoginAt: u.lastLoginAt,
       createdAt: u.createdAt,
-      plan: activeSub ? activeSub.plan.name : 'Free',
-      planSlug: activeSub ? activeSub.plan.slug : 'free',
+      plan,
+      planSlug,
+      planSource,
       subscriptionStatus: activeSub ? activeSub.status : 'NONE',
       totalSpentCents,
     };

@@ -4,6 +4,7 @@ import { authenticate } from '../middleware/authenticate';
 import { validate } from '../middleware/validate';
 import { createError } from '../middleware/errorHandler';
 import { storeBase64File, deleteStoredFile } from '../lib/fileStorage';
+import { applyStoredFile, removeStorageFile } from '../services/storage.service';
 import { prisma } from '../lib/prismaClient';
 import * as notesService from '../services/notes.service';
 
@@ -55,6 +56,7 @@ router.post('/upload', validate({ body: uploadSchema }), async (req, res, next) 
       userId,
       userEmail,
     });
+    await applyStoredFile(userId, file);
     res.status(201).json(file);
   } catch (error) {
     next(error);
@@ -74,6 +76,7 @@ router.post('/upload-avatar', validate({ body: uploadSchema }), async (req, res,
       userId,
       userEmail,
     });
+    await applyStoredFile(userId, file);
     res.status(201).json(file);
   } catch (error) {
     next(error);
@@ -130,9 +133,11 @@ router.post(
       // Remove the old cover file if one existed
       if (existing.coverUrl) {
         await deleteStoredFile(existing.coverUrl);
+        await removeStorageFile(existing.coverUrl);
       }
 
-      // Persist the new coverUrl and return the full updated NoteDTO
+      // Persist the new coverUrl (enforces storage and records usage)
+      await applyStoredFile(userId, stored);
       const updated = await notesService.updateNote(userId, noteId, { coverUrl: stored.url });
 
       res.status(200).json(updated);
