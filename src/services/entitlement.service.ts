@@ -158,3 +158,18 @@ export async function checkUserEntitlement(
 
   return { allowed: true, limit: featureVal, currentEffectivePlan: plan.planName };
 }
+
+/**
+ * Returns true if the user's effective plan grants access to AI features.
+ */
+export async function isAIFeatureGranted(userId: string): Promise<boolean> {
+  const plan = await resolveEffectivePlan(userId);
+  const aiCoach = plan.features['aiCoach'];
+  const quota = plan.features['aiRequestsPerMonth'];
+  if (aiCoach === false) return false;
+  if (typeof quota === 'number' && quota === 0) return false;
+  if (aiCoach === true) return true;
+  if (typeof quota === 'number' && quota > 0) return true;
+  if (quota === -1) return true;
+  return plan.status !== 'FREE' && plan.planSlug !== 'free';
+}

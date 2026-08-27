@@ -12,6 +12,7 @@ import type {
   UpdateAIPreferencesRequest,
 } from '../types';
 import { getGoogleCalendarIntegration } from './google.service';
+import { isAIFeatureGranted } from './entitlement.service';
 
 const DEFAULT_APPEARANCE: AppearanceSettingsDTO = {
   themePreference: 'SYSTEM',
@@ -77,11 +78,12 @@ export async function getSettings(userId: string): Promise<SettingsDTO> {
   await ensureUserExists(userId);
   await ensurePreferenceRows(userId);
 
-  const [appearance, notifications, aiPref, user] = await Promise.all([
+  const [appearance, notifications, aiPref, user, aiGranted] = await Promise.all([
     prisma.userPreference.findUnique({ where: { userId } }),
     prisma.notificationPreference.findUnique({ where: { userId } }),
     prisma.aIPreference.findUnique({ where: { userId } }),
     prisma.user.findUnique({ where: { id: userId } }),
+    isAIFeatureGranted(userId),
   ]);
 
   if (!user) throw createError(404, 'USER_NOT_FOUND', 'User not found');
@@ -106,14 +108,14 @@ export async function getSettings(userId: string): Promise<SettingsDTO> {
       calendarSync: notifications?.calendarSync ?? DEFAULT_NOTIFICATIONS.calendarSync,
     },
     ai: {
-      dailyBriefEnabled: aiPref?.dailyBriefEnabled ?? DEFAULT_AI.dailyBriefEnabled,
-      journalWeeklyEnabled: aiPref?.journalWeeklyEnabled ?? DEFAULT_AI.journalWeeklyEnabled,
-      insightsEnabled: aiPref?.insightsEnabled ?? DEFAULT_AI.insightsEnabled,
-      coachEnabled: aiPref?.coachEnabled ?? DEFAULT_AI.coachEnabled,
-      journalAnalysisEnabled: aiPref?.journalAnalysisEnabled ?? DEFAULT_AI.journalAnalysisEnabled,
-      goalSummaryEnabled: aiPref?.goalSummaryEnabled ?? DEFAULT_AI.goalSummaryEnabled,
-      taskParserEnabled: aiPref?.taskParserEnabled ?? DEFAULT_AI.taskParserEnabled,
-      goalPlannerEnabled: aiPref?.goalPlannerEnabled ?? DEFAULT_AI.goalPlannerEnabled,
+      dailyBriefEnabled: aiGranted ? (aiPref?.dailyBriefEnabled ?? DEFAULT_AI.dailyBriefEnabled) : false,
+      journalWeeklyEnabled: aiGranted ? (aiPref?.journalWeeklyEnabled ?? DEFAULT_AI.journalWeeklyEnabled) : false,
+      insightsEnabled: aiGranted ? (aiPref?.insightsEnabled ?? DEFAULT_AI.insightsEnabled) : false,
+      coachEnabled: aiGranted ? (aiPref?.coachEnabled ?? DEFAULT_AI.coachEnabled) : false,
+      journalAnalysisEnabled: aiGranted ? (aiPref?.journalAnalysisEnabled ?? DEFAULT_AI.journalAnalysisEnabled) : false,
+      goalSummaryEnabled: aiGranted ? (aiPref?.goalSummaryEnabled ?? DEFAULT_AI.goalSummaryEnabled) : false,
+      taskParserEnabled: aiGranted ? (aiPref?.taskParserEnabled ?? DEFAULT_AI.taskParserEnabled) : false,
+      goalPlannerEnabled: aiGranted ? (aiPref?.goalPlannerEnabled ?? DEFAULT_AI.goalPlannerEnabled) : false,
       summaryRefreshMinutes: aiPref?.summaryRefreshMinutes ?? DEFAULT_AI.summaryRefreshMinutes,
 
       // ─── Token consumption counters (read-only) ───────────────────────
@@ -198,6 +200,11 @@ export async function updateNotificationPreferences(
 
 export async function updateAIPreferences(userId: string, data: UpdateAIPreferencesRequest): Promise<AIPreferenceDTO> {
   await ensureUserExists(userId);
+
+  const aiGranted = await isAIFeatureGranted(userId);
+  if (!aiGranted) {
+    throw createError(403, 'FEATURE_LOCKED', 'AI features are not available on your current plan. Please upgrade to unlock them.');
+  }
 
   // Strip read-only token counters so clients can never overwrite them.
   const {
