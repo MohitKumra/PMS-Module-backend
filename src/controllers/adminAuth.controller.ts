@@ -7,6 +7,7 @@ import { sendAdminOtp, verifyAdminOtp, refreshAdminSession, getAdminProfile } fr
 import { env } from '../config/env';
 
 const isProd = env.NODE_ENV === 'production';
+const adminCookieSameSite = isProd ? ('none' as const) : ('lax' as const);
 
 const sendOtpSchema = z.object({
   email: z.string().email(),
@@ -44,14 +45,14 @@ export async function verifyOtpHandler(req: Request, res: Response, next: NextFu
     res.cookie('adminAccessToken', result.accessToken, {
       httpOnly: true,
       secure: isProd,
-      sameSite: 'lax',
+      sameSite: adminCookieSameSite,
       maxAge: 15 * 60 * 1000, // 15 minutes
     });
 
     res.cookie('adminRefreshToken', result.refreshToken, {
       httpOnly: true,
       secure: isProd,
-      sameSite: 'lax',
+      sameSite: adminCookieSameSite,
       path: '/api/admin/auth',
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     });
@@ -83,14 +84,14 @@ export async function refreshHandler(req: Request, res: Response, next: NextFunc
     res.cookie('adminAccessToken', result.accessToken, {
       httpOnly: true,
       secure: isProd,
-      sameSite: 'lax',
+      sameSite: adminCookieSameSite,
       maxAge: 15 * 60 * 1000,
     });
 
     res.cookie('adminRefreshToken', result.refreshToken, {
       httpOnly: true,
       secure: isProd,
-      sameSite: 'lax',
+      sameSite: adminCookieSameSite,
       path: '/api/admin/auth',
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
