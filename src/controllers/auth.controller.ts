@@ -10,10 +10,14 @@ import { env } from '../config/env';
 import type { GoogleAuthPurpose } from '../types';
 
 const REFRESH_COOKIE = 'refreshToken';
+// `secure: isProd` mirrors the admin auth cookie. Hard-coding `secure: true`
+// prevented the refresh cookie from being stored over plain http://localhost,
+// so any 401 locally had no cookie to refresh from and the app force-redirected
+// to /login.
 const COOKIE_OPTS = {
   httpOnly: true,
-  secure: true,
-  sameSite: 'none' as const,
+  secure: env.NODE_ENV === 'production',
+  sameSite: env.NODE_ENV === 'production' ? ('none' as const) : ('lax' as const),
   path: '/',
   maxAge: 7 * 24 * 60 * 60 * 1000,
 };
@@ -22,8 +26,15 @@ export async function signup(req: Request, res: Response, next: NextFunction) {
   try {
     const { email, password, name } = req.body;
     const timezone = req.headers['x-client-timezone'];
-    const result = await authService.signup(email, password, name, typeof timezone === 'string' ? timezone : undefined);
-    res.status(201).json(result);
+    const { response, refreshToken } = await authService.signup(
+      email,
+      password,
+      name,
+      typeof timezone === 'string' ? timezone : undefined
+    );
+    // Persist a refresh cookie so a new account can renew its session, matching login.
+    res.cookie(REFRESH_COOKIE, refreshToken, COOKIE_OPTS);
+    res.status(201).json(response);
   } catch (err) {
     next(err);
   }

@@ -60,7 +60,7 @@ export async function signup(
   password: string,
   name?: string,
   timezone?: string | null
-): Promise<AuthResponse> {
+): Promise<{ response: AuthResponse; refreshToken: string }> {
   const sanitizedEmail = email.trim().toLowerCase()
   const existing = await prisma.user.findUnique({ where: { email : sanitizedEmail } });
   if (existing) throw createError(409, 'EMAIL_IN_USE', 'An account with this email already exists');
@@ -76,10 +76,13 @@ export async function signup(
     },
   });
 
-  const payload = { sub: user.id, email: user.email };
+  // Include tokenVersion so the session can be refreshed/revoked exactly like a
+  // login session. Without a refresh token here, a freshly-created account had no
+  // way to renew its (short-lived) access token and was logged out on the first 401.
+  const payload = { sub: user.id, email: user.email, tokenVersion: user.tokenVersion };
   return {
-    accessToken: signAccessToken(payload),
-    user: toUserDTO(user),
+    response: { accessToken: signAccessToken(payload), user: toUserDTO(user) },
+    refreshToken: signRefreshToken(payload),
   };
 }
 
