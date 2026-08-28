@@ -758,6 +758,7 @@ async function createNextOccurrences() {
 
 /** Starts the node-cron scheduler to run reminders every minute. */
 export function startScheduler() {
+  (globalThis as any).__schedulerRunning = true;
   synchronizeRecurringTasks().catch((err) => {
     console.error('Error synchronizing recurring tasks on startup:', err);
   });

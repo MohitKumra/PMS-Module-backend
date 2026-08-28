@@ -8,6 +8,14 @@ import { createRazorpayProviderPlan } from '../providers/razorpay/razorpay.subsc
 import { Prisma } from '@prisma/client';
 import type { BillingInterval } from '@prisma/client';
 
+// Clamp an admin-supplied GST percentage to a sane 0–100 range, defaulting to 18.
+function clampGst(value?: number): number {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Math.max(0, Math.min(100, Math.round(value)));
+  }
+  return 18;
+}
+
 
 export async function listPlans(includeInactive: boolean = false) {
   return prisma.plan.findMany({
@@ -47,6 +55,7 @@ export async function createPlan(params: {
   description?: string;
   currency?: string;
   priceCents: number;
+  gstPercent?: number;
   billingInterval?: BillingInterval;
   features: Record<string, any>;
   sortOrder?: number;
@@ -61,6 +70,7 @@ export async function createPlan(params: {
 
   const currency = params.currency || 'USD';
   const billingInterval = params.billingInterval || 'MONTH';
+  const gstPercent = clampGst(params.gstPercent);
 
   const plan = await prisma.plan.create({
     data: {
@@ -69,6 +79,7 @@ export async function createPlan(params: {
       description: params.description,
       currency,
       priceCents: params.priceCents,
+      gstPercent,
       billingInterval,
       features: params.features,
       sortOrder: params.sortOrder ?? 0,
@@ -78,12 +89,14 @@ export async function createPlan(params: {
     },
   });
 
-  // Create Razorpay provider plan artifact
+  // Create Razorpay provider plan artifact. GST applies to recurring charges too,
+  // so the provider plan amount is the GST-inclusive price.
   try {
     const rzpInterval = billingInterval === 'YEAR' ? 'yearly' : 'monthly';
+    const gstInclusivePrice = plan.priceCents + Math.round((plan.priceCents * plan.gstPercent) / 100);
     const rzpPlan = await createRazorpayProviderPlan({
       name: plan.name,
-      amountCents: plan.priceCents,
+      amountCents: gstInclusivePrice,
       currency: plan.currency,
       interval: rzpInterval,
       description: plan.description || undefined,
@@ -95,7 +108,7 @@ export async function createPlan(params: {
         provider: 'razorpay',
         providerPlanId: rzpPlan.id,
         currency: plan.currency,
-        amountCents: plan.priceCents,
+        amountCents: gstInclusivePrice,
         billingInterval: plan.billingInterval,
         isActive: true,
       },
@@ -123,6 +136,7 @@ export async function updatePlan(
     name?: string;
     description?: string;
     priceCents?: number;
+    gstPercent?: number;
     currency?: string;
     billingInterval?: BillingInterval;
     features?: Record<string, any>;
@@ -148,6 +162,7 @@ export async function updatePlan(
       description: params.description !== undefined ? params.description : existing.description,
       currency: params.currency ?? existing.currency,
       priceCents: params.priceCents ?? existing.priceCents,
+      gstPercent: params.gstPercent !== undefined ? clampGst(params.gstPercent) : existing.gstPercent,
       billingInterval: params.billingInterval ?? existing.billingInterval,
       features: params.features !== undefined ? (params.features as Prisma.InputJsonValue) : (existing.features as Prisma.InputJsonValue | undefined) ?? undefined,
       sortOrder: params.sortOrder ?? existing.sortOrder,
@@ -167,9 +182,10 @@ export async function updatePlan(
       });
 
       const rzpInterval = updated.billingInterval === 'YEAR' ? 'yearly' : 'monthly';
+      const gstInclusivePrice = updated.priceCents + Math.round((updated.priceCents * updated.gstPercent) / 100);
       const rzpPlan = await createRazorpayProviderPlan({
         name: updated.name,
-        amountCents: updated.priceCents,
+        amountCents: gstInclusivePrice,
         currency: updated.currency,
         interval: rzpInterval,
         description: updated.description || undefined,
@@ -181,7 +197,7 @@ export async function updatePlan(
           provider: 'razorpay',
           providerPlanId: rzpPlan.id,
           currency: updated.currency,
-          amountCents: updated.priceCents,
+          amountCents: gstInclusivePrice,
           billingInterval: updated.billingInterval,
           isActive: true,
         },

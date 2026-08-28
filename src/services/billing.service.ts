@@ -38,6 +38,14 @@ export async function createCheckoutOrder(params: {
   }
 
   const totalCents = Math.max(0, subtotalCents - discountCents);
+  // GST is set per-plan by an admin (stored on the Plan row) and applied to the
+  // taxable (post-discount) value. Defaulting to 18 for safety.
+  const gstPercent =
+    typeof plan.gstPercent === 'number' && Number.isFinite(plan.gstPercent)
+      ? Math.max(0, Math.min(100, plan.gstPercent))
+      : 18;
+  const taxCents = Math.round((totalCents * gstPercent) / 100);
+  const finalTotalCents = totalCents + taxCents;
   const type = params.type || 'ONE_TIME';
   const currency = plan.currency;
 
@@ -45,7 +53,7 @@ export async function createCheckoutOrder(params: {
   // Razorpay order — Razorpay rejects zero-amount orders (which surfaces as a
   // broken checkout / login prompt in test mode). Instead we synthesize an
   // order id and let the paymentOrder record the zero-amount grant.
-  const noPaymentRequired = totalCents <= 0;
+  const noPaymentRequired = finalTotalCents <= 0;
 
   let rzpOrderId: string;
   if (noPaymentRequired) {
@@ -53,7 +61,7 @@ export async function createCheckoutOrder(params: {
   } else {
     // Create Razorpay Order
     const rzpOrder = await createRazorpayOrder({
-      amountCents: totalCents,
+      amountCents: finalTotalCents,
       currency,
       receipt: `rcpt_${Date.now()}`,
       notes: {
@@ -75,8 +83,8 @@ export async function createCheckoutOrder(params: {
       currency,
       subtotalCents,
       discountCents,
-      taxCents: 0,
-      totalCents,
+      taxCents,
+      totalCents: finalTotalCents,
       status: 'CREATED',
       couponId,
       idempotencyKey: params.idempotencyKey || null,
@@ -85,6 +93,7 @@ export async function createCheckoutOrder(params: {
         planSlug: plan.slug,
         priceCents: plan.priceCents,
         billingInterval: plan.billingInterval,
+        gstPercent,
       },
     },
     include: { plan: true },
@@ -97,6 +106,7 @@ export async function createCheckoutOrder(params: {
     currency: order.currency,
     subtotalCents: order.subtotalCents,
     discountCents: order.discountCents,
+    taxCents: order.taxCents,
     noPaymentRequired,
     keyId: noPaymentRequired ? undefined : process.env.RAZORPAY_KEY_ID,
   };
@@ -721,6 +731,12 @@ export async function renewDueLocalSubscriptions(): Promise<number> {
     const invoiceNumber = `INV-${nextStart.getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`;
     const simPaymentId = `sim_${sub.id}_${nextStart.getTime()}`;
     const gross = plan.priceCents;
+    const gstPct =
+      typeof plan.gstPercent === 'number' && Number.isFinite(plan.gstPercent)
+        ? Math.max(0, Math.min(100, plan.gstPercent))
+        : 18;
+    const renewalTaxCents = Math.round((gross * gstPct) / 100);
+    const renewalTotal = gross + renewalTaxCents;
 
     await prisma.$transaction(async (tx) => {
       // Idempotency guard — never book the same renewal period twice.
@@ -744,8 +760,8 @@ export async function renewDueLocalSubscriptions(): Promise<number> {
           currency: plan.currency,
           subtotalCents: gross,
           discountCents: 0,
-          taxCents: 0,
-          totalCents: gross,
+          taxCents: renewalTaxCents,
+          totalCents: renewalTotal,
           issuedAt: nextStart,
           paidAt: nextStart,
         },
@@ -765,8 +781,8 @@ export async function renewDueLocalSubscriptions(): Promise<number> {
           currency: plan.currency,
           grossAmountCents: gross,
           discountCents: 0,
-          taxCents: 0,
-          netAmountCents: gross,
+          taxCents: renewalTaxCents,
+          netAmountCents: renewalTotal,
           paidAt: nextStart,
           metadata: { simulated: true, reason: 'LOCAL_SIMULATED_RENEWAL' },
         },

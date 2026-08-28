@@ -9,6 +9,7 @@ import { renewDueLocalSubscriptions } from '../services/billing.service';
 
 export function startSubscriptionRenewal(): void {
   console.info('🔁  Subscription renewal scheduler initialized (runs every minute).');
+  (globalThis as any).__schedulerSubscriptionRunning = true;
 
   cron.schedule('*/1 * * * *', async () => {
     try {

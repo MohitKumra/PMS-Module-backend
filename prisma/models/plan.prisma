@@ -5,6 +5,7 @@ model Plan {
   description          String?
   currency             String                @default("USD")
   priceCents           Int
+  gstPercent           Int                   @default(18)
   billingInterval      BillingInterval       @default(MONTH)
   features             Json
   sortOrder            Int                   @default(0)

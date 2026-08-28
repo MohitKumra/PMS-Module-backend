@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "Plan" ADD COLUMN     "gstPercent" INTEGER NOT NULL DEFAULT 18;

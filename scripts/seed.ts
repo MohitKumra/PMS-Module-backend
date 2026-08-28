@@ -13,6 +13,7 @@ const INITIAL_PLANS = [
     description: 'Essential personal productivity suite',
     currency: 'INR',
     priceCents: 0,
+    gstPercent: 18,
     billingInterval: 'MONTH' as const,
     sortOrder: 0,
     features: {
@@ -34,6 +35,7 @@ const INITIAL_PLANS = [
     description: 'For individuals seeking enhanced focus & analytics',
     currency: 'INR',
     priceCents: 49900,
+    gstPercent: 18,
     billingInterval: 'MONTH' as const,
     sortOrder: 1,
     features: {
@@ -55,6 +57,7 @@ const INITIAL_PLANS = [
     description: 'Complete power user productivity system',
     currency: 'INR',
     priceCents: 99900,
+    gstPercent: 18,
     billingInterval: 'MONTH' as const,
     sortOrder: 2,
     features: {
@@ -197,13 +200,14 @@ async function main() {
       });
 
       if (p.priceCents > 0) {
+        const gstInclusive = p.priceCents + Math.round((p.priceCents * (p.gstPercent ?? 18)) / 100);
         await prisma.paymentProviderPlan.create({
           data: {
             planId: plan.id,
             provider: 'razorpay',
             providerPlanId: `plan_seed_${p.slug}`,
             currency: p.currency,
-            amountCents: p.priceCents,
+            amountCents: gstInclusive,
             billingInterval: p.billingInterval,
             isActive: true,
           },
