@@ -1,4 +1,4 @@
-// backend/src/lib/mailer.ts
+/*  */// backend/src/lib/mailer.ts
 // Nodemailer wrapper with pluggable transport.
 // Configure via SMTP_* env vars. Falls back to Ethereal (preview) in development
 // when SMTP_HOST is not set — emails are logged as preview URLs to the console.
@@ -79,12 +79,33 @@ function getAppUrls() {
 
 // ─── Template engine ───────────────────────────────────────────
 
-const TEMPLATE_DIR = path.join(__dirname, '..', 'email-template');
+// Candidate template directories, tried in order. The backend runs from the
+// project root (Nixpacks/Railway ships the full source tree, and the server
+// already relies on process.cwd() for .env, prisma.config.ts and uploads/), so
+// the templates under <cwd>/src/email-template are always present. We also keep
+// the compiled dist/email-template path (and a couple of cwd variants) as
+// fallbacks for Docker builds that ship only dist/.
+const TEMPLATE_CANDIDATES = [
+  path.join(process.cwd(), 'src', 'email-template'), // cwd/src/email-template (shipped source)
+  path.join(__dirname, '..', 'email-template'), // dist/email-template (compiled)
+  path.join(__dirname, '..', '..', 'src', 'email-template'), // repo/src/email-template
+  path.join(process.cwd(), 'email-template'), // cwd/email-template
+];
 const templateCache = new Map<string, string>();
+
+function resolveTemplatePath(name: string): string {
+  for (const dir of TEMPLATE_CANDIDATES) {
+    const candidate = path.join(dir, `${name}.html`);
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  throw new Error(
+    `Email template "${name}.html" not found. Looked in: ${TEMPLATE_CANDIDATES.join(', ')}`
+  );
+}
 
 function loadTemplate(name: string): string {
   if (templateCache.has(name)) return templateCache.get(name)!;
-  const filePath = path.join(TEMPLATE_DIR, `${name}.html`);
+  const filePath = resolveTemplatePath(name);
   const content = fs.readFileSync(filePath, 'utf-8');
   templateCache.set(name, content);
   return content;
