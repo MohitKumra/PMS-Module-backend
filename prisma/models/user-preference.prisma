@@ -9,5 +9,14 @@ model UserPreference {
   notesView                 String   @default("grid")
   floatingAnimationsEnabled Boolean  @default(true)
   pageTransitionsEnabled    Boolean  @default(true)
+  billingCompanyName        String?
+  billingEmail              String?
+  billingPhone              String?
+  billingAddressLine1       String?
+  billingAddressLine2       String?
+  billingCityState          String?
+  billingPostalCode         String?
+  billingCountry            String?
+  billingGstin              String?
   user                      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

@@ -9,7 +9,16 @@ import { validateCoupon, redeemCouponAtomic } from './coupon.service';
 import { recordSubscriptionEvent } from './subscription.service';
 import { logAdminAction } from './audit.service';
 import { sendNotification } from './notification.service';
-import { buildInvoiceEmailHtml, buildInvoicePdfBuffer, getInvoicePdfUrl, type BillingInvoiceDocument } from './billingDocuments.service';
+import {
+  buildBillingCustomerProfile,
+  buildInvoiceEmailHtml,
+  buildInvoicePdfBuffer,
+  getBillingCompanyProfile,
+  getInvoicePdfUrl,
+  resolveGstBreakdownForNewInvoice,
+  type BillingInvoiceDocument,
+  type BillingCustomerProfile,
+} from './billingDocuments.service';
 import type { PaymentOrderType, BillingTransactionType, PaymentStatus, Prisma } from '@prisma/client';
 
 function buildInvoiceDocument(params: {
@@ -22,6 +31,11 @@ function buildInvoiceDocument(params: {
     subtotalCents: number;
     discountCents: number;
     taxCents: number;
+    cgstCents: number;
+    sgstCents: number;
+    igstCents: number;
+    sac?: string | null;
+    placeOfSupply?: string | null;
     totalCents: number;
     issuedAt: Date;
     paidAt?: Date | null;
@@ -32,6 +46,7 @@ function buildInvoiceDocument(params: {
     email: string;
     name?: string | null;
   };
+  billingProfile?: BillingCustomerProfile | null;
   planName?: string | null;
   planSlug?: string | null;
   subscriptionId?: string | null;
@@ -41,12 +56,135 @@ function buildInvoiceDocument(params: {
   providerSubscriptionId?: string | null;
   autoRenew?: boolean | null;
   billingInterval?: string | null;
+  planEnd?: Date | null;
 }): BillingInvoiceDocument {
   return params;
 }
 
+/** Compute the GST breakdown + SAC + place-of-supply snapshot for a new invoice,
+ *  using the buyer's saved billing preference and the configured supplier
+ *  location. This is persisted at transaction time so historical invoices keep
+ *  their own snapshot and are never re-derived from later profile edits. */
+async function resolveInvoiceTaxSnapshot(
+  tx: any,
+  userId: string,
+  taxCents: number
+): Promise<{
+  cgstCents: number;
+  sgstCents: number;
+  igstCents: number;
+  sac: string | null;
+  placeOfSupply: string | null;
+}> {
+  const pref = await tx.userPreference.findUnique({ where: { userId } });
+  const company = getBillingCompanyProfile();
+  const split = resolveGstBreakdownForNewInvoice({
+    taxCents,
+    supplierPlaceOfSupply: company.placeOfSupply,
+    buyerCityState: pref?.billingCityState ?? null,
+    buyerGstin: pref?.billingGstin ?? null,
+    buyerCountry: pref?.billingCountry ?? null,
+  });
+  return {
+    cgstCents: split.cgstCents,
+    sgstCents: split.sgstCents,
+    igstCents: split.igstCents,
+    sac: company.sac || null,
+    placeOfSupply: company.placeOfSupply || null,
+  };
+}
+
+export async function getUserBillingProfile(userId: string): Promise<BillingCustomerProfile> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { email: true, name: true },
+  });
+  if (!user) {
+    throw createError(404, 'USER_NOT_FOUND', 'User not found');
+  }
+
+  const pref = await prisma.userPreference.findUnique({ where: { userId } });
+  return buildBillingCustomerProfile({
+    email: user.email,
+    name: user.name,
+    billingCompanyName: pref?.billingCompanyName ?? null,
+    billingEmail: pref?.billingEmail ?? null,
+    billingPhone: pref?.billingPhone ?? null,
+    billingAddressLine1: pref?.billingAddressLine1 ?? null,
+    billingAddressLine2: pref?.billingAddressLine2 ?? null,
+    billingCityState: pref?.billingCityState ?? null,
+    billingPostalCode: pref?.billingPostalCode ?? null,
+    billingCountry: pref?.billingCountry ?? null,
+    billingGstin: pref?.billingGstin ?? null,
+  });
+}
+
+export async function updateUserBillingProfile(
+  userId: string,
+  data: Partial<{
+    billingCompanyName: string | null;
+    billingEmail: string | null;
+    billingPhone: string | null;
+    billingAddressLine1: string | null;
+    billingAddressLine2: string | null;
+    billingCityState: string | null;
+    billingPostalCode: string | null;
+    billingCountry: string | null;
+    billingGstin: string | null;
+  }>
+): Promise<BillingCustomerProfile> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { email: true, name: true },
+  });
+  if (!user) {
+    throw createError(404, 'USER_NOT_FOUND', 'User not found');
+  }
+
+  const pref = await prisma.userPreference.upsert({
+    where: { userId },
+    create: {
+      userId,
+      billingCompanyName: data.billingCompanyName ?? null,
+      billingEmail: data.billingEmail ?? null,
+      billingPhone: data.billingPhone ?? null,
+      billingAddressLine1: data.billingAddressLine1 ?? null,
+      billingAddressLine2: data.billingAddressLine2 ?? null,
+      billingCityState: data.billingCityState ?? null,
+      billingPostalCode: data.billingPostalCode ?? null,
+      billingCountry: data.billingCountry ?? null,
+      billingGstin: data.billingGstin ?? null,
+    },
+    update: {
+      ...(data.billingCompanyName !== undefined ? { billingCompanyName: data.billingCompanyName } : {}),
+      ...(data.billingEmail !== undefined ? { billingEmail: data.billingEmail } : {}),
+      ...(data.billingPhone !== undefined ? { billingPhone: data.billingPhone } : {}),
+      ...(data.billingAddressLine1 !== undefined ? { billingAddressLine1: data.billingAddressLine1 } : {}),
+      ...(data.billingAddressLine2 !== undefined ? { billingAddressLine2: data.billingAddressLine2 } : {}),
+      ...(data.billingCityState !== undefined ? { billingCityState: data.billingCityState } : {}),
+      ...(data.billingPostalCode !== undefined ? { billingPostalCode: data.billingPostalCode } : {}),
+      ...(data.billingCountry !== undefined ? { billingCountry: data.billingCountry } : {}),
+      ...(data.billingGstin !== undefined ? { billingGstin: data.billingGstin } : {}),
+    },
+  });
+
+  return buildBillingCustomerProfile({
+    email: user.email,
+    name: user.name,
+    billingCompanyName: pref.billingCompanyName,
+    billingEmail: pref.billingEmail,
+    billingPhone: pref.billingPhone,
+    billingAddressLine1: pref.billingAddressLine1,
+    billingAddressLine2: pref.billingAddressLine2,
+    billingCityState: pref.billingCityState,
+    billingPostalCode: pref.billingPostalCode,
+    billingCountry: pref.billingCountry,
+    billingGstin: pref.billingGstin,
+  });
+}
+
 async function sendInvoiceEmail(doc: BillingInvoiceDocument): Promise<void> {
-  const pdfBuffer = buildInvoicePdfBuffer(doc);
+  const pdfBuffer = await buildInvoicePdfBuffer(doc);
   await sendNotification(
     doc.userId,
     `Invoice ${doc.invoice.invoiceNumber}`,
@@ -315,6 +453,8 @@ export async function recordSuccessfulPayment(params: {
       }
     }
 
+    const taxSnapshot = await resolveInvoiceTaxSnapshot(tx, params.userId, taxCents);
+
     const invoice = await tx.invoice.create({
       data: {
         userId: params.userId,
@@ -327,6 +467,11 @@ export async function recordSuccessfulPayment(params: {
         subtotalCents,
         discountCents,
         taxCents,
+        cgstCents: taxSnapshot.cgstCents,
+        sgstCents: taxSnapshot.sgstCents,
+        igstCents: taxSnapshot.igstCents,
+        sac: taxSnapshot.sac,
+        placeOfSupply: taxSnapshot.placeOfSupply,
         totalCents: netAmountCents,
         paidAt: new Date(),
         pdfUrl: null,
@@ -403,6 +548,7 @@ export async function recordSuccessfulPayment(params: {
         pdfUrl,
       },
       user,
+      billingProfile: await getUserBillingProfile(user.id),
       planName: plan?.name || (params.metadata?.planName as string | undefined) || undefined,
       planSlug: plan?.slug || (params.metadata?.planSlug as string | undefined) || undefined,
       subscriptionId: result.transaction.subscriptionId,
@@ -1087,6 +1233,8 @@ export async function renewDueLocalSubscriptions(): Promise<number> {
       });
       if (existing) return;
 
+      const taxSnapshot = await resolveInvoiceTaxSnapshot(tx, sub.userId, renewalTaxCents);
+
       const invoice = await tx.invoice.create({
         data: {
           userId: sub.userId,
@@ -1098,6 +1246,11 @@ export async function renewDueLocalSubscriptions(): Promise<number> {
           subtotalCents: gross,
           discountCents: 0,
           taxCents: renewalTaxCents,
+          cgstCents: taxSnapshot.cgstCents,
+          sgstCents: taxSnapshot.sgstCents,
+          igstCents: taxSnapshot.igstCents,
+          sac: taxSnapshot.sac,
+          placeOfSupply: taxSnapshot.placeOfSupply,
           totalCents: renewalTotal,
           issuedAt: nextStart,
           paidAt: nextStart,

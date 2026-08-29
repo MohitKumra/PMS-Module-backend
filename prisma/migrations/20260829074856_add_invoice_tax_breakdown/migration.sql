@@ -1,0 +1,6 @@
+-- AlterTable
+ALTER TABLE "Invoice" ADD COLUMN     "cgstCents" INTEGER NOT NULL DEFAULT 0,
+ADD COLUMN     "igstCents" INTEGER NOT NULL DEFAULT 0,
+ADD COLUMN     "placeOfSupply" TEXT,
+ADD COLUMN     "sac" TEXT,
+ADD COLUMN     "sgstCents" INTEGER NOT NULL DEFAULT 0;

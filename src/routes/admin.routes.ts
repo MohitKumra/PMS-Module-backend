@@ -50,6 +50,10 @@ import {
 import { listAuditLogsHandler } from '../controllers/adminAudit.controller';
 import { getSystemHealthHandler, runReconciliationHandler } from '../controllers/adminSystem.controller';
 import { getAdminSettingsHandler, updateAdminSettingsHandler } from '../controllers/adminSettings.controller';
+import {
+  getAdminInvoiceSettingsHandler,
+  updateAdminInvoiceSettingsHandler,
+} from '../controllers/adminInvoiceSettings.controller';
 
 import { requireAdmin } from '../middleware/requireAdmin';
 import { requirePermission } from '../middleware/requirePermission';
@@ -107,5 +111,9 @@ router.get('/system', requireAdmin, requirePermission('system.read'), getSystemH
 router.post('/system/reconciliation', requireAdmin, requirePermission('admins.manage'), runReconciliationHandler);
 router.get('/settings', requireAdmin, requirePermission('system.read'), getAdminSettingsHandler);
 router.put('/settings', requireAdmin, requirePermission('admins.manage'), updateAdminSettingsHandler);
+
+// ─── Invoice / Billing Document Settings ────────────────────────────────────
+router.get('/billing/invoice-settings', requireAdmin, requirePermission('billing.read'), getAdminInvoiceSettingsHandler);
+router.put('/billing/invoice-settings', requireAdmin, requirePermission('billing.refund'), updateAdminInvoiceSettingsHandler);
 
 export default router;

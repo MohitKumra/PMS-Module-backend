@@ -9,6 +9,8 @@ import {
   cancelSubscription,
   previewCoupon,
   getInvoicePdf,
+  getBillingProfile,
+  updateBillingProfile,
 } from '../controllers/billing.controller';
 
 const router = Router();
@@ -18,6 +20,8 @@ router.get('/plans', getPublicPlans);
 
 // Authenticated user subscription and checkout routes
 router.get('/subscription', authenticate, getUserSubscription);
+router.get('/profile', authenticate, getBillingProfile);
+router.put('/profile', authenticate, updateBillingProfile);
 router.post('/apply-coupon', authenticate, previewCoupon);
 router.post('/checkout', authenticate, createCheckout);
 router.post('/verify-payment', authenticate, verifyPayment);

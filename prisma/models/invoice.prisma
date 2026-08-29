@@ -11,6 +11,11 @@ model Invoice {
   subtotalCents     Int
   discountCents     Int                  @default(0)
   taxCents          Int                  @default(0)
+  cgstCents         Int                  @default(0)
+  sgstCents         Int                  @default(0)
+  igstCents         Int                  @default(0)
+  sac               String?
+  placeOfSupply     String?
   totalCents        Int
   issuedAt          DateTime             @default(now())
   dueAt             DateTime?

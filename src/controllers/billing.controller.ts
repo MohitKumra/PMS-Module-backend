@@ -10,8 +10,10 @@ import {
   recordSuccessfulPayment,
   listUserInvoices,
   getUserInvoice,
+  getUserBillingProfile,
+  updateUserBillingProfile,
 } from '../services/billing.service';
-import { buildInvoicePdfBuffer } from '../services/billingDocuments.service';
+import { buildInvoicePdfBuffer, getBillingCompanyProfile } from '../services/billingDocuments.service';
 import { cancelSubscriptionAction as cancelSubscriptionService } from '../services/subscription.service';
 import { validateCoupon } from '../services/coupon.service';
 import { verifyRazorpayPaymentSignature } from '../providers/razorpay/razorpay.payment';
@@ -76,6 +78,7 @@ export async function getUserSubscription(req: Request, res: Response, next: Nex
       data: {
         effectivePlan,
         subscription: activeSub,
+        billingProfile: await getUserBillingProfile(userId),
         usage: {
           projects: projectsCount,
           habits: habitsCount,
@@ -86,6 +89,7 @@ export async function getUserSubscription(req: Request, res: Response, next: Nex
           storageUsedBytes,
           storageLimitBytes,
         },
+        company: getBillingCompanyProfile(),
         transactions,
         invoices,
       },
@@ -277,6 +281,34 @@ export async function cancelSubscription(req: Request, res: Response, next: Next
 }
 
 /**
+ * GET /api/billing/profile
+ * Returns the user's billing profile used for invoice bill-to details.
+ */
+export async function getBillingProfile(req: Request, res: Response, next: NextFunction) {
+  try {
+    const userId = req.user!.sub || (req.user as any)!.id;
+    const billingProfile = await getUserBillingProfile(userId);
+    return res.json({ data: billingProfile });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * PUT /api/billing/profile
+ * Persists the billing profile used on invoices and email receipts.
+ */
+export async function updateBillingProfile(req: Request, res: Response, next: NextFunction) {
+  try {
+    const userId = req.user!.sub || (req.user as any)!.id;
+    const billingProfile = await updateUserBillingProfile(userId, req.body || {});
+    return res.json({ data: billingProfile });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
  * GET /api/billing/invoices/:id/pdf
  * Streams a PDF invoice for the signed-in user.
  */
@@ -285,7 +317,7 @@ export async function getInvoicePdf(req: Request, res: Response, next: NextFunct
     const userId = req.user!.sub || (req.user as any)!.id;
     const invoiceId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     const invoice = await getUserInvoice(userId, invoiceId);
-    const pdf = buildInvoicePdfBuffer({
+    const pdf = await buildInvoicePdfBuffer({
       userId,
       invoice: {
         id: invoice.id,
@@ -295,6 +327,11 @@ export async function getInvoicePdf(req: Request, res: Response, next: NextFunct
         subtotalCents: invoice.subtotalCents,
         discountCents: invoice.discountCents,
         taxCents: invoice.taxCents,
+        cgstCents: invoice.cgstCents || 0,
+        sgstCents: invoice.sgstCents || 0,
+        igstCents: invoice.igstCents || 0,
+        sac: invoice.sac,
+        placeOfSupply: invoice.placeOfSupply,
         totalCents: invoice.totalCents,
         issuedAt: invoice.issuedAt,
         paidAt: invoice.paidAt,
@@ -302,6 +339,7 @@ export async function getInvoicePdf(req: Request, res: Response, next: NextFunct
         pdfUrl: invoice.pdfUrl,
       },
       user: invoice.user,
+      billingProfile: await getUserBillingProfile(userId),
       planName:
         invoice.subscription?.plan?.name ||
         ((invoice.order?.metadata as any)?.planName as string | undefined) ||
@@ -314,6 +352,7 @@ export async function getInvoicePdf(req: Request, res: Response, next: NextFunct
       providerSubscriptionId: invoice.subscription?.providerSubscriptionId || null,
       autoRenew: invoice.subscription?.autoRenew ?? null,
       billingInterval: invoice.subscription?.billingInterval || undefined,
+      planEnd: invoice.subscription?.currentPeriodEnd ?? null,
     });
 
     const downloadValue = Array.isArray(req.query.download)

@@ -31,6 +31,21 @@ const envSchema = z.object({
   VAPID_PRIVATE_KEY: z.string().optional(),
   VAPID_EMAIL: z.string().default('mailto:admin@productivity.app'),
 
+  COMPANY_NAME: z.string().default('Finamite Solutions LLP'),
+  COMPANY_GSTIN: z.string().optional().default(''),
+  COMPANY_EMAIL: z.string().email().optional().default('info@finamite.in'),
+  COMPANY_PHONE: z.string().optional().default(''),
+  COMPANY_ADDRESS_LINE1: z.string().default('3614, Sector 32-A, Chandigarh Road, Urban Estate'),
+  COMPANY_ADDRESS_LINE2: z.string().default('Jamalpur, Ludhiana'),
+  COMPANY_CITY_STATE: z.string().default('Punjab'),
+  COMPANY_PINCODE: z.string().default('141010'),
+  COMPANY_PLACE_OF_SUPPLY: z.string().default('Punjab (03)'),
+  COMPANY_WEBSITE: z.string().optional().default(''),
+  // Service Accounting Code (SAC) for the billed service. This is a temporary
+  // placeholder default — admins should set the tax-advisor-confirmed SAC via
+  // Admin → Billing → Invoice Settings, which overrides this env value.
+  COMPANY_SAC: z.string().optional().default('9983'),
+
   NOTION_CLIENT_ID: z.string().optional(),
   NOTION_CLIENT_SECRET: z.string().optional(),
   NOTION_REDIRECT_URI: z.string().default('http://localhost:3001/api/notion/oauth/callback'),
