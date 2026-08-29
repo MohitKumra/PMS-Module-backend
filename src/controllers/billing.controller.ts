@@ -8,7 +8,10 @@ import { getUserStorageUsedBytes, getUserStorageLimitBytes } from '../services/s
 import {
   createCheckoutOrder,
   recordSuccessfulPayment,
+  listUserInvoices,
+  getUserInvoice,
 } from '../services/billing.service';
+import { buildInvoicePdfBuffer } from '../services/billingDocuments.service';
 import { cancelSubscriptionAction as cancelSubscriptionService } from '../services/subscription.service';
 import { validateCoupon } from '../services/coupon.service';
 import { verifyRazorpayPaymentSignature } from '../providers/razorpay/razorpay.payment';
@@ -67,6 +70,8 @@ export async function getUserSubscription(req: Request, res: Response, next: Nex
       take: 10,
     });
 
+    const invoices = await listUserInvoices(userId);
+
     return res.json({
       data: {
         effectivePlan,
@@ -82,6 +87,7 @@ export async function getUserSubscription(req: Request, res: Response, next: Nex
           storageLimitBytes,
         },
         transactions,
+        invoices,
       },
     });
   } catch (err) {
@@ -210,7 +216,9 @@ export async function verifyPayment(req: Request, res: Response, next: NextFunct
       orderId: order.id,
       planId: order.planId || undefined,
       couponId: order.couponId || undefined,
+      subtotalCents: order.subtotalCents,
       autoRenew: order.type === 'SUBSCRIPTION_INITIAL',
+      taxCents: order.taxCents,
       metadata: {
         verifiedVia: 'CLIENT_CHECKOUT_VERIFICATION',
       },
@@ -263,6 +271,62 @@ export async function cancelSubscription(req: Request, res: Response, next: Next
         subscription: updated,
       },
     });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * GET /api/billing/invoices/:id/pdf
+ * Streams a PDF invoice for the signed-in user.
+ */
+export async function getInvoicePdf(req: Request, res: Response, next: NextFunction) {
+  try {
+    const userId = req.user!.sub || (req.user as any)!.id;
+    const invoiceId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const invoice = await getUserInvoice(userId, invoiceId);
+    const pdf = buildInvoicePdfBuffer({
+      userId,
+      invoice: {
+        id: invoice.id,
+        invoiceNumber: invoice.invoiceNumber,
+        status: invoice.status,
+        currency: invoice.currency,
+        subtotalCents: invoice.subtotalCents,
+        discountCents: invoice.discountCents,
+        taxCents: invoice.taxCents,
+        totalCents: invoice.totalCents,
+        issuedAt: invoice.issuedAt,
+        paidAt: invoice.paidAt,
+        dueAt: invoice.dueAt,
+        pdfUrl: invoice.pdfUrl,
+      },
+      user: invoice.user,
+      planName:
+        invoice.subscription?.plan?.name ||
+        ((invoice.order?.metadata as any)?.planName as string | undefined) ||
+        undefined,
+      planSlug: invoice.subscription?.plan?.slug || undefined,
+      subscriptionId: invoice.subscriptionId || null,
+      transactionId: invoice.transactions?.[0]?.id || null,
+      providerPaymentId: invoice.transactions?.[0]?.providerPaymentId || null,
+      providerOrderId: invoice.orderId || null,
+      providerSubscriptionId: invoice.subscription?.providerSubscriptionId || null,
+      autoRenew: invoice.subscription?.autoRenew ?? null,
+      billingInterval: invoice.subscription?.billingInterval || undefined,
+    });
+
+    const downloadValue = Array.isArray(req.query.download)
+      ? req.query.download[0]
+      : req.query.download;
+    const download = String(downloadValue || '') === '1';
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `${download ? 'attachment' : 'inline'}; filename="invoice-${invoice.invoiceNumber}.pdf"`
+    );
+    res.setHeader('Cache-Control', 'private, no-store, max-age=0');
+    res.send(pdf);
   } catch (err) {
     next(err);
   }

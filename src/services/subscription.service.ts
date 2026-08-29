@@ -10,6 +10,7 @@ import {
   resumeRazorpaySubscription,
   fetchRazorpaySubscription,
 } from '../providers/razorpay/razorpay.subscription';
+import { sendNotification } from './notification.service';
 import type { SubscriptionStatus, SubscriptionEventType, Prisma } from '@prisma/client';
 
 export async function listSubscriptions(params?: {
@@ -154,7 +155,7 @@ export async function initiateSubscription(params: {
 }
 
 export async function cancelSubscriptionAction(id: string, cancelAtPeriodEnd: boolean = true) {
-  const sub = await prisma.subscription.findUnique({ where: { id } });
+  const sub = await prisma.subscription.findUnique({ where: { id }, include: { plan: true } });
   if (!sub) throw createError(404, 'SUBSCRIPTION_NOT_FOUND', 'Subscription not found');
 
   try {
@@ -179,6 +180,40 @@ export async function cancelSubscriptionAction(id: string, cancelAtPeriodEnd: bo
     provider: sub.provider,
     occurredAt: new Date(),
   });
+
+  try {
+    await sendNotification(
+      sub.userId,
+      `Subscription ${cancelAtPeriodEnd ? 'scheduled for cancellation' : 'cancelled'}`,
+      cancelAtPeriodEnd
+        ? `Your ${sub.plan.name} subscription will stay active until ${updated.currentPeriodEnd.toLocaleDateString('en-IN')}.`
+        : `Your ${sub.plan.name} subscription has been cancelled and access ends immediately.`,
+      ['EMAIL'],
+      undefined,
+      {
+        emailSubject: cancelAtPeriodEnd
+          ? `Your subscription is scheduled to end on ${updated.currentPeriodEnd.toLocaleDateString('en-IN')}`
+          : 'Your subscription has been cancelled',
+        html: `
+          <div style="font-family:Arial,sans-serif;max-width:640px;margin:0 auto;padding:24px;background:#ffffff;color:#111827">
+            <h1 style="margin:0 0 12px;font-size:26px">Subscription update</h1>
+            <p style="margin:0 0 16px;color:#4b5563">
+              ${cancelAtPeriodEnd
+                ? 'Your subscription is scheduled to cancel at the end of the current billing period.'
+                : 'Your subscription was cancelled immediately.'}
+            </p>
+              <div style="padding:16px;border:1px solid #e5e7eb;border-radius:14px;background:#f9fafb">
+              <p style="margin:0 0 8px"><strong>Plan:</strong> ${sub.plan.name}</p>
+              <p style="margin:0 0 8px"><strong>Current period ends:</strong> ${updated.currentPeriodEnd.toLocaleDateString('en-IN')}</p>
+              <p style="margin:0"><strong>Status:</strong> ${updated.status}</p>
+            </div>
+          </div>
+        `,
+      }
+    );
+  } catch (err) {
+    console.warn('[SubscriptionService] Failed to send cancellation email:', err);
+  }
 
   return updated;
 }

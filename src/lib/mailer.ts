@@ -47,6 +47,11 @@ export interface MailOptions {
   to: string;
   subject: string;
   html: string;
+  attachments?: Array<{
+    filename: string;
+    content: Buffer | string;
+    contentType?: string;
+  }>;
 }
 
 /** Send an email. Logs a preview URL in dev when using Ethereal. */
@@ -198,4 +203,3 @@ export function recoveryByEmailEmail(resetUrl: string, primaryEmail: string): st
 export function adminOtpEmail(otp: string): string {
   return renderAdminOtp({ otp });
 }
-

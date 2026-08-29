@@ -8,7 +8,64 @@ import { verifyRazorpayWebhookSignature } from '../providers/razorpay/razorpay.w
 import { validateCoupon, redeemCouponAtomic } from './coupon.service';
 import { recordSubscriptionEvent } from './subscription.service';
 import { logAdminAction } from './audit.service';
+import { sendNotification } from './notification.service';
+import { buildInvoiceEmailHtml, buildInvoicePdfBuffer, getInvoicePdfUrl, type BillingInvoiceDocument } from './billingDocuments.service';
 import type { PaymentOrderType, BillingTransactionType, PaymentStatus, Prisma } from '@prisma/client';
+
+function buildInvoiceDocument(params: {
+  userId: string;
+  invoice: {
+    id: string;
+    invoiceNumber: string;
+    status: string;
+    currency: string;
+    subtotalCents: number;
+    discountCents: number;
+    taxCents: number;
+    totalCents: number;
+    issuedAt: Date;
+    paidAt?: Date | null;
+    dueAt?: Date | null;
+    pdfUrl?: string | null;
+  };
+  user: {
+    email: string;
+    name?: string | null;
+  };
+  planName?: string | null;
+  planSlug?: string | null;
+  subscriptionId?: string | null;
+  transactionId?: string | null;
+  providerPaymentId?: string | null;
+  providerOrderId?: string | null;
+  providerSubscriptionId?: string | null;
+  autoRenew?: boolean | null;
+  billingInterval?: string | null;
+}): BillingInvoiceDocument {
+  return params;
+}
+
+async function sendInvoiceEmail(doc: BillingInvoiceDocument): Promise<void> {
+  const pdfBuffer = buildInvoicePdfBuffer(doc);
+  await sendNotification(
+    doc.userId,
+    `Invoice ${doc.invoice.invoiceNumber}`,
+    `Your invoice ${doc.invoice.invoiceNumber} for ${doc.planName || 'your plan'} is ready.`,
+    ['EMAIL'],
+    undefined,
+    {
+      emailSubject: `Your invoice ${doc.invoice.invoiceNumber} is ready`,
+      html: buildInvoiceEmailHtml({ ...doc, invoice: { ...doc.invoice, pdfUrl: doc.invoice.pdfUrl || getInvoicePdfUrl(doc.invoice.id) } }),
+      attachments: [
+        {
+          filename: `invoice-${doc.invoice.invoiceNumber}.pdf`,
+          content: pdfBuffer,
+          contentType: 'application/pdf',
+        },
+      ],
+    }
+  );
+}
 
 export async function createCheckoutOrder(params: {
   userId: string;
@@ -20,6 +77,25 @@ export async function createCheckoutOrder(params: {
   const plan = await prisma.plan.findUnique({ where: { id: params.planId } });
   if (!plan || !plan.isActive) {
     throw createError(400, 'INVALID_PLAN', 'Selected plan is not available');
+  }
+
+  if (params.idempotencyKey) {
+    const existingOrder = await prisma.paymentOrder.findUnique({
+      where: { idempotencyKey: params.idempotencyKey },
+    });
+    if (existingOrder) {
+      return {
+        orderId: existingOrder.id,
+        providerOrderId: existingOrder.providerOrderId,
+        amountCents: existingOrder.totalCents,
+        currency: existingOrder.currency,
+        subtotalCents: existingOrder.subtotalCents,
+        discountCents: existingOrder.discountCents,
+        taxCents: existingOrder.taxCents,
+        noPaymentRequired: existingOrder.totalCents <= 0,
+        keyId: existingOrder.totalCents <= 0 ? undefined : process.env.RAZORPAY_KEY_ID,
+      };
+    }
   }
 
   let subtotalCents = plan.priceCents;
@@ -73,31 +149,54 @@ export async function createCheckoutOrder(params: {
     rzpOrderId = rzpOrder.id;
   }
 
-  const order = await prisma.paymentOrder.create({
-    data: {
-      userId: params.userId,
-      planId: plan.id,
-      type,
-      provider: 'razorpay',
-      providerOrderId: rzpOrderId,
-      currency,
-      subtotalCents,
-      discountCents,
-      taxCents,
-      totalCents: finalTotalCents,
-      status: 'CREATED',
-      couponId,
-      idempotencyKey: params.idempotencyKey || null,
-      metadata: {
-        planName: plan.name,
-        planSlug: plan.slug,
-        priceCents: plan.priceCents,
-        billingInterval: plan.billingInterval,
-        gstPercent,
+  let order;
+  try {
+    order = await prisma.paymentOrder.create({
+      data: {
+        userId: params.userId,
+        planId: plan.id,
+        type,
+        provider: 'razorpay',
+        providerOrderId: rzpOrderId,
+        currency,
+        subtotalCents,
+        discountCents,
+        taxCents,
+        totalCents: finalTotalCents,
+        status: 'CREATED',
+        couponId,
+        idempotencyKey: params.idempotencyKey || null,
+        metadata: {
+          planName: plan.name,
+          planSlug: plan.slug,
+          priceCents: plan.priceCents,
+          billingInterval: plan.billingInterval,
+          gstPercent,
+        },
       },
-    },
-    include: { plan: true },
-  });
+      include: { plan: true },
+    });
+  } catch (err: any) {
+    if (err?.code === 'P2002' && params.idempotencyKey) {
+      const existingOrder = await prisma.paymentOrder.findUnique({
+        where: { idempotencyKey: params.idempotencyKey },
+      });
+      if (existingOrder) {
+        return {
+          orderId: existingOrder.id,
+          providerOrderId: existingOrder.providerOrderId,
+          amountCents: existingOrder.totalCents,
+          currency: existingOrder.currency,
+          subtotalCents: existingOrder.subtotalCents,
+          discountCents: existingOrder.discountCents,
+          taxCents: existingOrder.taxCents,
+          noPaymentRequired: existingOrder.totalCents <= 0,
+          keyId: existingOrder.totalCents <= 0 ? undefined : process.env.RAZORPAY_KEY_ID,
+        };
+      }
+    }
+    throw err;
+  }
 
   return {
     orderId: order.id,
@@ -124,7 +223,9 @@ export async function recordSuccessfulPayment(params: {
   subscriptionId?: string;
   planId?: string;
   couponId?: string;
+  subtotalCents?: number;
   discountCents?: number;
+  taxCents?: number;
   autoRenew?: boolean;
   metadata?: any;
 }) {
@@ -142,13 +243,15 @@ export async function recordSuccessfulPayment(params: {
     return existingTx;
   }
 
-  return prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     // Generate sequential invoice number: INV-YEAR-RANDOM
     const year = new Date().getFullYear();
     const invoiceNumber = `INV-${year}-${Math.floor(100000 + Math.random() * 900000)}`;
 
+    const subtotalCents = params.subtotalCents ?? params.amountCents;
     const discountCents = params.discountCents || 0;
-    const grossAmountCents = params.amountCents + discountCents;
+    const taxCents = params.taxCents || 0;
+    const grossAmountCents = subtotalCents;
     const netAmountCents = params.amountCents;
 
     // A completed PaymentOrder is the purchase boundary. Activate a Subscription so
@@ -221,11 +324,12 @@ export async function recordSuccessfulPayment(params: {
         invoiceNumber,
         status: 'PAID',
         currency: params.currency,
-        subtotalCents: grossAmountCents,
+        subtotalCents,
         discountCents,
-        taxCents: 0,
+        taxCents,
         totalCents: netAmountCents,
         paidAt: new Date(),
+        pdfUrl: null,
       },
     });
 
@@ -246,7 +350,7 @@ export async function recordSuccessfulPayment(params: {
         currency: params.currency,
         grossAmountCents,
         discountCents,
-        taxCents: 0,
+        taxCents,
         netAmountCents,
         paidAt: new Date(),
         metadata: params.metadata || undefined,
@@ -273,8 +377,51 @@ export async function recordSuccessfulPayment(params: {
       );
     }
 
-    return transaction;
+    return { transaction, invoice };
   });
+
+  const user = await prisma.user.findUnique({
+    where: { id: params.userId },
+    select: { id: true, email: true, name: true },
+  });
+
+  const plan = params.planId
+    ? await prisma.plan.findUnique({ where: { id: params.planId }, select: { name: true, slug: true, billingInterval: true } })
+    : null;
+
+  if (user && result.invoice) {
+    const pdfUrl = getInvoicePdfUrl(result.invoice.id);
+    await prisma.invoice.update({
+      where: { id: result.invoice.id },
+      data: { pdfUrl },
+    });
+
+    const doc = buildInvoiceDocument({
+      userId: user.id,
+      invoice: {
+        ...result.invoice,
+        pdfUrl,
+      },
+      user,
+      planName: plan?.name || (params.metadata?.planName as string | undefined) || undefined,
+      planSlug: plan?.slug || (params.metadata?.planSlug as string | undefined) || undefined,
+      subscriptionId: result.transaction.subscriptionId,
+      transactionId: result.transaction.id,
+      providerPaymentId: params.providerPaymentId,
+      providerOrderId: params.providerOrderId,
+      providerSubscriptionId: params.providerSubscriptionId,
+      autoRenew: params.autoRenew ?? null,
+      billingInterval: plan?.billingInterval || (params.metadata?.billingInterval as string | undefined) || undefined,
+    });
+
+    try {
+      await sendInvoiceEmail(doc);
+    } catch (err) {
+      console.warn('[Billing] Failed to send invoice email:', err);
+    }
+  }
+
+  return result.transaction;
 }
 
 export async function processRazorpayWebhook(rawBody: string, signature: string | undefined) {
@@ -336,6 +483,8 @@ export async function processRazorpayWebhook(rawBody: string, signature: string 
 
           const userId = notes.userId || order?.userId;
           if (userId) {
+            const subtotalCents = order?.subtotalCents || payment.amount;
+            const taxCents = order?.taxCents || 0;
             await recordSuccessfulPayment({
               userId,
               provider: 'razorpay',
@@ -346,7 +495,9 @@ export async function processRazorpayWebhook(rawBody: string, signature: string 
               orderId: order?.id,
               planId: notes.planId || order?.planId,
               couponId: notes.couponId || order?.couponId,
+              subtotalCents,
               discountCents: order?.discountCents || 0,
+              taxCents,
               metadata: {
                 paymentMethod: payment.method,
                 email: payment.email,
@@ -377,6 +528,8 @@ export async function processRazorpayWebhook(rawBody: string, signature: string 
             const nextEnd = subEntity.current_end
               ? new Date(subEntity.current_end * 1000)
               : new Date(Date.now() + 30 * 86400 * 1000);
+            const planSubtotal = sub.plan.priceCents;
+            const planTax = Math.round((planSubtotal * (sub.plan.gstPercent || 18)) / 100);
 
             await prisma.subscription.update({
               where: { id: sub.id },
@@ -404,6 +557,8 @@ export async function processRazorpayWebhook(rawBody: string, signature: string 
                 currency: paymentEntity.currency,
                 subscriptionId: sub.id,
                 planId: sub.planId,
+                subtotalCents: planSubtotal,
+                taxCents: planTax,
                 metadata: {
                   planName: sub.plan.name,
                   billingInterval: sub.billingInterval,
@@ -621,6 +776,188 @@ export async function rollupRefundStatus(transactionId: string): Promise<Payment
   }
 
   return newStatus;
+}
+
+export async function listUserInvoices(userId: string) {
+  const invoices = await prisma.invoice.findMany({
+    where: { userId },
+    orderBy: { issuedAt: 'desc' },
+    take: 20,
+    include: {
+      subscription: {
+        include: {
+          plan: true,
+        },
+      },
+      order: true,
+      transactions: {
+        orderBy: { createdAt: 'desc' },
+        take: 1,
+      },
+    },
+  });
+
+  return invoices.map((invoice) => ({
+    ...invoice,
+    pdfUrl: invoice.pdfUrl || getInvoicePdfUrl(invoice.id),
+  }));
+}
+
+export async function getUserInvoice(userId: string, invoiceId: string) {
+  const invoice = await prisma.invoice.findFirst({
+    where: { id: invoiceId, userId },
+    include: {
+      user: { select: { id: true, email: true, name: true } },
+      subscription: {
+        include: {
+          plan: true,
+        },
+      },
+      order: true,
+      transactions: {
+        orderBy: { createdAt: 'desc' },
+      },
+    },
+  });
+
+  if (!invoice) {
+    throw createError(404, 'INVOICE_NOT_FOUND', 'Invoice not found');
+  }
+
+  return {
+    ...invoice,
+    pdfUrl: invoice.pdfUrl || getInvoicePdfUrl(invoice.id),
+  };
+}
+
+export async function processBillingLifecycleNotifications(): Promise<{
+  remindersSent: number;
+  expiredSubscriptions: number;
+}> {
+  const now = new Date();
+  const dayMs = 24 * 60 * 60 * 1000;
+  const reminderWindows = [3, 1, 0];
+
+  const subscriptions = await prisma.subscription.findMany({
+    where: {
+      status: { in: ['ACTIVE', 'PAST_DUE'] },
+      currentPeriodEnd: { gte: new Date(now.getTime() - dayMs), lte: new Date(now.getTime() + 4 * dayMs) },
+    },
+    include: { plan: true, user: true },
+    take: 200,
+  });
+
+  let remindersSent = 0;
+  let expiredSubscriptions = 0;
+
+  for (const sub of subscriptions) {
+    const msLeft = sub.currentPeriodEnd.getTime() - now.getTime();
+    const daysLeft = Math.ceil(msLeft / dayMs);
+    const normalizedDaysLeft = Math.max(0, daysLeft);
+
+    for (const threshold of reminderWindows) {
+      if (normalizedDaysLeft !== threshold) continue;
+
+      const logTitle = `BILLING_REMINDER_${threshold}_${sub.id}`;
+      const alreadySent = await prisma.notificationLog.findFirst({
+        where: {
+          userId: sub.userId,
+          channel: 'EMAIL',
+          title: logTitle,
+        },
+      });
+
+      if (alreadySent) break;
+
+      try {
+        await sendNotification(
+          sub.userId,
+          `Your plan renews in ${threshold} day${threshold === 1 ? '' : 's'}`,
+          `Your ${sub.plan.name} plan expires on ${sub.currentPeriodEnd.toLocaleDateString('en-IN')}. Renewal is based on the full plan price, and coupons are not reused on renewals.`,
+          ['EMAIL'],
+          undefined,
+          {
+            logTitle,
+            emailSubject: `Your ${sub.plan.name} plan renews in ${threshold} day${threshold === 1 ? '' : 's'}`,
+            html: `
+              <div style="font-family:Arial,sans-serif;max-width:640px;margin:0 auto;padding:24px;background:#ffffff;color:#111827">
+                <h1 style="margin:0 0 12px;font-size:26px">Renewal reminder</h1>
+                <p style="margin:0 0 16px;color:#4b5563">
+                  Your <strong>${sub.plan.name}</strong> plan expires on <strong>${sub.currentPeriodEnd.toLocaleDateString('en-IN')}</strong>.
+                </p>
+                <div style="padding:16px;border:1px solid #e5e7eb;border-radius:14px;background:#f9fafb">
+                  <p style="margin:0 0 8px"><strong>Renewal price:</strong> ${new Intl.NumberFormat('en-IN', { style: 'currency', currency: sub.plan.currency, maximumFractionDigits: 0 }).format(sub.plan.priceCents / 100)}</p>
+                  <p style="margin:0"><strong>Auto-pay:</strong> ${sub.autoRenew ? 'Enabled' : 'Disabled'}</p>
+                </div>
+              </div>
+            `,
+          }
+        );
+        remindersSent++;
+      } catch (err) {
+        console.warn('[Billing] Failed to send renewal reminder email:', err);
+      }
+
+      break;
+    }
+
+    const shouldExpire =
+      msLeft < 0 &&
+      (sub.providerSubscriptionId.startsWith('local_') || !sub.autoRenew);
+
+    if (shouldExpire) {
+      const logTitle = `BILLING_EXPIRED_${sub.id}`;
+      const alreadySent = await prisma.notificationLog.findFirst({
+        where: {
+          userId: sub.userId,
+          channel: 'EMAIL',
+          title: logTitle,
+        },
+      });
+
+      await prisma.subscription.update({
+        where: { id: sub.id },
+        data: {
+          status: 'EXPIRED',
+          endedAt: sub.endedAt || now,
+          autoRenew: false,
+          cancelAtPeriodEnd: false,
+        },
+      });
+      expiredSubscriptions++;
+
+      if (!alreadySent) {
+        try {
+          await sendNotification(
+            sub.userId,
+            `${sub.plan.name} access ended`,
+            `Your ${sub.plan.name} plan expired on ${sub.currentPeriodEnd.toLocaleDateString('en-IN')}. Your account has been returned to the free tier.`,
+            ['EMAIL'],
+            undefined,
+            {
+              logTitle,
+              emailSubject: `${sub.plan.name} access ended`,
+              html: `
+                <div style="font-family:Arial,sans-serif;max-width:640px;margin:0 auto;padding:24px;background:#ffffff;color:#111827">
+                  <h1 style="margin:0 0 12px;font-size:26px">Plan expired</h1>
+                  <p style="margin:0 0 16px;color:#4b5563">
+                    Your <strong>${sub.plan.name}</strong> plan ended on <strong>${sub.currentPeriodEnd.toLocaleDateString('en-IN')}</strong>.
+                  </p>
+                  <div style="padding:16px;border:1px solid #e5e7eb;border-radius:14px;background:#f9fafb">
+                    <p style="margin:0"><strong>Current status:</strong> ${sub.providerSubscriptionId.startsWith('local_') ? 'Local billing expired' : 'Waiting for renewal confirmation'}</p>
+                  </div>
+                </div>
+              `,
+            }
+          );
+        } catch (err) {
+          console.warn('[Billing] Failed to send expiry email:', err);
+        }
+      }
+    }
+  }
+
+  return { remindersSent, expiredSubscriptions };
 }
 
 export async function listAdminTransactions(params?: {

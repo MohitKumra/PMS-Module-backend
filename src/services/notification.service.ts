@@ -8,6 +8,7 @@ import { sendPush } from '../lib/pushSender';
 import { sendMail, renderHabitReminder, renderTaskDue, renderProjectDeadline } from '../lib/mailer';
 import { createError } from '../middleware/errorHandler';
 import type { NotificationChannel } from '../types';
+import type { MailOptions } from '../lib/mailer';
 
 /** Saves or updates a user's web push subscription. */
 export async function registerPushSubscription(userId: string, subscription: PushSubscription): Promise<void> {
@@ -44,6 +45,10 @@ export interface NotificationDeliveryOptions {
   logTitle?: string;
   /** Optional email subject. Defaults to the visible title. */
   emailSubject?: string;
+  /** Optional custom HTML payload for the email channel. */
+  html?: string;
+  /** Optional attachment(s) for the email channel. */
+  attachments?: MailOptions['attachments'];
 }
 
 /**
@@ -104,7 +109,9 @@ export async function sendNotification(
           continue;
         }
         let html: string;
-        if (emailTemplate) {
+        if (options.html) {
+          html = options.html;
+        } else if (emailTemplate) {
           // Render the custom playful template
           switch (emailTemplate.templateName) {
             case 'habit-reminder-playful':
@@ -127,6 +134,7 @@ export async function sendNotification(
           to: user.email,
           subject: emailSubject,
           html,
+          attachments: options.attachments,
         });
       } else if (channel === 'BROWSER_PUSH' && user.pushSubscription) {
         const sub = JSON.parse(user.pushSubscription) as PushSubscription;

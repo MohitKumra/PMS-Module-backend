@@ -8,6 +8,7 @@ import {
   verifyPayment,
   cancelSubscription,
   previewCoupon,
+  getInvoicePdf,
 } from '../controllers/billing.controller';
 
 const router = Router();
@@ -21,5 +22,6 @@ router.post('/apply-coupon', authenticate, previewCoupon);
 router.post('/checkout', authenticate, createCheckout);
 router.post('/verify-payment', authenticate, verifyPayment);
 router.post('/cancel-subscription', authenticate, cancelSubscription);
+router.get('/invoices/:id/pdf', authenticate, getInvoicePdf);
 
 export default router;

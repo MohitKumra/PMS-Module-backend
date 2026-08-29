@@ -69,6 +69,7 @@ export async function getSystemHealthOverview() {
 
   const schedulerRunning = Boolean((globalThis as any).__schedulerRunning);
   const subscriptionSchedulerRunning = Boolean((globalThis as any).__schedulerSubscriptionRunning);
+  const billingLifecycleSchedulerRunning = Boolean((globalThis as any).__schedulerBillingLifecycleRunning);
   const pushConfigured = Boolean(env.VAPID_PUBLIC_KEY && env.VAPID_PRIVATE_KEY);
 
   return {
@@ -107,6 +108,11 @@ export async function getSystemHealthOverview() {
         status: subscriptionSchedulerRunning ? 'healthy' : 'degraded',
         running: subscriptionSchedulerRunning,
         label: 'Subscription renewal scheduler',
+      },
+      billingLifecycleScheduler: {
+        status: billingLifecycleSchedulerRunning ? 'healthy' : 'degraded',
+        running: billingLifecycleSchedulerRunning,
+        label: 'Billing lifecycle scheduler',
       },
       pushNotifications: {
         status: pushConfigured ? 'healthy' : 'degraded',

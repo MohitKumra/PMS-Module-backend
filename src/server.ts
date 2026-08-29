@@ -39,6 +39,7 @@ import projectsController from './controllers/projects.controller';
 import { errorHandler } from './middleware/errorHandler';
 import { startScheduler } from './jobs/reminderScheduler';
 import { startSubscriptionRenewal } from './jobs/subscriptionRenewal';
+import { startBillingLifecycleScheduler } from './jobs/billingLifecycleScheduler';
 import systemRoutes from './routes/system.routes';
 import { maintenanceMode } from './middleware/maintenanceMode';
 import { loadSystemSettings } from './services/systemSettings.service';
@@ -151,6 +152,7 @@ loadSystemSettings()
   .catch((err) => console.error('Failed to load system settings from database:', err));
 startScheduler();
 startSubscriptionRenewal();
+startBillingLifecycleScheduler();
 bootstrapAdmin().catch((err) => console.error('Failed to bootstrap initial admin:', err));
 app.listen(port, () => {
   console.log(`🚀  Backend running at http://localhost:${port}`);
@@ -158,4 +160,3 @@ app.listen(port, () => {
 });
 
 export default app;
-

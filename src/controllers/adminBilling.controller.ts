@@ -198,7 +198,9 @@ export async function verifyPaymentHandler(req: Request, res: Response, next: Ne
       currency: data.currency,
       orderId: data.orderId,
       planId: data.planId,
+      subtotalCents: data.amountCents,
       discountCents: 0,
+      taxCents: 0,
     });
 
     res.json({ success: true, message: 'Payment recorded successfully', data: tx });
