@@ -12,6 +12,7 @@ import { recomputeGoalProgress } from './goal.service';
 import { syncGoogleCalendarTasks, deleteGoogleCalendarEvents } from './google.service';
 import { awardTaskCompletion, revokeTaskCompletion, deleteTaskPoints } from './gamification.service';
 import { toNoteDTO } from './notes.service';
+import { checkUserEntitlement } from './entitlement.service';
 import type {
   TaskDTO,
   TaskDetailDTO,
@@ -441,6 +442,11 @@ function toDTO(t: any): TaskDTO {
  */
 async function triggerCalendarSync(userId: string): Promise<void> {
   try {
+    const entitlement = await checkUserEntitlement(userId, 'calendarSync');
+    if (!entitlement.allowed) {
+      return; // Skip sync if calendarSync is locked on the user's plan
+    }
+
     // Check if Google Calendar is connected before attempting sync
     const connection = await prisma.googleCalendarConnection.findUnique({
       where: { userId },

@@ -7,6 +7,7 @@ import { logAdminAction } from './audit.service';
 import { createRazorpayProviderPlan } from '../providers/razorpay/razorpay.subscription';
 import { Prisma } from '@prisma/client';
 import type { BillingInterval } from '@prisma/client';
+import { MIN_AI_QUOTA } from '../config/featureCatalog';
 
 // Clamp an admin-supplied GST percentage to a sane 0–100 range, defaulting to 18.
 function clampGst(value?: number): number {
@@ -14,6 +15,24 @@ function clampGst(value?: number): number {
     return Math.max(0, Math.min(100, Math.round(value)));
   }
   return 18;
+}
+
+/**
+ * AI entitlements are only usable when the plan carries a positive AI quota.
+ * If a plan enables any AI feature but the quota is missing/below the minimum,
+ * auto-raise it so the advertised AI actually works (otherwise every AI call
+ * would be rejected server-side).
+ */
+function enforceAiQuota(features: Record<string, any>): void {
+  const hasAI =
+    typeof features['aiCoach'] === 'boolean' ||
+    typeof features['goals'] === 'boolean';
+  if (!hasAI) return;
+  const quota = features['aiRequestsPerMonth'];
+  const usable = quota === -1 || (typeof quota === 'number' && quota >= MIN_AI_QUOTA);
+  if (!usable) {
+    features['aiRequestsPerMonth'] = MIN_AI_QUOTA;
+  }
 }
 
 
@@ -72,6 +91,9 @@ export async function createPlan(params: {
   const billingInterval = params.billingInterval || 'MONTH';
   const gstPercent = clampGst(params.gstPercent);
 
+  const planFeatures: Record<string, any> = { ...params.features };
+  enforceAiQuota(planFeatures);
+
   const plan = await prisma.plan.create({
     data: {
       slug,
@@ -81,7 +103,7 @@ export async function createPlan(params: {
       priceCents: params.priceCents,
       gstPercent,
       billingInterval,
-      features: params.features,
+      features: planFeatures,
       sortOrder: params.sortOrder ?? 0,
       isActive: params.isActive ?? true,
       createdByAdminId: params.adminAccountId,
@@ -155,6 +177,13 @@ export async function updatePlan(
 
   const newVersion = priceChanged || intervalChanged ? existing.version + 1 : existing.version;
 
+  // Apply AI-quota guard when features are being updated.
+  const planFeatures: Record<string, any> =
+    params.features !== undefined
+      ? { ...params.features }
+      : ((existing.features as Record<string, any>) ?? {});
+  if (params.features !== undefined) enforceAiQuota(planFeatures);
+
   const updated = await prisma.plan.update({
     where: { id },
     data: {
@@ -164,7 +193,7 @@ export async function updatePlan(
       priceCents: params.priceCents ?? existing.priceCents,
       gstPercent: params.gstPercent !== undefined ? clampGst(params.gstPercent) : existing.gstPercent,
       billingInterval: params.billingInterval ?? existing.billingInterval,
-      features: params.features !== undefined ? (params.features as Prisma.InputJsonValue) : (existing.features as Prisma.InputJsonValue | undefined) ?? undefined,
+      features: planFeatures && Object.keys(planFeatures).length ? (planFeatures as Prisma.InputJsonValue) : (existing.features as Prisma.InputJsonValue | undefined) ?? undefined,
       sortOrder: params.sortOrder ?? existing.sortOrder,
       isActive: params.isActive !== undefined ? params.isActive : existing.isActive,
       version: newVersion,

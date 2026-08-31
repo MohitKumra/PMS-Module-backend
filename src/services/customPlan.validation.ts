@@ -8,30 +8,28 @@
 // Availability still comes from the user's actual resolved plan.
 
 import { createError } from '../middleware/errorHandler';
+import {
+  NUMERIC_FEATURE_KEYS,
+  BOOLEAN_FEATURE_KEYS,
+  NUMERIC_FEATURES,
+  BOOLEAN_FEATURES,
+  FEATURE_LABELS,
+  MIN_AI_QUOTA,
+  type NumericFeatureKey,
+  type BooleanFeatureKey,
+} from '../config/featureCatalog';
 
-// Canonical keys of numeric, per-user quota features on Plan.features.
-export const NUMERIC_FEATURE_KEYS = [
-  'aiRequestsPerMonth',
-  'projects',
-  'habits',
-  'tasks',
-  'storageMb',
-  'notes',
-  'journals',
-] as const;
-
-// Canonical keys of boolean (on/off) entitlement features on Plan.features.
-export const BOOLEAN_FEATURE_KEYS = [
-  'aiCoach',
-  'goals',
-  'focusAdvanced',
-  'notionSync',
-  'voiceNotes',
-  'audioRecurrence',
-] as const;
-
-export type NumericFeatureKey = (typeof NUMERIC_FEATURE_KEYS)[number];
-export type BooleanFeatureKey = (typeof BOOLEAN_FEATURE_KEYS)[number];
+// Re-export the canonical catalog so existing consumers keep working, but now
+// the metadata is owned by ONE file (config/featureCatalog.ts).
+export {
+  NUMERIC_FEATURE_KEYS,
+  BOOLEAN_FEATURE_KEYS,
+  NUMERIC_FEATURES,
+  BOOLEAN_FEATURES,
+  FEATURE_LABELS,
+  MIN_AI_QUOTA,
+};
+export type { NumericFeatureKey, BooleanFeatureKey };
 
 const NUMERIC_SET = new Set<string>(NUMERIC_FEATURE_KEYS);
 const BOOLEAN_SET = new Set<string>(BOOLEAN_FEATURE_KEYS);
@@ -39,23 +37,6 @@ const BOOLEAN_SET = new Set<string>(BOOLEAN_FEATURE_KEYS);
 // Upper sanity bound for any requested numeric limit. -1 is preserved as the
 // existing "unlimited" sentinel.
 export const MAX_LIMIT = 100_000_000;
-
-// Human-readable labels mirroring Admin → Plans (single display vocabulary).
-export const FEATURE_LABELS: Record<string, string> = {
-  aiRequestsPerMonth: 'AI requests / month',
-  projects: 'Active projects',
-  habits: 'Habit trackers',
-  tasks: 'Tasks',
-  storageMb: 'Storage (MB)',
-  notes: 'Notes',
-  journals: 'Journal entries',
-  aiCoach: 'AI Coach',
-  goals: 'Goals',
-  focusAdvanced: 'Advanced Focus',
-  notionSync: 'Notion sync',
-  voiceNotes: 'Voice notes',
-  audioRecurrence: 'Audio recurrence',
-};
 
 export interface SanitizedLimits {
   [key: string]: number;

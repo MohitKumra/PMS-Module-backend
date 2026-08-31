@@ -3,6 +3,7 @@
 
 import { prisma } from '../lib/prismaClient';
 import { createError } from '../middleware/errorHandler';
+import { MIN_AI_QUOTA } from '../config/featureCatalog';
 
 export interface EffectivePlanResult {
   planId: string | null;
@@ -161,15 +162,25 @@ export async function checkUserEntitlement(
 
 /**
  * Returns true if the user's effective plan grants access to AI features.
+ *
+ * AI is only granted when the plan carries a usable AI quota: aiRequestsPerMonth
+ * must be a positive number >= MIN_AI_QUOTA (or the -1 "unlimited" sentinel).
+ * Merely flipping aiCoach=true on a plan is not enough — without a positive
+ * quota the AI endpoints would reject every call, so we treat it as locked.
  */
 export async function isAIFeatureGranted(userId: string): Promise<boolean> {
   const plan = await resolveEffectivePlan(userId);
   const aiCoach = plan.features['aiCoach'];
   const quota = plan.features['aiRequestsPerMonth'];
-  if (aiCoach === false) return false;
-  if (typeof quota === 'number' && quota === 0) return false;
-  if (aiCoach === true) return true;
-  if (typeof quota === 'number' && quota > 0) return true;
+
+  const hasUsableQuota =
+    quota === -1 || (typeof quota === 'number' && quota >= MIN_AI_QUOTA);
+
+  if (aiCoach === true) {
+    // AI explicitly granted, but only usable if there is a positive quota.
+    return hasUsableQuota;
+  }
   if (quota === -1) return true;
-  return plan.status !== 'FREE' && plan.planSlug !== 'free';
+  if (typeof quota === 'number' && quota >= MIN_AI_QUOTA) return true;
+  return false;
 }

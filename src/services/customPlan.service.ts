@@ -26,6 +26,7 @@ import {
   normalizeFinalConfig,
   PAY_TOKEN_TTL_MS,
   FEATURE_LABELS,
+  MIN_AI_QUOTA,
   type FinalConfigShape,
 } from './customPlan.validation';
 import { logAdminAction } from './audit.service';
@@ -106,6 +107,17 @@ export function buildCustomPlanFeaturesSnapshot(
   for (const [key, enabled] of Object.entries(config.requestedFeatures)) {
     if (enabled) snapshot[key] = true;
   }
+
+  // AI features require a usable AI quota (>= MIN_AI_QUOTA or unlimited -1).
+  const hasAI = Boolean(snapshot['aiCoach'] || snapshot['goals']);
+  if (hasAI) {
+    const quota = snapshot['aiRequestsPerMonth'];
+    const usable = quota === -1 || (typeof quota === 'number' && quota >= MIN_AI_QUOTA);
+    if (!usable) {
+      snapshot['aiRequestsPerMonth'] = MIN_AI_QUOTA;
+    }
+  }
+
   return snapshot;
 }
 

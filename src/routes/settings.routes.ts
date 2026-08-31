@@ -3,6 +3,7 @@ import { z } from 'zod';
 import * as ctrl from '../controllers/settings.controller';
 import { authenticate } from '../middleware/authenticate';
 import { validate } from '../middleware/validate';
+import { requireFeature } from '../middleware/requireFeature';
 
 const router = Router();
 router.use(authenticate);
@@ -46,8 +47,8 @@ router.patch('/appearance', validate({ body: appearanceSchema }), ctrl.updateApp
 router.patch('/notifications', validate({ body: notificationsSchema }), ctrl.updateNotifications);
 router.patch('/ai', validate({ body: aiSchema }), ctrl.updateAI);
 router.patch('/security/recovery-email', validate({ body: recoverySchema }), ctrl.updateRecoveryEmail);
-router.get('/google-calendar/start', ctrl.googleCalendarStart);
-router.post('/google-calendar/sync', ctrl.syncGoogleCalendar);
-router.post('/google-calendar/disconnect', ctrl.disconnectGoogleCalendar);
+router.get('/google-calendar/start', requireFeature('calendarSync'), ctrl.googleCalendarStart);
+router.post('/google-calendar/sync', requireFeature('calendarSync'), ctrl.syncGoogleCalendar);
+router.post('/google-calendar/disconnect', requireFeature('calendarSync'), ctrl.disconnectGoogleCalendar);
 
 export default router;

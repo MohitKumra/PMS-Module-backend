@@ -5,6 +5,7 @@ import { env } from '../config/env';
 import { createError } from '../middleware/errorHandler';
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from '../lib/jwt';
 import * as notifService from './notification.service';
+import { checkUserEntitlement } from './entitlement.service';
 import type {
   GoogleAuthPurpose,
   GoogleCalendarIntegrationDTO,
@@ -494,6 +495,15 @@ async function callGoogleCalendarApi(
 
 export async function syncGoogleCalendarTasks(userId: string): Promise<GoogleCalendarSyncResponse> {
   console.log(`[Google Calendar] Starting sync for user ${userId}`);
+
+  const entitlement = await checkUserEntitlement(userId, 'calendarSync');
+  if (!entitlement.allowed) {
+    throw createError(
+      403,
+      'FEATURE_LOCKED',
+      `Google Calendar sync is not available on your current plan (${entitlement.currentEffectivePlan}). Please upgrade to unlock it.`
+    );
+  }
 
   const user = await prisma.user.findUnique({
     where: { id: userId },

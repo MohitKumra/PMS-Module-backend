@@ -46,4 +46,15 @@ describe('buildCustomPlanFeaturesSnapshot', () => {
     const base = { a: 1, b: true };
     expect(buildCustomPlanFeaturesSnapshot(base, { requestedLimits: {}, requestedFeatures: {} })).toEqual(base);
   });
+
+  it('auto-raises aiRequestsPerMonth to MIN_AI_QUOTA when AI features are enabled without quota', () => {
+    const base = { projects: 3, aiRequestsPerMonth: 0 };
+    const config = {
+      requestedLimits: {},
+      requestedFeatures: { aiCoach: true },
+    };
+    const snapshot = buildCustomPlanFeaturesSnapshot(base, config as any);
+    expect(snapshot.aiCoach).toBe(true);
+    expect(snapshot.aiRequestsPerMonth).toBeGreaterThanOrEqual(1);
+  });
 });
