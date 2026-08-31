@@ -3,29 +3,112 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="color-scheme" content="light" />
 <title>Your custom plan quote</title>
+<style>
+  @media only screen and (max-width: 480px) {
+    .container { width: 100% !important; border-radius: 0 !important; }
+    .px { padding-left: 24px !important; padding-right: 24px !important; }
+    .hero-pad { padding: 32px 24px !important; }
+  }
+</style>
 </head>
-<body style="margin:0;padding:24px;background-color:#f3f4f6;font-family:Arial,Helvetica,sans-serif;">
-  <div style="margin:0 auto;max-width:520px;background-color:#ffffff;border-radius:16px;overflow:hidden;border:1px solid #e5e7eb;">
-    <div style="background:#0f766e;padding:28px 32px;">
-      <h1 style="margin:0;color:#ffffff;font-size:22px;">Your custom plan quote</h1>
-    </div>
-    <div style="padding:28px 32px;color:#111827;font-size:15px;line-height:1.6;">
-      <p style="margin:0 0 16px;">Hi,</p>
-      <p style="margin:0 0 16px;">Good news — your custom plan <strong>#{{requestId}}</strong> is almost ready. Here's a preview of your quote:</p>
-      <div style="padding:16px;border:1px solid #0f766e;border-radius:12px;background:#f0fdfa;">
-        <p style="margin:0 0 8px;"><strong>Price:</strong> {{priceLabel}}</p>
-        <p style="margin:0;"><strong>Billing:</strong> {{intervalLabel}}</p>
-      </div>
-      <p style="margin:16px 0 0;">
-        We're putting the finishing touches on your plan. Once it's final, you'll receive a
-        <strong>personal payment link by email</strong> — simply open it to review and activate your plan.
-      </p>
-      <p style="margin:12px 0 0;">No action is needed from you right now.</p>
-    </div>
-    <div style="padding:20px 32px;background:#f9fafb;border-top:1px solid #e5e7eb;font-size:12px;color:#6b7280;">
-      Questions about your quote? Reply to this email and our team will help.
-    </div>
-  </div>
+<body style="margin:0;padding:0;background-color:#EEF0FA;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#EEF0FA;">
+    <tr>
+      <td align="center" style="padding:40px 16px;">
+        <table role="presentation" class="container" width="560" cellpadding="0" cellspacing="0" style="width:560px;max-width:100%;background-color:#ffffff;border-radius:20px;border:1px solid #ECECF5;overflow:hidden;">
+
+          <!-- Logo bar -->
+          <tr>
+            <td class="px" style="padding:28px 40px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td>
+                    <table role="presentation" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td style="width:26px;height:26px;background-color:#6C5DD3;border-radius:8px;text-align:center;vertical-align:middle;font-family:Arial,sans-serif;font-size:13px;color:#ffffff;line-height:26px;">&#10022;</td>
+                        <td style="padding-left:9px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;font-size:16px;font-weight:700;color:#14142B;">Finamite</td>
+                      </tr>
+                    </table>
+                  </td>
+                  <td align="right">
+                    <span style="display:inline-block;background-color:#F0EDFC;color:#6C5DD3;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:.03em;padding:6px 12px;border-radius:999px;">IN PROGRESS</span>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Hero -->
+          <tr>
+            <td class="hero-pad" style="padding:8px 40px 36px;background:linear-gradient(135deg,#6C5DD3,#8A78F0);">
+              <table role="presentation" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="width:44px;height:44px;background-color:rgba(255,255,255,0.16);border-radius:12px;text-align:center;vertical-align:middle;font-family:Arial,sans-serif;font-size:20px;color:#ffffff;line-height:44px;">&#128179;</td>
+                </tr>
+              </table>
+              <h1 style="margin:18px 0 6px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;font-size:23px;line-height:1.3;font-weight:800;color:#ffffff;">Your custom plan quote</h1>
+              <p style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;font-size:14px;color:rgba(255,255,255,0.82);">Request #{{requestId}}</p>
+            </td>
+          </tr>
+
+          <!-- Body -->
+          <tr>
+            <td class="px" style="padding:36px 40px 8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;color:#3A3A4C;font-size:15px;line-height:1.65;">
+              <p style="margin:0 0 16px;">Hi,</p>
+              <p style="margin:0 0 24px;">Good news — your custom plan is almost ready. Here's a preview of your quote:</p>
+            </td>
+          </tr>
+
+          <!-- Summary card -->
+          <tr>
+            <td class="px" style="padding:0 40px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#F7F6FD;border:1px solid #ECE9FB;border-radius:16px;">
+                <tr>
+                  <td style="padding:20px 24px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td style="padding-bottom:12px;font-size:13px;color:#8A8FA8;">Price</td>
+                        <td style="padding-bottom:12px;font-size:14px;font-weight:700;color:#14142B;text-align:right;">{{priceLabel}}</td>
+                      </tr>
+                      <tr><td colspan="2" style="border-top:1px solid #ECE9FB;padding-top:12px;"></td></tr>
+                      <tr>
+                        <td style="padding-top:12px;font-size:13px;color:#8A8FA8;">Billing</td>
+                        <td style="padding-top:12px;font-size:14px;font-weight:700;color:#14142B;text-align:right;">{{intervalLabel}}</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Body continued -->
+          <tr>
+            <td class="px" style="padding:24px 40px 36px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;color:#3A3A4C;font-size:15px;line-height:1.65;">
+              <p style="margin:0 0 14px;">We're putting the finishing touches on your plan. Once it's final, you'll receive a personal payment link by email — simply open it to review and activate your plan.</p>
+              <p style="margin:0;color:#8A8FA8;font-size:14px;">No action is needed from you right now.</p>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td class="px" style="padding:22px 40px;background-color:#FAFAFC;border-top:1px solid #F0F0F7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;font-size:12px;color:#9AA0B4;text-align:center;">
+              Questions about your quote? Just reply to this email and our team will help.
+            </td>
+          </tr>
+
+        </table>
+        <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="width:560px;max-width:100%;">
+          <tr>
+            <td align="center" style="padding:20px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;font-size:12px;color:#B0B3C6;">
+              &copy; Finamite. All rights reserved.
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
 </body>
 </html>
