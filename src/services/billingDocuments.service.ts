@@ -278,7 +278,6 @@ export function buildBillingCustomerProfile(input: {
   billingEmail?: string | null;
   billingPhone?: string | null;
   billingAddressLine1?: string | null;
-  billingAddressLine2?: string | null;
   billingCityState?: string | null;
   billingPostalCode?: string | null;
   billingCountry?: string | null;
@@ -286,7 +285,6 @@ export function buildBillingCustomerProfile(input: {
 }): BillingCustomerProfile {
   const addressLines = [
     input.billingAddressLine1,
-    input.billingAddressLine2,
     [input.billingCityState, input.billingPostalCode].filter(Boolean).join(' ').trim(),
   ].filter((line): line is string => Boolean(line && line.trim()));
 

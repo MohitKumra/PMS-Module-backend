@@ -111,7 +111,6 @@ export async function getUserBillingProfile(userId: string): Promise<BillingCust
     billingEmail: pref?.billingEmail ?? null,
     billingPhone: pref?.billingPhone ?? null,
     billingAddressLine1: pref?.billingAddressLine1 ?? null,
-    billingAddressLine2: pref?.billingAddressLine2 ?? null,
     billingCityState: pref?.billingCityState ?? null,
     billingPostalCode: pref?.billingPostalCode ?? null,
     billingCountry: pref?.billingCountry ?? null,
@@ -126,7 +125,6 @@ export async function updateUserBillingProfile(
     billingEmail: string | null;
     billingPhone: string | null;
     billingAddressLine1: string | null;
-    billingAddressLine2: string | null;
     billingCityState: string | null;
     billingPostalCode: string | null;
     billingCountry: string | null;
@@ -149,7 +147,6 @@ export async function updateUserBillingProfile(
       billingEmail: data.billingEmail ?? null,
       billingPhone: data.billingPhone ?? null,
       billingAddressLine1: data.billingAddressLine1 ?? null,
-      billingAddressLine2: data.billingAddressLine2 ?? null,
       billingCityState: data.billingCityState ?? null,
       billingPostalCode: data.billingPostalCode ?? null,
       billingCountry: data.billingCountry ?? null,
@@ -160,7 +157,6 @@ export async function updateUserBillingProfile(
       ...(data.billingEmail !== undefined ? { billingEmail: data.billingEmail } : {}),
       ...(data.billingPhone !== undefined ? { billingPhone: data.billingPhone } : {}),
       ...(data.billingAddressLine1 !== undefined ? { billingAddressLine1: data.billingAddressLine1 } : {}),
-      ...(data.billingAddressLine2 !== undefined ? { billingAddressLine2: data.billingAddressLine2 } : {}),
       ...(data.billingCityState !== undefined ? { billingCityState: data.billingCityState } : {}),
       ...(data.billingPostalCode !== undefined ? { billingPostalCode: data.billingPostalCode } : {}),
       ...(data.billingCountry !== undefined ? { billingCountry: data.billingCountry } : {}),
@@ -175,7 +171,6 @@ export async function updateUserBillingProfile(
     billingEmail: pref.billingEmail,
     billingPhone: pref.billingPhone,
     billingAddressLine1: pref.billingAddressLine1,
-    billingAddressLine2: pref.billingAddressLine2,
     billingCityState: pref.billingCityState,
     billingPostalCode: pref.billingPostalCode,
     billingCountry: pref.billingCountry,

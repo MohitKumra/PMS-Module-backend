@@ -13,7 +13,6 @@ model UserPreference {
   billingEmail              String?
   billingPhone              String?
   billingAddressLine1       String?
-  billingAddressLine2       String?
   billingCityState          String?
   billingPostalCode         String?
   billingCountry            String?
