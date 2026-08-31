@@ -416,6 +416,30 @@ const models = {
 
   @@index([status, nextAttemptAt])
 }
+`,
+
+  'custom-plan-request.prisma': `model CustomPlanRequest {
+  id                String                    @id @default(cuid())
+  userId            String
+  currentPlanId     String?
+  status            CustomPlanRequestStatus   @default(PENDING)
+  requestedFeatures Json
+  requestedLimits   Json
+  requirements      Json?
+  adminNotes        String?
+  quotedPriceCents  Int?
+  currency          String                    @default("INR")
+  billingInterval   BillingInterval?
+  finalConfig       Json?
+  adminReviewerId   String?
+  reviewedAt        DateTime?
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+  user              User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@index([status, createdAt])
+}
 `
 };
 
@@ -470,6 +494,7 @@ const userModelContent = `model User {
   couponRedemptions        CouponRedemption[]
   entitlementOverrides     EntitlementOverride[]
   loginEvents              UserLoginEvent[]
+  customPlanRequests       CustomPlanRequest[]
 
   @@index([email])
   @@index([status])

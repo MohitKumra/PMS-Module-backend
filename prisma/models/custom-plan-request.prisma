@@ -1,0 +1,40 @@
+model CustomPlanRequest {
+  id                String                    @id @default(cuid())
+  userId            String
+  // Current plan snapshot captured server-side at creation time (never trusted
+  // from the client). Null when the user is on the Free tier.
+  currentPlanId     String?
+  status            CustomPlanRequestStatus   @default(PENDING)
+  // Canonical feature keys the user wants enabled beyond their current plan.
+  requestedFeatures Json
+  // Canonical numeric limit overrides: { featureKey: requestedValue }.
+  requestedLimits   Json
+  // Free-form requirements/notes captured during the conversational flow.
+  requirements      Json?
+  adminNotes        String?
+  quotedPriceCents  Int?
+  currency          String                    @default("INR")
+  billingInterval   BillingInterval?
+  // Final approved configuration authored by an admin for the accepted request.
+  finalConfig       Json?
+  adminReviewerId   String?
+  reviewedAt        DateTime?
+  // Carrier Plan created once at ACCEPTED. Hidden from pricing (isActive:false),
+  // carries the immutable entitlement snapshot, price, and GST. Idempotent per
+  // request (found via its unique slug, back-referenced here for traceability).
+  carrierPlanId     String?
+  // SHA-256 hash of the one-time payment link token. The raw token is NEVER
+  // persisted — it only exists inside the emailed URL. Expiry stored separately.
+  payTokenHash      String?
+  payTokenExpiresAt DateTime?
+  // Set the first time the user successfully pays, so repeat verifications can
+  // short-circuit idempotently (no duplicate subscriptions/invoices/emails).
+  paidAt            DateTime?
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+  user              User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@index([status, createdAt])
+  @@index([carrierPlanId])
+}

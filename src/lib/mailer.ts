@@ -190,6 +190,48 @@ export function renderAdminOtp(vars: { otp: string }): string {
   return renderTemplate('admin-otp', vars);
 }
 
+// ─── Custom Plan emails ────────────────────────────────────────────────────
+
+export function renderCustomPlanReceived(vars: { requestId: string; name?: string }): string {
+  return renderTemplate('custom-plan-received', vars);
+}
+
+export function renderCustomPlanQuote(vars: {
+  requestId: string;
+  priceLabel: string;
+  intervalLabel: string;
+}): string {
+  return renderTemplate('custom-plan-quote', vars);
+}
+
+export function renderCustomPlanRejected(vars: { requestId: string; reason?: string }): string {
+  return renderTemplate('custom-plan-rejected', vars);
+}
+
+export function renderCustomPlanAccepted(vars: {
+  requestId: string;
+  payUrl: string;
+  priceLabel: string;
+  intervalLabel: string;
+}): string {
+  return renderTemplate('custom-plan-accepted', vars);
+}
+
+export function renderCustomPlanActivated(vars: { requestId: string }): string {
+  return renderTemplate('custom-plan-activated', vars);
+}
+
+export function renderCustomPlanAdminNotify(vars: {
+  requestId: string;
+  customerName: string;
+  customerEmail: string;
+  limitsSummary: string;
+  featuresSummary: string;
+  requirements: string;
+}): string {
+  return renderTemplate('custom-plan-admin-notify', vars);
+}
+
 // ─── Legacy helper functions ────────────────────────────────────
 
 export function passwordResetEmail(resetUrl: string): string {

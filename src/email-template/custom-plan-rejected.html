@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Update on your custom plan request</title>
+</head>
+<body style="margin:0;padding:24px;background-color:#f3f4f6;font-family:Arial,Helvetica,sans-serif;">
+  <div style="margin:0 auto;max-width:520px;background-color:#ffffff;border-radius:16px;overflow:hidden;border:1px solid #e5e7eb;">
+    <div style="background:#b45309;padding:28px 32px;">
+      <h1 style="margin:0;color:#ffffff;font-size:22px;">Update on your custom plan request</h1>
+    </div>
+    <div style="padding:28px 32px;color:#111827;font-size:15px;line-height:1.6;">
+      <p style="margin:0 0 16px;">Hi,</p>
+      <p style="margin:0 0 16px;">Thanks for your interest in a custom plan. After careful review, we're unable to accommodate request
+        <strong>#{{requestId}}</strong> at this time.</p>
+      {{#if reason}}<div style="padding:16px;border:1px solid #e5e7eb;border-radius:12px;background:#fffbeb;">
+        <p style="margin:0 0 6px;"><strong>Reason:</strong></p>
+        <p style="margin:0;color:#4b5563;">{{reason}}</p>
+      </div>{{/if}}
+      <p style="margin:16px 0 0;">You're welcome to submit a revised request or reach out to our team for help finding the right plan for you.</p>
+    </div>
+    <div style="padding:20px 32px;background:#f9fafb;border-top:1px solid #e5e7eb;font-size:12px;color:#6b7280;">
+      Need help? Reply to this email and our team will be happy to assist.
+    </div>
+  </div>
+</body>
+</html>

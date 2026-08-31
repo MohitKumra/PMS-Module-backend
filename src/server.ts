@@ -34,6 +34,7 @@ import schedulerRoutes from './routes/scheduler.routes';
 import notionRoutes from './routes/notion.routes';
 import adminRoutes from './routes/admin.routes';
 import billingRoutes from './routes/billing.routes';
+import customPlanRoutes from './routes/custom-plan.routes';
 import webhookRoutes from './routes/webhook.routes';
 import projectsController from './controllers/projects.controller';
 import { errorHandler } from './middleware/errorHandler';
@@ -136,6 +137,7 @@ app.use('/api/scheduler', schedulerRoutes);
 app.use('/api/notion', notionRoutes);
 app.use('/api/projects', projectsController);
 app.use('/api/billing', billingRoutes);
+app.use('/api/custom-plans', customPlanRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/webhooks', webhookRoutes);
 

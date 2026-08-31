@@ -46,6 +46,7 @@ model User {
   entitlementOverrides     EntitlementOverride[]
   loginEvents              UserLoginEvent[]
   storageFiles             UserStorageFile[]
+  customPlanRequests       CustomPlanRequest[]
 
   @@index([email])
   @@index([status])

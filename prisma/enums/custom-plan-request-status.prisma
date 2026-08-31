@@ -1,0 +1,8 @@
+enum CustomPlanRequestStatus {
+  PENDING
+  REVIEWING
+  QUOTED
+  ACCEPTED
+  REJECTED
+  CANCELLED
+}

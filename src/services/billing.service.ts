@@ -211,9 +211,11 @@ export async function createCheckoutOrder(params: {
   type?: PaymentOrderType;
   couponCode?: string;
   idempotencyKey?: string;
+  /** Allow checkout of hidden/inactive plans (e.g. custom-plan carrier plans). */
+  allowInactive?: boolean;
 }) {
   const plan = await prisma.plan.findUnique({ where: { id: params.planId } });
-  if (!plan || !plan.isActive) {
+  if (!plan || (!plan.isActive && !params.allowInactive)) {
     throw createError(400, 'INVALID_PLAN', 'Selected plan is not available');
   }
 

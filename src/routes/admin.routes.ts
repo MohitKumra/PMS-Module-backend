@@ -54,6 +54,12 @@ import {
   getAdminInvoiceSettingsHandler,
   updateAdminInvoiceSettingsHandler,
 } from '../controllers/adminInvoiceSettings.controller';
+import {
+  listCustomPlanRequestsHandler,
+  getCustomPlanRequestHandler,
+  updateCustomPlanRequestHandler,
+  countCustomPlanRequestsHandler,
+} from '../controllers/adminCustomPlans.controller';
 
 import { requireAdmin } from '../middleware/requireAdmin';
 import { requirePermission } from '../middleware/requirePermission';
@@ -115,5 +121,12 @@ router.put('/settings', requireAdmin, requirePermission('admins.manage'), update
 // ─── Invoice / Billing Document Settings ────────────────────────────────────
 router.get('/billing/invoice-settings', requireAdmin, requirePermission('billing.read'), getAdminInvoiceSettingsHandler);
 router.put('/billing/invoice-settings', requireAdmin, requirePermission('billing.refund'), updateAdminInvoiceSettingsHandler);
+
+// ─── Custom Plan Requests ────────────────────────────────────────────────────
+// count must be registered BEFORE the /custom-plans/:id param route.
+router.get('/custom-plans/count', requireAdmin, requirePermission('plans.read'), countCustomPlanRequestsHandler);
+router.get('/custom-plans', requireAdmin, requirePermission('plans.read'), listCustomPlanRequestsHandler);
+router.get('/custom-plans/:id', requireAdmin, requirePermission('plans.read'), getCustomPlanRequestHandler);
+router.patch('/custom-plans/:id', requireAdmin, requirePermission('plans.write'), updateCustomPlanRequestHandler);
 
 export default router;
