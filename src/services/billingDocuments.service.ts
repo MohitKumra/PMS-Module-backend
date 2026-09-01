@@ -2,6 +2,7 @@
 // Shared invoice document rendering for PDF download links and email receipts.
 
 import { env } from '../config/env';
+import { renderInvoiceReceipt } from '../lib/mailer';
 import { getCachedInvoiceSettings } from './systemSettings.service';
 
 export interface BillingInvoiceDocument {
@@ -562,20 +563,13 @@ export function buildInvoiceEmailHtml(doc: BillingInvoiceDocument): string {
   const company = getBillingCompanyProfile();
   const link = doc.invoice.pdfUrl || getInvoicePdfUrl(doc.invoice.id);
   const planLabel = doc.planName || doc.planSlug || 'your plan';
-  return `
-    <div style="font-family:Arial,sans-serif;max-width:640px;margin:0 auto;padding:24px;background:#ffffff;color:#111827">
-      <h1 style="margin:0 0 12px;font-size:26px;line-height:1.2">${company.name} Invoice ${doc.invoice.invoiceNumber}</h1>
-      <p style="margin:0 0 16px;color:#4b5563">Thanks for your payment. Your receipt is ready to view or download.</p>
-      <div style="padding:16px;border:1px solid #e5e7eb;border-radius:14px;background:#f9fafb">
-        <p style="margin:0 0 8px"><strong>Plan:</strong> ${planLabel}</p>
-        <p style="margin:0 0 8px"><strong>Amount:</strong> ${formatMoney(doc.invoice.totalCents, doc.invoice.currency)}</p>
-        <p style="margin:0 0 8px"><strong>Status:</strong> ${doc.invoice.status}</p>
-        <p style="margin:0"><strong>Paid at:</strong> ${doc.invoice.paidAt ? doc.invoice.paidAt.toLocaleString('en-IN') : 'Pending'}</p>
-      </div>
-      <p style="margin:20px 0 0">
-        <a href="${link}" style="display:inline-block;padding:12px 18px;background:#111827;color:#ffffff;text-decoration:none;border-radius:10px;font-weight:700">View invoice PDF</a>
-      </p>
-      <p style="margin:16px 0 0;color:#6b7280;font-size:12px">If the button does not work, copy this link: ${link}</p>
-    </div>
-  `;
+  return renderInvoiceReceipt({
+    companyName: company.name,
+    invoiceNumber: doc.invoice.invoiceNumber,
+    planLabel,
+    amount: formatMoney(doc.invoice.totalCents, doc.invoice.currency),
+    status: doc.invoice.status,
+    paidAtText: doc.invoice.paidAt ? doc.invoice.paidAt.toLocaleString('en-IN') : 'Pending',
+    pdfLink: link,
+  });
 }

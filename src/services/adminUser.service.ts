@@ -215,9 +215,12 @@ export async function getAdminUserDetail(userId: string) {
     throw createError(404, 'USER_NOT_FOUND', 'User does not exist');
   }
 
-  // Financial calculations
+  // Financial calculations — actual money collected. `netAmountCents` is the final
+  // charged amount (base + GST − discount, or custom/free price). `grossAmountCents`
+  // is only the pre-GST base plan price, so revenue is based on netAmount.
   const capturedTx = user.billingTransactions.filter((t) => t.status === 'CAPTURED');
-  const grossRevenueCents = capturedTx.reduce((acc, t) => acc + t.grossAmountCents, 0);
+  const grossRevenueCents = capturedTx.reduce((acc, t) => acc + t.netAmountCents, 0);
+  const totalTaxCents = capturedTx.reduce((acc, t) => acc + (t.taxCents || 0), 0);
   const totalDiscountsCents = capturedTx.reduce((acc, t) => acc + t.discountCents, 0);
   const totalRefundsCents = user.billingTransactions.reduce(
     (acc, t) => acc + t.refunds.filter((r) => r.status === 'PROCESSED').reduce((ra, r) => ra + r.amountCents, 0),
@@ -259,6 +262,7 @@ export async function getAdminUserDetail(userId: string) {
     },
     financialSummary: {
       grossRevenueCents,
+      totalTaxCents,
       totalDiscountsCents,
       totalRefundsCents,
       netRevenueCents,

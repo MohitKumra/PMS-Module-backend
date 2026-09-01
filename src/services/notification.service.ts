@@ -5,7 +5,7 @@
 import { prisma } from '../lib/prismaClient';
 import type { PushSubscription } from '../lib/pushSender';
 import { sendPush } from '../lib/pushSender';
-import { sendMail, renderHabitReminder, renderTaskDue, renderProjectDeadline } from '../lib/mailer';
+import { sendMail, renderHabitReminder, renderTaskDue, renderProjectDeadline, renderNotificationFallback } from '../lib/mailer';
 import { createError } from '../middleware/errorHandler';
 import type { NotificationChannel } from '../types';
 import type { MailOptions } from '../lib/mailer';
@@ -154,14 +154,7 @@ export async function sendNotification(
 
 /** Fallback HTML template when no playful template is specified */
 function renderFallbackHtml(title: string, body: string): string {
-  return `
-    <div style="font-family:sans-serif;max-width:480px;margin:auto;padding:24px;background:#1a1a23;color:#e8e8f0;border-radius:12px;border:1px solid #2e2e3e">
-      <h2 style="color:#7c6ef5;margin-top:0">${title}</h2>
-      <p style="font-size:16px;line-height:1.5">${body}</p>
-      <hr style="border:0;border-top:1px solid #2e2e3e;margin:20px 0" />
-      <p style="font-size:12px;color:#888899">Sent from FlowSpace Productivity Dashboard</p>
-    </div>
-  `;
+  return renderNotificationFallback({ title, body });
 }
 
 /** Lists the notification logs for a user. */

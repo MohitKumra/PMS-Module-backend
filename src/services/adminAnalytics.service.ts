@@ -29,7 +29,7 @@ export async function getAdminOverviewMetrics(days: number = 30) {
     }),
     prisma.billingTransaction.findMany({
       where: { status: { in: ['CAPTURED', 'REFUNDED', 'PARTIALLY_REFUNDED'] } },
-      select: { grossAmountCents: true, discountCents: true, netAmountCents: true, createdAt: true },
+      select: { grossAmountCents: true, discountCents: true, taxCents: true, netAmountCents: true, createdAt: true },
     }),
     prisma.refund.findMany({
       where: { status: 'PROCESSED' },
@@ -58,25 +58,62 @@ export async function getAdminOverviewMetrics(days: number = 30) {
   }
   const arrCents = mrrCents * 12;
 
-  // Revenue sums
-  const grossRevenueCents = allCapturedTx.reduce((acc, t) => acc + t.grossAmountCents, 0);
+  // Revenue sums — revenue is the money actually collected. `netAmountCents` is
+  // the final charged amount = base price + GST − discount (or the custom-quoted
+  // price, or ₹0 for free purchases), so it already reflects GST, discounts and
+  // custom/free pricing. `grossAmountCents` is only the pre-GST base plan price.
+  const grossRevenueCents = allCapturedTx.reduce((acc, t) => acc + t.netAmountCents, 0);
+  const totalTaxCents = allCapturedTx.reduce((acc, t) => acc + (t.taxCents || 0), 0);
   const totalDiscountsCents = allCapturedTx.reduce((acc, t) => acc + t.discountCents, 0);
   const totalRefundsCents = allRefunds.reduce((acc, r) => acc + r.amountCents, 0);
   const netRevenueCents = Math.max(0, grossRevenueCents - totalRefundsCents);
 
-  // Time-series revenue and user buckets (grouped by day)
-  const timeSeriesMap = new Map<string, { date: string; revenueCents: number; users: number }>();
+  // Time-series revenue, refunds, and user buckets (grouped by day)
+  const timeSeriesMap = new Map<
+    string,
+    {
+      date: string;
+      revenueCents: number;
+      refundsCents: number;
+      netRevenueCents: number;
+      users: number;
+      transactionsCount: number;
+    }
+  >();
+
   for (let i = days - 1; i >= 0; i--) {
     const d = new Date(Date.now() - i * 24 * 60 * 60 * 1000);
     const dateStr = d.toISOString().split('T')[0];
-    timeSeriesMap.set(dateStr, { date: dateStr, revenueCents: 0, users: 0 });
+    timeSeriesMap.set(dateStr, {
+      date: dateStr,
+      revenueCents: 0,
+      refundsCents: 0,
+      netRevenueCents: 0,
+      users: 0,
+      transactionsCount: 0,
+    });
   }
 
   for (const tx of allCapturedTx) {
     const d = tx.createdAt.toISOString().split('T')[0];
     if (timeSeriesMap.has(d)) {
-      timeSeriesMap.get(d)!.revenueCents += tx.netAmountCents;
+      const entry = timeSeriesMap.get(d)!;
+      entry.revenueCents += tx.netAmountCents;
+      entry.transactionsCount += 1;
     }
+  }
+
+  for (const ref of allRefunds) {
+    const d = ref.createdAt.toISOString().split('T')[0];
+    if (timeSeriesMap.has(d)) {
+      const entry = timeSeriesMap.get(d)!;
+      entry.refundsCents += ref.amountCents;
+    }
+  }
+
+  // Compute daily net revenue
+  for (const entry of timeSeriesMap.values()) {
+    entry.netRevenueCents = Math.max(0, entry.revenueCents - entry.refundsCents);
   }
 
   const rangeUsers = await prisma.user.findMany({
@@ -113,6 +150,22 @@ export async function getAdminOverviewMetrics(days: number = 30) {
   const cancelledSubs = await prisma.subscription.count({ where: { status: 'CANCELLED' } });
   const churnRate = totalSubEver > 0 ? (cancelledSubs / totalSubEver) * 100 : 0;
 
+  // Recent transactions for live telemetry ledger
+  const recentTransactions = await prisma.billingTransaction.findMany({
+    take: 12,
+    orderBy: { createdAt: 'desc' },
+    include: {
+      user: { select: { id: true, email: true, name: true } },
+      plan: { select: { id: true, name: true, slug: true } },
+      refunds: { select: { id: true, amountCents: true, status: true, createdAt: true } },
+    },
+  });
+
+  // Calculate AOV and paid conversion rate
+  const totalTransactions = allCapturedTx.length;
+  const avgOrderValueCents = totalTransactions > 0 ? Math.round(grossRevenueCents / totalTransactions) : 0;
+  const paidConversionRate = totalUsers > 0 ? parseFloat(((activeSubs.length / totalUsers) * 100).toFixed(2)) : 0;
+
   return {
     kpis: {
       totalUsers,
@@ -124,9 +177,13 @@ export async function getAdminOverviewMetrics(days: number = 30) {
       mrrCents,
       arrCents,
       grossRevenueCents,
+      totalTaxCents,
       totalDiscountsCents,
       totalRefundsCents,
       netRevenueCents,
+      totalTransactions,
+      avgOrderValueCents,
+      paidConversionRate,
       churnRate: parseFloat(churnRate.toFixed(2)),
     },
     charts: {
@@ -138,6 +195,7 @@ export async function getAdminOverviewMetrics(days: number = 30) {
         { method: 'Both Linked', count: bothMethods },
       ],
     },
+    recentTransactions,
   };
 }
 

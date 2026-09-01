@@ -110,6 +110,7 @@ router.patch('/subscriptions/:id/resume', requireAdmin, requirePermission('billi
 router.get('/transactions', requireAdmin, requirePermission('billing.read'), listTransactionsHandler);
 router.get('/transactions/:id', requireAdmin, requirePermission('billing.read'), getTransactionDetailHandler);
 router.post('/transactions/:id/refund', requireAdmin, requirePermission('billing.refund'), processRefundHandler);
+router.post('/billing/transactions/:id/refund', requireAdmin, requirePermission('billing.refund'), processRefundHandler);
 
 // ─── Audit Log, System Health & Settings ───────────────────────────────────
 router.get('/audit-log', requireAdmin, requirePermission('audit.read'), listAuditLogsHandler);

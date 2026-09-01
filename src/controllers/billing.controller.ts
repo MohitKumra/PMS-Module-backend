@@ -41,7 +41,7 @@ export async function getUserSubscription(req: Request, res: Response, next: Nex
     const userId = req.user!.sub || (req.user as any)!.id;
     const effectivePlan = await resolveEffectivePlan(userId);
 
-    // Active subscription if any
+    // Active subscription if any, or latest historical subscription
     const activeSub = await prisma.subscription.findFirst({
       where: {
         userId,
@@ -50,6 +50,14 @@ export async function getUserSubscription(req: Request, res: Response, next: Nex
       include: { plan: true },
       orderBy: { createdAt: 'desc' },
     });
+
+    const latestSub =
+      activeSub ||
+      (await prisma.subscription.findFirst({
+        where: { userId },
+        include: { plan: true },
+        orderBy: { createdAt: 'desc' },
+      }));
 
     const [projectsCount, habitsCount, tasksCount, aiUsageCount, notesCount, journalsCount, storageUsedBytes, storageLimitBytes] = await Promise.all([
       prisma.project.count({ where: { userId } }),
@@ -77,7 +85,7 @@ export async function getUserSubscription(req: Request, res: Response, next: Nex
     return res.json({
       data: {
         effectivePlan,
-        subscription: activeSub,
+        subscription: latestSub,
         billingProfile: await getUserBillingProfile(userId),
         usage: {
           projects: projectsCount,

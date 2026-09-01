@@ -111,7 +111,7 @@ export async function getSubscriptionDetailHandler(req: Request, res: Response, 
 export async function cancelSubscriptionHandler(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const id = req.params.id as string;
-    const cancelAtPeriodEnd = req.body.cancelAtPeriodEnd !== false;
+    const cancelAtPeriodEnd = req.body.cancelAtPeriodEnd === true;
     const sub = await cancelSubscriptionAction(id, cancelAtPeriodEnd);
     res.json({ success: true, message: 'Subscription cancelled', data: sub });
   } catch (err) {

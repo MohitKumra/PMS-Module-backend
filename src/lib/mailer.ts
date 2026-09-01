@@ -7,6 +7,7 @@ import nodemailer from 'nodemailer';
 import * as fs from 'fs';
 import * as path from 'path';
 import { env } from '../config/env';
+import { getCachedInvoiceSettings } from '../services/systemSettings.service';
 
 let _transporter: nodemailer.Transporter | null = null;
 
@@ -78,8 +79,17 @@ function getAppUrls() {
       taskUrl: `${base}/tasks`,
       projectUrl: `${base}/projects`,
       preferencesUrl: `${base}/settings`,
+      billingUrl: `${base}/settings?tab=billing`,
     },
   };
+}
+
+// Brand name injected into every email template as {{brand.name}} so a rebrand
+// only requires changing the admin Billing → Invoice Settings (or COMPANY_NAME
+// env), not the individual HTML files. Mirrors how invoices resolve their name.
+function getBrand() {
+  const name = getCachedInvoiceSettings().companyName?.trim() || env.COMPANY_NAME?.trim() || 'Finamite';
+  return { name };
 }
 
 // ─── Template engine ───────────────────────────────────────────
@@ -119,7 +129,8 @@ function loadTemplate(name: string): string {
 function renderTemplate(templateName: string, variables: Record<string, any>): string {
   let html = loadTemplate(templateName);
   const appUrls = getAppUrls();
-  const ctx = { ...variables, ...appUrls };
+  const brand = getBrand();
+  const ctx = { ...variables, ...appUrls, brand };
 
   // Handle {{#if var}}...{{/if}} conditionals
   html = html.replace(/\{\{#if\s+([\w.]+)\}\}(.*?)\{\{\/if\}\}/gs, (_, key, content) => {
@@ -230,6 +241,50 @@ export function renderCustomPlanAdminNotify(vars: {
   requirements: string;
 }): string {
   return renderTemplate('custom-plan-admin-notify', vars);
+}
+
+// ─── Subscription / billing emails ────────────────────────────────────────
+
+export function renderSubscriptionRenewalReminder(vars: {
+  planName: string;
+  expiryDate: string;
+  renewalPrice: string;
+  autoPayText: string;
+}): string {
+  return renderTemplate('subscription-renewal-reminder', vars);
+}
+
+export function renderSubscriptionExpired(vars: {
+  planName: string;
+  expiryDate: string;
+  statusText: string;
+}): string {
+  return renderTemplate('subscription-expired', vars);
+}
+
+export function renderSubscriptionCancelled(vars: {
+  cancelAtPeriodEnd: boolean;
+  planName: string;
+  periodEnd: string;
+  status: string;
+}): string {
+  return renderTemplate('subscription-cancelled', vars);
+}
+
+export function renderInvoiceReceipt(vars: {
+  companyName: string;
+  invoiceNumber: string;
+  planLabel: string;
+  amount: string;
+  status: string;
+  paidAtText: string;
+  pdfLink: string;
+}): string {
+  return renderTemplate('invoice-receipt', vars);
+}
+
+export function renderNotificationFallback(vars: { title: string; body: string }): string {
+  return renderTemplate('notification-fallback', vars);
 }
 
 // ─── Legacy helper functions ────────────────────────────────────

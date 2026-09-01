@@ -2,8 +2,9 @@
 // Handles orders, invoices, transactions ledger, refunds, and webhook processing.
 
 import { prisma } from '../lib/prismaClient';
+import { renderSubscriptionRenewalReminder, renderSubscriptionExpired } from '../lib/mailer';
 import { createError } from '../middleware/errorHandler';
-import { createRazorpayOrder, createRazorpayRefund, verifyRazorpayPaymentSignature } from '../providers/razorpay/razorpay.payment';
+import { createRazorpayOrder, createRazorpayRefund, fetchRazorpayPayment, verifyRazorpayPaymentSignature } from '../providers/razorpay/razorpay.payment';
 import { verifyRazorpayWebhookSignature } from '../providers/razorpay/razorpay.webhook';
 import { validateCoupon, redeemCouponAtomic } from './coupon.service';
 import { recordSubscriptionEvent } from './subscription.service';
@@ -212,6 +213,22 @@ export async function createCheckoutOrder(params: {
   const plan = await prisma.plan.findUnique({ where: { id: params.planId } });
   if (!plan || (!plan.isActive && !params.allowInactive)) {
     throw createError(400, 'INVALID_PLAN', 'Selected plan is not available');
+  }
+
+  // If user's subscription is currently PAUSED by admin, block any new checkout
+  const pausedSub = await prisma.subscription.findFirst({
+    where: {
+      userId: params.userId,
+      status: 'PAUSED',
+    },
+    include: { plan: true },
+  });
+  if (pausedSub) {
+    throw createError(
+      403,
+      'SUBSCRIPTION_PAUSED',
+      'Your billing has been paused by administration. You cannot purchase or change plans while your account is paused. Please contact support to resume your subscription.'
+    );
   }
 
   if (params.idempotencyKey) {
@@ -557,11 +574,10 @@ export async function recordSuccessfulPayment(params: {
       billingInterval: plan?.billingInterval || (params.metadata?.billingInterval as string | undefined) || undefined,
     });
 
-    try {
-      await sendInvoiceEmail(doc);
-    } catch (err) {
-      console.warn('[Billing] Failed to send invoice email:', err);
-    }
+    // Dispatch invoice email in background so the verification endpoint responds immediately
+    sendInvoiceEmail(doc).catch((err) => {
+      console.warn('[Billing] Failed to send invoice email in background:', err);
+    });
   }
 
   return result.transaction;
@@ -828,14 +844,65 @@ export async function processRefund(params: {
     throw createError(400, 'EXCEEDS_NET_AMOUNT', 'Refund amount exceeds remaining captured balance');
   }
 
-  // Call Razorpay Refund API
+  // Call Razorpay Refund API if real payment, else simulate locally
   let rzpRefund;
-  if (transaction.providerPaymentId) {
+  let refundCurrency = transaction.currency;
+
+  const isMockPayment =
+    !transaction.providerPaymentId ||
+    transaction.providerPaymentId.startsWith('pay_mock_') ||
+    transaction.providerPaymentId.startsWith('sim_') ||
+    transaction.providerPaymentId.startsWith('local_') ||
+    process.env.RAZORPAY_KEY_ID?.startsWith('rzp_test_dummy');
+
+  if (!isMockPayment && transaction.providerPaymentId) {
+    // 1. Check live payment status on Razorpay
+    let payment;
+    try {
+      payment = await fetchRazorpayPayment(transaction.providerPaymentId);
+    } catch (err: any) {
+      throw createError(
+        400,
+        'GATEWAY_PAYMENT_FETCH_FAILED',
+        `Failed to verify payment with Razorpay: ${err.message || 'Payment not found'}`
+      );
+    }
+
+    if (!payment) {
+      throw createError(404, 'PAYMENT_NOT_FOUND', 'Payment not found on payment gateway.');
+    }
+
+    if (payment.status !== 'captured') {
+      throw createError(
+        400,
+        'PAYMENT_NOT_CAPTURED',
+        `Payment ${transaction.providerPaymentId} is in "${payment.status}" state on Razorpay (must be captured before refunding). Please capture the payment first.`
+      );
+    }
+
+    refundCurrency = payment.currency || transaction.currency;
+
+    const rzpCapturedAmount = typeof payment.amount === 'number' ? payment.amount : transaction.netAmountCents;
+    const rzpAlreadyRefunded = typeof (payment as any).amount_refunded === 'number' ? (payment as any).amount_refunded : 0;
+    const rzpAvailableRefund = rzpCapturedAmount - rzpAlreadyRefunded;
+
+    if (refundAmount > rzpAvailableRefund) {
+      throw createError(
+        400,
+        'EXCEEDS_CAPTURED_AMOUNT',
+        `Refund amount (${refundAmount / 100} ${refundCurrency}) exceeds the remaining refundable balance on Razorpay (${rzpAvailableRefund / 100} ${refundCurrency}).`
+      );
+    }
+
     rzpRefund = await createRazorpayRefund({
       paymentId: transaction.providerPaymentId,
       amountCents: refundAmount,
       notes: { reason: params.reason, adminId: params.adminAccountId },
     });
+  } else {
+    rzpRefund = {
+      id: `rfnd_mock_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    };
   }
 
   const refund = await prisma.refund.create({
@@ -845,7 +912,7 @@ export async function processRefund(params: {
       provider: transaction.provider,
       providerRefundId: rzpRefund?.id || `rfnd_${Date.now()}`,
       amountCents: refundAmount,
-      currency: transaction.currency,
+      currency: refundCurrency,
       status: 'PROCESSED',
       reason: params.reason,
       initiatedByAdminId: params.adminAccountId,
@@ -1022,18 +1089,12 @@ export async function processBillingLifecycleNotifications(): Promise<{
           {
             logTitle,
             emailSubject: `Your ${sub.plan.name} plan renews in ${threshold} day${threshold === 1 ? '' : 's'}`,
-            html: `
-              <div style="font-family:Arial,sans-serif;max-width:640px;margin:0 auto;padding:24px;background:#ffffff;color:#111827">
-                <h1 style="margin:0 0 12px;font-size:26px">Renewal reminder</h1>
-                <p style="margin:0 0 16px;color:#4b5563">
-                  Your <strong>${sub.plan.name}</strong> plan expires on <strong>${sub.currentPeriodEnd.toLocaleDateString('en-IN')}</strong>.
-                </p>
-                <div style="padding:16px;border:1px solid #e5e7eb;border-radius:14px;background:#f9fafb">
-                  <p style="margin:0 0 8px"><strong>Renewal price:</strong> ${new Intl.NumberFormat('en-IN', { style: 'currency', currency: sub.plan.currency, maximumFractionDigits: 0 }).format(sub.plan.priceCents / 100)}</p>
-                  <p style="margin:0"><strong>Auto-pay:</strong> ${sub.autoRenew ? 'Enabled' : 'Disabled'}</p>
-                </div>
-              </div>
-            `,
+            html: renderSubscriptionRenewalReminder({
+              planName: sub.plan.name,
+              expiryDate: sub.currentPeriodEnd.toLocaleDateString('en-IN'),
+              renewalPrice: new Intl.NumberFormat('en-IN', { style: 'currency', currency: sub.plan.currency, maximumFractionDigits: 0 }).format(sub.plan.priceCents / 100),
+              autoPayText: sub.autoRenew ? 'Enabled' : 'Disabled',
+            }),
           }
         );
         remindersSent++;
@@ -1080,17 +1141,11 @@ export async function processBillingLifecycleNotifications(): Promise<{
             {
               logTitle,
               emailSubject: `${sub.plan.name} access ended`,
-              html: `
-                <div style="font-family:Arial,sans-serif;max-width:640px;margin:0 auto;padding:24px;background:#ffffff;color:#111827">
-                  <h1 style="margin:0 0 12px;font-size:26px">Plan expired</h1>
-                  <p style="margin:0 0 16px;color:#4b5563">
-                    Your <strong>${sub.plan.name}</strong> plan ended on <strong>${sub.currentPeriodEnd.toLocaleDateString('en-IN')}</strong>.
-                  </p>
-                  <div style="padding:16px;border:1px solid #e5e7eb;border-radius:14px;background:#f9fafb">
-                    <p style="margin:0"><strong>Current status:</strong> ${sub.providerSubscriptionId.startsWith('local_') ? 'Local billing expired' : 'Waiting for renewal confirmation'}</p>
-                  </div>
-                </div>
-              `,
+              html: renderSubscriptionExpired({
+                planName: sub.plan.name,
+                expiryDate: sub.currentPeriodEnd.toLocaleDateString('en-IN'),
+                statusText: sub.providerSubscriptionId.startsWith('local_') ? 'Local billing expired' : 'Waiting for renewal confirmation',
+              }),
             }
           );
         } catch (err) {
