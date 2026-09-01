@@ -3,8 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="color-scheme" content="light" />
-  <title>{{companyName}} Invoice {{invoiceNumber}}</title>
+  <title>Scheduled Downgrade to {{targetPlanName}}</title>
   <style>
     @media only screen and (max-width: 480px) {
       .container { width: 100% !important; border-radius: 0 !important; }
@@ -17,7 +16,6 @@
     <tr>
       <td align="center" style="padding:40px 16px;">
         <table role="presentation" class="container" width="560" cellpadding="0" cellspacing="0" style="width:560px;max-width:100%;background-color:#ffffff;border-radius:20px;border:1px solid #ECECF5;overflow:hidden;">
-
           <tr>
             <td class="px" style="padding:28px 40px;">
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
@@ -31,7 +29,7 @@
                     </table>
                   </td>
                   <td align="right">
-                    <span style="display:inline-block;background-color:#EAF9F0;color:#1F9254;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:.03em;padding:6px 12px;border-radius:999px;">RECEIPT</span>
+                    <span style="display:inline-block;background-color:#FFFBEB;color:#D97706;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:.03em;padding:6px 12px;border-radius:999px;">SCHEDULED</span>
                   </td>
                 </tr>
               </table>
@@ -39,37 +37,34 @@
           </tr>
 
           <tr>
-            <td class="px" style="padding:8px 40px 36px;background:linear-gradient(135deg,#1F9254,#3EB575);">
+            <td class="px" style="padding:8px 40px 36px;background:linear-gradient(135deg,#D97706,#B45309);">
               <table role="presentation" cellpadding="0" cellspacing="0">
                 <tr>
-                  <td style="width:44px;height:44px;background-color:rgba(255,255,255,0.18);border-radius:12px;text-align:center;vertical-align:middle;font-family:Arial,sans-serif;font-size:20px;color:#ffffff;line-height:44px;">&#128203;</td>
+                  <td style="width:44px;height:44px;background-color:rgba(255,255,255,0.18);border-radius:12px;text-align:center;vertical-align:middle;font-family:Arial,sans-serif;font-size:20px;color:#ffffff;line-height:44px;">&#128197;</td>
                 </tr>
               </table>
-              <h1 style="margin:18px 0 6px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;font-size:22px;line-height:1.35;font-weight:800;color:#ffffff;">{{companyName}} Invoice {{invoiceNumber}}</h1>
-              <p style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;font-size:14px;color:rgba(255,255,255,0.9);">Thanks for your payment. Your receipt is ready to view or download.</p>
+              <h1 style="margin:18px 0 6px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;font-size:22px;line-height:1.35;font-weight:800;color:#ffffff;">Plan Downgrade Scheduled</h1>
+              <p style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;font-size:14px;color:rgba(255,255,255,0.9);">You will keep all your current {{currentPlanName}} features until the end of your billing period.</p>
             </td>
           </tr>
-<tr>
+
+          <tr>
             <td class="px" style="padding:32px 40px 0;">
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#F7F6FD;border:1px solid #ECE9FB;border-radius:16px;">
                 <tr>
                   <td style="padding:18px 24px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
                     <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
                       <tr>
-                        <td style="font-size:13px;color:#8A8FA8;">Plan</td>
-                        <td style="font-size:14px;font-weight:700;color:#14142B;text-align:right;">{{planLabel}}</td>
+                        <td style="font-size:13px;color:#8A8FA8;">Current Plan</td>
+                        <td style="font-size:14px;font-weight:700;color:#14142B;text-align:right;">{{currentPlanName}} (Active)</td>
                       </tr>
                       <tr>
-                        <td style="font-size:13px;color:#8A8FA8;padding-top:8px;">Amount</td>
-                        <td style="font-size:14px;font-weight:700;color:#14142B;text-align:right;padding-top:8px;">{{{amount}}}</td>
+                        <td style="font-size:13px;color:#8A8FA8;padding-top:8px;">New Plan on Next Cycle</td>
+                        <td style="font-size:14px;font-weight:700;color:#14142B;text-align:right;padding-top:8px;">{{targetPlanName}}</td>
                       </tr>
                       <tr>
-                        <td style="font-size:13px;color:#8A8FA8;padding-top:8px;">Status</td>
-                        <td style="font-size:14px;font-weight:700;color:#14142B;text-align:right;padding-top:8px;">{{status}}</td>
-                      </tr>
-                      <tr>
-                        <td style="font-size:13px;color:#8A8FA8;padding-top:8px;">Paid at</td>
-                        <td style="font-size:14px;font-weight:700;color:#14142B;text-align:right;padding-top:8px;">{{paidAtText}}</td>
+                        <td style="font-size:13px;color:#8A8FA8;padding-top:8px;">Effective Date</td>
+                        <td style="font-size:14px;font-weight:700;color:#14142B;text-align:right;padding-top:8px;">{{periodEnd}}</td>
                       </tr>
                     </table>
                   </td>
@@ -79,32 +74,28 @@
           </tr>
 
           <tr>
+            <td class="px" style="padding:20px 40px 0;">
+              <div style="background-color:#EFF6FF;border:1px solid #DBEAFE;border-radius:12px;padding:14px 18px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;font-size:13px;color:#1E40AF;line-height:1.5;">
+                &#128274; <b>Your data is safe:</b> None of your existing tasks, habits, or projects will be deleted. You can view and manage everything you've created.
+              </div>
+            </td>
+          </tr>
+
+          <tr>
             <td class="px" align="center" style="padding:28px 40px 8px;">
               <table role="presentation" cellpadding="0" cellspacing="0">
                 <tr>
                   <td style="border-radius:12px;background-color:#111827;">
-                    <a href="{{{pdfLink}}}" style="display:inline-block;padding:15px 34px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;font-size:15px;font-weight:700;color:#ffffff;text-decoration:none;border-radius:12px;">View invoice</a>
+                    <a href="{{{appUrl}}}" style="display:inline-block;padding:15px 34px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;font-size:15px;font-weight:700;color:#ffffff;text-decoration:none;border-radius:12px;">Manage Subscription</a>
                   </td>
                 </tr>
               </table>
             </td>
           </tr>
-          <tr>
-            <td class="px" style="padding:4px 40px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;font-size:12px;color:#8A8FA8;text-align:center;">If the button does not work, copy this link: {{{pdfLink}}}</td>
-          </tr>
 
           <tr>
             <td class="px" style="padding:28px 40px 22px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;font-size:12px;color:#9AA0B4;text-align:center;">
-              Need help with this invoice? &middot;
-              <a href="{{app.preferencesUrl}}" style="color:#6C5DD3;text-decoration:underline;">Manage billing</a>
-            </td>
-          </tr>
-
-        </table>
-        <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="width:560px;max-width:100%;">
-          <tr>
-            <td align="center" style="padding:20px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;font-size:12px;color:#B0B3C6;">
-              &copy; {{brand.name}}. All rights reserved.
+              Changed your mind? You can cancel the scheduled downgrade anytime before {{periodEnd}} in your billing settings.
             </td>
           </tr>
         </table>

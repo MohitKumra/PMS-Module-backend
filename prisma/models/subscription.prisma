@@ -14,7 +14,6 @@ model Subscription {
   trialStartAt           DateTime?
   trialEndAt             DateTime?
   cancelAtPeriodEnd      Boolean              @default(false)
-  cancelledAt            DateTime?
   endedAt                DateTime?
   autoRenew              Boolean              @default(true)
   createdAt              DateTime             @default(now())

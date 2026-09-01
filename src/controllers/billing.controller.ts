@@ -7,6 +7,9 @@ import { resolveEffectivePlan } from '../services/entitlement.service';
 import { getUserStorageUsedBytes, getUserStorageLimitBytes } from '../services/storage.service';
 import {
   createCheckoutOrder,
+  calculatePlanUpgradeProration,
+  scheduleDowngradeSubscription,
+  cancelScheduledDowngrade,
   recordSuccessfulPayment,
   listUserInvoices,
   getUserInvoice,
@@ -82,10 +85,31 @@ export async function getUserSubscription(req: Request, res: Response, next: Nex
 
     const invoices = await listUserInvoices(userId);
 
+    let scheduledDowngradePlan: any = null;
+    if (latestSub?.providerPlanId?.startsWith('downgrade_')) {
+      const targetId = latestSub.providerPlanId.replace('downgrade_', '');
+      const target = await prisma.plan.findUnique({ where: { id: targetId } });
+      if (target) {
+        scheduledDowngradePlan = {
+          id: target.id,
+          name: target.name,
+          slug: target.slug,
+          priceCents: target.priceCents,
+          billingInterval: target.billingInterval,
+          currency: target.currency,
+        };
+      }
+    }
+
     return res.json({
       data: {
         effectivePlan,
-        subscription: latestSub,
+        subscription: latestSub
+          ? {
+              ...latestSub,
+              scheduledDowngradePlan,
+            }
+          : null,
         billingProfile: await getUserBillingProfile(userId),
         usage: {
           projects: projectsCount,
@@ -374,6 +398,67 @@ export async function getInvoicePdf(req: Request, res: Response, next: NextFunct
     );
     res.setHeader('Cache-Control', 'private, no-store, max-age=0');
     res.send(pdf);
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * GET /api/billing/upgrade-preview?targetPlanId=...
+ * Calculates prorated credit from current active subscription and returns itemized upgrade totals.
+ */
+export async function getUpgradePreview(req: Request, res: Response, next: NextFunction) {
+  try {
+    const userId = req.user!.sub || (req.user as any)!.id;
+    const targetPlanId = req.query.targetPlanId as string;
+    if (!targetPlanId) {
+      throw createError(400, 'TARGET_PLAN_REQUIRED', 'targetPlanId query parameter is required');
+    }
+
+    const proration = await calculatePlanUpgradeProration({
+      userId,
+      targetPlanId,
+    });
+
+    return res.json({ data: proration });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * POST /api/billing/downgrade
+ * Body: { targetPlanId: string }
+ * Schedules a plan downgrade for the end of the current billing cycle.
+ */
+export async function scheduleDowngrade(req: Request, res: Response, next: NextFunction) {
+  try {
+    const userId = req.user!.sub || (req.user as any)!.id;
+    const { targetPlanId } = req.body;
+    if (!targetPlanId) {
+      throw createError(400, 'TARGET_PLAN_REQUIRED', 'targetPlanId is required');
+    }
+
+    const result = await scheduleDowngradeSubscription({
+      userId,
+      targetPlanId,
+    });
+
+    return res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * POST /api/billing/cancel-downgrade
+ * Cancels a pending scheduled downgrade and restores regular auto-renewal.
+ */
+export async function cancelScheduledDowngradeHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    const userId = req.user!.sub || (req.user as any)!.id;
+    const result = await cancelScheduledDowngrade({ userId });
+    return res.json({ data: result });
   } catch (err) {
     next(err);
   }

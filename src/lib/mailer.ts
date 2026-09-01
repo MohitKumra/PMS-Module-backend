@@ -271,6 +271,24 @@ export function renderSubscriptionCancelled(vars: {
   return renderTemplate('subscription-cancelled', vars);
 }
 
+export function renderSubscriptionUpgraded(vars: {
+  planName: string;
+  amountPaid: string;
+  periodEnd: string;
+  appUrl: string;
+}): string {
+  return renderTemplate('subscription-upgraded', vars);
+}
+
+export function renderSubscriptionDowngraded(vars: {
+  currentPlanName: string;
+  targetPlanName: string;
+  periodEnd: string;
+  appUrl: string;
+}): string {
+  return renderTemplate('subscription-downgraded', vars);
+}
+
 export function renderInvoiceReceipt(vars: {
   companyName: string;
   invoiceNumber: string;

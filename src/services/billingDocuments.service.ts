@@ -222,8 +222,12 @@ export function getInvoicePdfPath(invoiceId: string): string {
   return `/api/billing/invoices/${invoiceId}/pdf`;
 }
 
+export function getInvoiceFrontendUrl(invoiceId?: string): string {
+  return `${env.FRONTEND_URL}/settings?tab=billing${invoiceId ? `&invoiceId=${invoiceId}` : ''}`;
+}
+
 export function getInvoicePdfUrl(invoiceId: string): string {
-  return `${env.BACKEND_URL}${getInvoicePdfPath(invoiceId)}`;
+  return getInvoiceFrontendUrl(invoiceId);
 }
 
 function formatMoney(amountCents: number, currency: string): string {
@@ -561,7 +565,7 @@ export async function buildInvoicePdfBuffer(doc: BillingInvoiceDocument): Promis
 
 export function buildInvoiceEmailHtml(doc: BillingInvoiceDocument): string {
   const company = getBillingCompanyProfile();
-  const link = doc.invoice.pdfUrl || getInvoicePdfUrl(doc.invoice.id);
+  const link = getInvoiceFrontendUrl(doc.invoice.id);
   const planLabel = doc.planName || doc.planSlug || 'your plan';
   return renderInvoiceReceipt({
     companyName: company.name,

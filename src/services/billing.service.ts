@@ -2,7 +2,13 @@
 // Handles orders, invoices, transactions ledger, refunds, and webhook processing.
 
 import { prisma } from '../lib/prismaClient';
-import { renderSubscriptionRenewalReminder, renderSubscriptionExpired } from '../lib/mailer';
+import { env } from '../config/env';
+import {
+  renderSubscriptionRenewalReminder,
+  renderSubscriptionExpired,
+  renderSubscriptionUpgraded,
+  renderSubscriptionDowngraded,
+} from '../lib/mailer';
 import { createError } from '../middleware/errorHandler';
 import { createRazorpayOrder, createRazorpayRefund, fetchRazorpayPayment, verifyRazorpayPaymentSignature } from '../providers/razorpay/razorpay.payment';
 import { verifyRazorpayWebhookSignature } from '../providers/razorpay/razorpay.webhook';
@@ -201,6 +207,115 @@ async function sendInvoiceEmail(doc: BillingInvoiceDocument): Promise<void> {
   );
 }
 
+export async function calculatePlanUpgradeProration(params: {
+  userId: string;
+  targetPlanId: string;
+}) {
+  const targetPlan = await prisma.plan.findUnique({
+    where: { id: params.targetPlanId },
+  });
+
+  if (!targetPlan) {
+    throw createError(404, 'PLAN_NOT_FOUND', 'Target plan not found');
+  }
+
+  // Find user's active paid subscription
+  const activeSub = await prisma.subscription.findFirst({
+    where: {
+      userId: params.userId,
+      status: 'ACTIVE',
+      plan: { priceCents: { gt: 0 } },
+    },
+    include: { plan: true },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  if (!activeSub) {
+    const gstPercent =
+      typeof targetPlan.gstPercent === 'number' && Number.isFinite(targetPlan.gstPercent)
+        ? Math.max(0, Math.min(100, targetPlan.gstPercent))
+        : 18;
+    const taxCents = Math.round((targetPlan.priceCents * gstPercent) / 100);
+
+    return {
+      isUpgrade: false,
+      currentPlan: null,
+      targetPlan: {
+        id: targetPlan.id,
+        name: targetPlan.name,
+        slug: targetPlan.slug,
+        priceCents: targetPlan.priceCents,
+        billingInterval: targetPlan.billingInterval,
+        currency: targetPlan.currency,
+        gstPercent,
+      },
+      proratedCreditCents: 0,
+      daysRemaining: 0,
+      subtotalCents: targetPlan.priceCents,
+      discountCents: 0,
+      taxableAmountCents: targetPlan.priceCents,
+      gstPercent,
+      taxCents,
+      totalCents: targetPlan.priceCents + taxCents,
+    };
+  }
+
+  // Calculate unused period ratio
+  const nowMs = Date.now();
+  const startMs = activeSub.currentPeriodStart.getTime();
+  const endMs = activeSub.currentPeriodEnd.getTime();
+  const totalDurationMs = Math.max(1, endMs - startMs);
+  const remainingMs = Math.max(0, endMs - nowMs);
+  const unusedRatio = Math.min(1, Math.max(0, remainingMs / totalDurationMs));
+  const daysRemaining = Math.max(0, Math.ceil(remainingMs / (1000 * 60 * 60 * 24)));
+
+  const currentPlanPrice = activeSub.plan.priceCents;
+  const rawCredit = Math.round(currentPlanPrice * unusedRatio);
+  const proratedCreditCents = Math.max(0, Math.min(currentPlanPrice, rawCredit));
+
+  const isUpgrade = targetPlan.priceCents > currentPlanPrice;
+  const creditAppliedCents = isUpgrade ? Math.min(targetPlan.priceCents, proratedCreditCents) : 0;
+  const taxableAmountCents = Math.max(0, targetPlan.priceCents - creditAppliedCents);
+  const gstPercent =
+    typeof targetPlan.gstPercent === 'number' && Number.isFinite(targetPlan.gstPercent)
+      ? Math.max(0, Math.min(100, targetPlan.gstPercent))
+      : 18;
+  const taxCents = Math.round((taxableAmountCents * gstPercent) / 100);
+  const totalCents = taxableAmountCents + taxCents;
+
+  return {
+    isUpgrade,
+    currentPlan: {
+      id: activeSub.plan.id,
+      name: activeSub.plan.name,
+      slug: activeSub.plan.slug,
+      priceCents: activeSub.plan.priceCents,
+      billingInterval: activeSub.billingInterval,
+      currentPeriodStart: activeSub.currentPeriodStart,
+      currentPeriodEnd: activeSub.currentPeriodEnd,
+      daysRemaining,
+      rawCreditCents: rawCredit,
+    },
+    targetPlan: {
+      id: targetPlan.id,
+      name: targetPlan.name,
+      slug: targetPlan.slug,
+      priceCents: targetPlan.priceCents,
+      billingInterval: targetPlan.billingInterval,
+      currency: targetPlan.currency,
+      gstPercent,
+    },
+    proratedCreditCents: creditAppliedCents,
+    daysRemaining,
+    subtotalCents: targetPlan.priceCents,
+    discountCents: creditAppliedCents,
+    taxableAmountCents,
+    gstPercent,
+    taxCents,
+    totalCents,
+  };
+}
+
 export async function createCheckoutOrder(params: {
   userId: string;
   planId: string;
@@ -253,15 +368,29 @@ export async function createCheckoutOrder(params: {
   let subtotalCents = plan.priceCents;
   let discountCents = 0;
   let couponId: string | null = null;
+  let prorationCreditCents = 0;
+  let isUpgrade = false;
+
+  // Calculate upgrade proration if user is upgrading from an active paid tier
+  const proration = await calculatePlanUpgradeProration({
+    userId: params.userId,
+    targetPlanId: plan.id,
+  });
+
+  if (proration.isUpgrade && proration.proratedCreditCents > 0) {
+    prorationCreditCents = proration.proratedCreditCents;
+    discountCents += prorationCreditCents;
+    isUpgrade = true;
+  }
 
   if (params.couponCode?.trim()) {
     const validated = await validateCoupon({
       code: params.couponCode,
       userId: params.userId,
       planId: plan.id,
-      subtotalCents,
+      subtotalCents: Math.max(0, subtotalCents - prorationCreditCents),
     });
-    discountCents = validated.discountCents;
+    discountCents += validated.discountCents;
     couponId = validated.coupon.id;
   }
 
@@ -278,9 +407,8 @@ export async function createCheckoutOrder(params: {
   const currency = plan.currency;
 
   // A fully discounted bill (₹0) requires no charge, so we must NOT create a
-  // Razorpay order — Razorpay rejects zero-amount orders (which surfaces as a
-  // broken checkout / login prompt in test mode). Instead we synthesize an
-  // order id and let the paymentOrder record the zero-amount grant.
+  // Razorpay order — Razorpay rejects zero-amount orders. Instead we synthesize
+  // an order id and let the paymentOrder record the zero-amount grant.
   const noPaymentRequired = finalTotalCents <= 0;
 
   let rzpOrderId: string;
@@ -296,6 +424,8 @@ export async function createCheckoutOrder(params: {
         userId: params.userId,
         planId: plan.id,
         couponId: couponId || undefined,
+        prorationCreditCents: prorationCreditCents > 0 ? String(prorationCreditCents) : undefined,
+        isUpgrade: isUpgrade ? 'true' : undefined,
       },
     });
     rzpOrderId = rzpOrder.id;
@@ -414,30 +544,49 @@ export async function recordSuccessfulPayment(params: {
     // coupon was already applied only to this initial charge.
     let subscriptionId = params.subscriptionId || null;
     if (!subscriptionId && params.orderId && params.planId) {
-      // Idempotency: reuse an existing active subscription for this order/plan.
       const existingSub = await tx.subscription.findFirst({
         where: {
           userId: params.userId,
-          planId: params.planId,
-          OR: [
-            { status: { in: ['ACTIVE', 'PAST_DUE'] } },
-            { providerSubscriptionId: `local_${params.orderId}` },
-          ],
+          status: { in: ['ACTIVE', 'PAST_DUE', 'PAUSED'] },
         },
         orderBy: { createdAt: 'desc' },
-        take: 1,
       });
 
-      if (existingSub) {
-        subscriptionId = existingSub.id;
-      } else {
-        const plan = await tx.plan.findUnique({ where: { id: params.planId } });
-        const now = new Date();
-        const isYearly = plan?.billingInterval === 'YEAR';
-        const periodEnd = new Date(
-          now.getTime() + (isYearly ? 365 : 30) * 24 * 60 * 60 * 1000
-        );
+      const plan = await tx.plan.findUnique({ where: { id: params.planId } });
+      const now = new Date();
+      const isYearly = plan?.billingInterval === 'YEAR';
+      const periodEnd = new Date(
+        now.getTime() + (isYearly ? 365 : 30) * 24 * 60 * 60 * 1000
+      );
 
+      if (existingSub) {
+        // Upgrade/Update existing subscription to the new plan!
+        const updatedSub = await tx.subscription.update({
+          where: { id: existingSub.id },
+          data: {
+            planId: params.planId,
+            status: 'ACTIVE',
+            billingInterval: plan?.billingInterval || 'MONTH',
+            currentPeriodStart: now,
+            currentPeriodEnd: periodEnd,
+            startedAt: now,
+            autoRenew: params.autoRenew ?? true,
+            cancelAtPeriodEnd: false,
+            endedAt: null,
+          },
+        });
+
+        await tx.subscriptionEvent.create({
+          data: {
+            subscriptionId: updatedSub.id,
+            eventType: 'ACTIVATED',
+            provider: params.provider,
+            occurredAt: now,
+          },
+        });
+
+        subscriptionId = updatedSub.id;
+      } else {
         const newSub = await tx.subscription.create({
           data: {
             userId: params.userId,
@@ -578,6 +727,44 @@ export async function recordSuccessfulPayment(params: {
     sendInvoiceEmail(doc).catch((err) => {
       console.warn('[Billing] Failed to send invoice email in background:', err);
     });
+
+    const isUpgradeOrder =
+      params.metadata?.isUpgrade === 'true' ||
+      params.metadata?.isUpgrade === true ||
+      (params.orderId &&
+        (
+          await prisma.paymentOrder
+            .findUnique({ where: { id: params.orderId } })
+            .catch(() => null)
+        )?.metadata &&
+        ((await prisma.paymentOrder.findUnique({ where: { id: params.orderId } }))?.metadata as any)
+          ?.isUpgrade);
+
+    if (isUpgradeOrder && user && plan) {
+      sendNotification(
+        user.id,
+        `Plan upgraded to ${plan.name}`,
+        `Your subscription has been successfully upgraded to ${plan.name}.`,
+        ['EMAIL'],
+        undefined,
+        {
+          emailSubject: `Your plan has been upgraded to ${plan.name}!`,
+          html: renderSubscriptionUpgraded({
+            planName: plan.name,
+            amountPaid: new Intl.NumberFormat('en-IN', {
+              style: 'currency',
+              currency: params.currency || 'INR',
+            }).format(params.amountCents / 100),
+            periodEnd: new Date(
+              Date.now() + (plan.billingInterval === 'YEAR' ? 365 : 30) * 24 * 60 * 60 * 1000
+            ).toLocaleDateString('en-IN'),
+            appUrl: `${env.FRONTEND_URL}/settings?tab=billing`,
+          }),
+        }
+      ).catch((err) => {
+        console.warn('[Billing] Failed to send upgrade notification:', err);
+      });
+    }
   }
 
   return result.transaction;
@@ -1105,6 +1292,93 @@ export async function processBillingLifecycleNotifications(): Promise<{
       break;
     }
 
+    // Scheduled Downgrade Execution on period end
+    if (msLeft < 0 && sub.providerPlanId?.startsWith('downgrade_')) {
+      const targetPlanId = sub.providerPlanId.replace('downgrade_', '');
+      const targetPlan = await prisma.plan.findUnique({ where: { id: targetPlanId } });
+
+      // If Auto-Pay is ON and target plan is a paid plan -> renew at new plan price
+      if (sub.autoRenew && targetPlan && targetPlan.priceCents > 0) {
+        const isYearly = targetPlan.billingInterval === 'YEAR';
+        const newPeriodEnd = new Date(now.getTime() + (isYearly ? 365 : 30) * 24 * 60 * 60 * 1000);
+
+        await prisma.subscription.update({
+          where: { id: sub.id },
+          data: {
+            planId: targetPlan.id,
+            billingInterval: targetPlan.billingInterval,
+            providerPlanId: null,
+            currentPeriodStart: now,
+            currentPeriodEnd: newPeriodEnd,
+            status: 'ACTIVE',
+            autoRenew: true,
+          },
+        });
+
+        await prisma.subscriptionEvent.create({
+          data: {
+            subscriptionId: sub.id,
+            eventType: 'ACTIVATED',
+            provider: sub.provider,
+            occurredAt: now,
+            payload: {
+              action: 'DOWNGRADE_EXECUTED',
+              previousPlanId: sub.planId,
+              newPlanId: targetPlan.id,
+            },
+          },
+        });
+
+        continue;
+      } else {
+        // One-time payment ended OR downgraded to Free tier -> Expire subscription to Free tier
+        await prisma.subscription.update({
+          where: { id: sub.id },
+          data: {
+            status: 'EXPIRED',
+            providerPlanId: null,
+            endedAt: sub.endedAt || now,
+            autoRenew: false,
+          },
+        });
+
+        expiredSubscriptions++;
+
+        // Send expiry / prompt notification
+        try {
+          const logTitle = `BILLING_DOWNGRADE_EXPIRED_${sub.id}`;
+          await sendNotification(
+            sub.userId,
+            targetPlan && targetPlan.priceCents > 0
+              ? `Your ${sub.plan.name} plan ended — ready to switch to ${targetPlan.name}?`
+              : `Your ${sub.plan.name} access ended`,
+            targetPlan && targetPlan.priceCents > 0
+              ? `Your one-time ${sub.plan.name} period has ended. Visit billing to complete your payment for ${targetPlan.name}.`
+              : `Your ${sub.plan.name} plan expired on ${sub.currentPeriodEnd.toLocaleDateString('en-IN')}. Your account is now on the Free tier.`,
+            ['EMAIL'],
+            undefined,
+            {
+              logTitle,
+              emailSubject: targetPlan && targetPlan.priceCents > 0
+                ? `Activate your ${targetPlan.name} plan`
+                : `${sub.plan.name} access ended`,
+              html: renderSubscriptionExpired({
+                planName: sub.plan.name,
+                expiryDate: sub.currentPeriodEnd.toLocaleDateString('en-IN'),
+                statusText: targetPlan && targetPlan.priceCents > 0
+                  ? `One-time access ended. Ready to activate ${targetPlan.name}`
+                  : 'Account returned to free tier',
+              }),
+            }
+          );
+        } catch (err) {
+          console.warn('[Billing] Failed to send downgrade expiry email:', err);
+        }
+
+        continue;
+      }
+    }
+
     const shouldExpire =
       msLeft < 0 &&
       (sub.providerSubscriptionId.startsWith('local_') || !sub.autoRenew);
@@ -1156,6 +1430,122 @@ export async function processBillingLifecycleNotifications(): Promise<{
   }
 
   return { remindersSent, expiredSubscriptions };
+}
+
+export async function scheduleDowngradeSubscription(params: {
+  userId: string;
+  targetPlanId: string;
+}) {
+  const targetPlan = await prisma.plan.findUnique({ where: { id: params.targetPlanId } });
+  if (!targetPlan) {
+    throw createError(404, 'PLAN_NOT_FOUND', 'Target plan not found');
+  }
+
+  const activeSub = await prisma.subscription.findFirst({
+    where: {
+      userId: params.userId,
+      status: 'ACTIVE',
+    },
+    include: { plan: true },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  if (!activeSub) {
+    throw createError(400, 'NO_ACTIVE_SUBSCRIPTION', 'No active subscription found to downgrade');
+  }
+
+  if (targetPlan.priceCents >= activeSub.plan.priceCents) {
+    throw createError(400, 'INVALID_DOWNGRADE', 'Target plan must be a lower tier than your current plan');
+  }
+
+  const updatedSub = await prisma.subscription.update({
+    where: { id: activeSub.id },
+    data: {
+      providerPlanId: `downgrade_${targetPlan.id}`,
+    },
+  });
+
+  await prisma.subscriptionEvent.create({
+    data: {
+      subscriptionId: activeSub.id,
+      eventType: 'ACTIVATED',
+      provider: activeSub.provider,
+      occurredAt: new Date(),
+      payload: {
+        action: 'SCHEDULE_DOWNGRADE',
+        previousPlanId: activeSub.planId,
+        targetPlanId: targetPlan.id,
+        targetPlanName: targetPlan.name,
+        effectiveDate: activeSub.currentPeriodEnd,
+      },
+    },
+  });
+
+  sendNotification(
+    activeSub.userId,
+    `Plan downgrade scheduled to ${targetPlan.name}`,
+    `Your plan will switch to ${targetPlan.name} on ${activeSub.currentPeriodEnd.toLocaleDateString('en-IN')}. All your current features remain active until then.`,
+    ['EMAIL'],
+    undefined,
+    {
+      emailSubject: `Plan Downgrade Scheduled: ${targetPlan.name}`,
+      html: renderSubscriptionDowngraded({
+        currentPlanName: activeSub.plan.name,
+        targetPlanName: targetPlan.name,
+        periodEnd: activeSub.currentPeriodEnd.toLocaleDateString('en-IN'),
+        appUrl: `${env.FRONTEND_URL}/settings?tab=billing`,
+      }),
+    }
+  ).catch((err) => {
+    console.warn('[Billing] Failed to send downgrade scheduled email:', err);
+  });
+
+  return {
+    subscription: updatedSub,
+    scheduledDowngradePlan: {
+      id: targetPlan.id,
+      name: targetPlan.name,
+      slug: targetPlan.slug,
+      priceCents: targetPlan.priceCents,
+      billingInterval: targetPlan.billingInterval,
+    },
+    effectiveDate: activeSub.currentPeriodEnd,
+  };
+}
+
+export async function cancelScheduledDowngrade(params: { userId: string }) {
+  const activeSub = await prisma.subscription.findFirst({
+    where: {
+      userId: params.userId,
+      status: 'ACTIVE',
+      providerPlanId: { startsWith: 'downgrade_' },
+    },
+  });
+
+  if (!activeSub) {
+    throw createError(400, 'NO_SCHEDULED_DOWNGRADE', 'No scheduled downgrade found on your subscription');
+  }
+
+  const updatedSub = await prisma.subscription.update({
+    where: { id: activeSub.id },
+    data: {
+      providerPlanId: null,
+    },
+  });
+
+  await prisma.subscriptionEvent.create({
+    data: {
+      subscriptionId: activeSub.id,
+      eventType: 'ACTIVATED',
+      provider: activeSub.provider,
+      occurredAt: new Date(),
+      payload: {
+        action: 'CANCEL_SCHEDULED_DOWNGRADE',
+      },
+    },
+  });
+
+  return { success: true, subscription: updatedSub };
 }
 
 export async function listAdminTransactions(params?: {

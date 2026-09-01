@@ -199,7 +199,6 @@ export async function cancelSubscriptionAction(id: string, cancelAtPeriodEnd: bo
       status: cancelAtPeriodEnd ? sub.status : 'CANCELLED',
       autoRenew: false,
       cancelAtPeriodEnd,
-      cancelledAt: new Date(),
       endedAt: cancelAtPeriodEnd ? undefined : new Date(),
     },
   });
