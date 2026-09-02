@@ -15,7 +15,7 @@ const uploadSchema = z.object({
   fileName: z.string().min(1).max(255),
   mimeType: z.string().min(1).max(100),
   base64Data: z.string().min(1),
-  folder: z.enum(['attachments', 'voice-notes']).optional(),
+  folder: z.string().max(100).optional(),
 });
 
 /**

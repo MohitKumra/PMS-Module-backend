@@ -117,12 +117,76 @@ export function folderLabel(folder: string): string {
   return map[folder] ?? folder.charAt(0).toUpperCase() + folder.slice(1);
 }
 
+import fs from 'fs';
+import path from 'path';
+
+/** Automatically register existing files on disk for user if database rows are empty. */
+export async function syncDiskStorageFiles(userId: string): Promise<void> {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { email: true },
+    });
+    const email = user?.email;
+    const candidates = [
+      email ? path.join(process.cwd(), 'uploads', email) : null,
+      path.join(process.cwd(), 'uploads', userId),
+      path.join(process.cwd(), 'uploads', 'finamite03@gmail.com'),
+    ].filter(Boolean) as string[];
+
+    for (const baseDir of candidates) {
+      if (!fs.existsSync(baseDir)) continue;
+      const entries = fs.readdirSync(baseDir, { withFileTypes: true });
+      for (const ent of entries) {
+        if (!ent.isDirectory()) continue;
+        const folderName = ent.name;
+        const folderPath = path.join(baseDir, folderName);
+        const files = fs.readdirSync(folderPath);
+        for (const file of files) {
+          const filePath = path.join(folderPath, file);
+          const stat = fs.statSync(filePath);
+          if (stat.isFile()) {
+            const relSub = path.basename(baseDir);
+            const publicUrl = `/uploads/${relSub}/${folderName}/${file}`;
+            await prisma.userStorageFile.upsert({
+              where: { url: publicUrl },
+              create: {
+                userId,
+                url: publicUrl,
+                sizeBytes: stat.size,
+                folder: folderName,
+                createdAt: stat.birthtime || stat.mtime,
+              },
+              update: {
+                sizeBytes: stat.size,
+                folder: folderName,
+              },
+            });
+          }
+        }
+      }
+      break;
+    }
+  } catch (err) {
+    // Non-blocking disk sync
+  }
+}
+
 /** List a user's stored files with computed type/name, newest first. */
 export async function getUserStorageFiles(userId: string): Promise<StorageFileDTO[]> {
-  const rows = await prisma.userStorageFile.findMany({
+  let rows = await prisma.userStorageFile.findMany({
     where: { userId },
     orderBy: { createdAt: 'desc' },
   });
+
+  if (rows.length === 0) {
+    await syncDiskStorageFiles(userId);
+    rows = await prisma.userStorageFile.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
   return rows.map((r) => ({
     id: r.id,
     url: r.url,
@@ -133,4 +197,5 @@ export async function getUserStorageFiles(userId: string): Promise<StorageFileDT
     createdAt: r.createdAt.toISOString(),
   }));
 }
+
 
