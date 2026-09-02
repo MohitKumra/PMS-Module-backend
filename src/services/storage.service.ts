@@ -198,4 +198,57 @@ export async function getUserStorageFiles(userId: string): Promise<StorageFileDT
   }));
 }
 
+/** Quick-tab ids the Storage page exposes as pills/sidebar nav. */
+export type StorageQuickTab = 'all' | 'images' | 'documents' | 'media' | 'audio' | 'starred' | 'large';
+
+/** Server-side filter/sort inputs for the storage list. */
+export interface StorageListFilters {
+  tab?: StorageQuickTab;
+  type?: StorageFileType | 'all';
+  folder?: string;
+  search?: string;
+  sortBy?: string;
+}
+
+/**
+ * Apply server-side filtering + sorting to the user's storage files so the
+ * frontend receives exactly the page it asked for (pagination happens after,
+ * in the controller via offset slicing).
+ */
+export function filterAndSortStorageFiles(files: StorageFileDTO[], p: StorageListFilters): StorageFileDTO[] {
+  let typeFilter: StorageFileType | null = null;
+  if (p.type && p.type !== 'all') typeFilter = p.type;
+  if (!typeFilter && p.tab === 'images') typeFilter = 'image';
+  if (!typeFilter && p.tab === 'documents') typeFilter = 'document';
+  if (!typeFilter && p.tab === 'audio') typeFilter = 'audio';
+  if (!typeFilter && p.tab === 'media') typeFilter = 'video';
+
+  const q = (p.search ?? '').trim().toLowerCase();
+  const filtered = files.filter((f) => {
+    if (typeFilter && f.fileType !== typeFilter) return false;
+    if (p.tab === 'large' && f.sizeBytes < 1024 * 1024) return false;
+    if (p.folder && p.folder !== 'all' && f.folder !== p.folder) return false;
+    if (q) {
+      const fLabel = folderLabel(f.folder).toLowerCase();
+      if (
+        !f.name.toLowerCase().includes(q) &&
+        !fLabel.includes(q) &&
+        !f.fileType.toLowerCase().includes(q)
+      ) return false;
+    }
+    return true;
+  });
+
+  switch (p.sortBy ?? 'newest') {
+    case 'oldest': filtered.sort((a, b) => a.createdAt.localeCompare(b.createdAt)); break;
+    case 'size-desc': filtered.sort((a, b) => b.sizeBytes - a.sizeBytes); break;
+    case 'size-asc': filtered.sort((a, b) => a.sizeBytes - b.sizeBytes); break;
+    case 'name-asc': filtered.sort((a, b) => a.name.localeCompare(b.name)); break;
+    case 'name-desc': filtered.sort((a, b) => b.name.localeCompare(a.name)); break;
+    case 'type': filtered.sort((a, b) => a.fileType.localeCompare(b.fileType)); break;
+    default: filtered.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+  return filtered;
+}
+
 

@@ -199,6 +199,17 @@ export const INTENT_KEYWORDS: Record<CoachIntent, string[]> = {
     'action item',
     'create a to-do',
     'add a to-do',
+    'create a new task',
+    'schedule a new task',
+    'make a new task',
+    'put on my list',
+    'put on my tasks',
+    'put this on my tasks',
+    'add to tasks',
+    'add this task',
+    'new to-do',
+    'i need to',
+    'i have to',
   ],
   [CoachIntent.HABIT_CREATE]: [
     'add a habit',
@@ -217,6 +228,9 @@ export const INTENT_KEYWORDS: Record<CoachIntent, string[]> = {
     'i want to build',
     'i want to start',
     'help me track',
+    'create a new habit',
+    'start tracking',
+    'start daily habit',
   ],
   [CoachIntent.GOAL_CREATE]: [
     'add a goal',
@@ -276,6 +290,35 @@ export const INTENT_KEYWORDS: Record<CoachIntent, string[]> = {
     'create workspace',
   ],
   [CoachIntent.TASK_STATUS]: [
+    'upcoming tasks',
+    'upcoming task',
+    'my upcoming',
+    'what upcoming',
+    'what are my upcoming',
+    'know my tasks',
+    'know upcoming tasks',
+    'see my tasks',
+    'see upcoming tasks',
+    'tell me my tasks',
+    'tell my tasks',
+    'my schedule',
+    'whats on my plate',
+    'what is on my plate',
+    'show upcoming',
+    'check my tasks',
+    'check tasks',
+    'view my tasks',
+    'view tasks',
+    'view my upcoming',
+    'what to do',
+    'what do i have to do',
+    'what do i need to do',
+    'tasks on my plate',
+    'look at my tasks',
+    'pull up my tasks',
+    'get my tasks',
+    'tasks due soon',
+    'tasks this month',
     'my tasks',
     'overdue tasks',
     'tasks due',
@@ -319,6 +362,15 @@ export const INTENT_KEYWORDS: Record<CoachIntent, string[]> = {
     'tasks do i',
   ],
   [CoachIntent.HABIT_STATUS]: [
+    'upcoming habits',
+    'my daily habits',
+    'my routine',
+    'how are my habits',
+    'check my habits',
+    'show upcoming habits',
+    'view my habits',
+    'habit list',
+    'routine check',
     'my habits',
     'habit streak',
     'streak',
@@ -516,13 +568,52 @@ function hasKeyword(normalized: string, keywords: string[]): boolean {
   });
 }
 
+function detectStructuralIntent(text: string): CoachIntent | null {
+  const hasTaskTerm = /\b(tasks?|todos?|to-dos?|action items?|backlog)\b/i.test(text);
+  const hasHabitTerm = /\b(habits?|routines?|streaks?)\b/i.test(text);
+  const hasGoalTerm = /\b(goals?|milestones?|objectives?)\b/i.test(text);
+  const hasProjectTerm = /\b(projects?|initiatives?)\b/i.test(text);
+
+  const hasQueryVerb = /\b(know|show|tell|see|view|check|get|list|display|find|fetch|pull up|what are|what is|whats|count|review|examine|read|look at)\b/i.test(text);
+  const hasCreateVerb = /\b(create|add|make|schedule|set up|start|track|build|draft|remind me to|log|new)\b/i.test(text);
+  const hasRecommendVerb = /\b(recommend|suggest|prioritize|which|what should|what next)\b/i.test(text);
+
+  if (hasCreateVerb) {
+    if (hasHabitTerm) return CoachIntent.HABIT_CREATE;
+    if (hasGoalTerm) return CoachIntent.GOAL_CREATE;
+    if (hasProjectTerm) return CoachIntent.PROJECT_CREATE;
+    if (hasTaskTerm || /\bremind me\b/i.test(text)) return CoachIntent.TASK_CREATE;
+  }
+
+  if (hasRecommendVerb) {
+    if (hasHabitTerm) return CoachIntent.HABIT_RECOMMEND;
+    if (hasGoalTerm) return CoachIntent.GOAL_RECOMMEND;
+    if (hasTaskTerm || /\bwork on\b/i.test(text)) return CoachIntent.TASK_RECOMMEND;
+  }
+
+  if (hasQueryVerb) {
+    if (hasHabitTerm) return CoachIntent.HABIT_STATUS;
+    if (hasGoalTerm) return CoachIntent.GOAL_STATUS;
+    if (hasProjectTerm) return CoachIntent.PROJECT_STATUS;
+    if (hasTaskTerm || /\b(upcoming|agenda|schedule)\b/i.test(text)) return CoachIntent.TASK_STATUS;
+  }
+
+  // Standalone phrases like "upcoming tasks" or "agenda"
+  if (/\bupcoming (tasks?|todos?|items?|events?|deadlines?)\b/i.test(text)) return CoachIntent.TASK_STATUS;
+  if (/\bupcoming (habits?|routines?)\b/i.test(text)) return CoachIntent.HABIT_STATUS;
+  if (/\bupcoming (goals?|milestones?)\b/i.test(text)) return CoachIntent.GOAL_STATUS;
+
+  return null;
+}
+
 /**
  * Classify the intent of the current user message.
  *
  * Strategy (current-message-first):
  *  1. Run the classifier on the CURRENT message alone. If it yields a
  *     non-COACHING, non-CHITCHAT intent that is concrete enough → use it.
- *  2. Only fall back to blending with the previous message when the current
+ *  2. Check structural regex heuristics for domain-specific query/action intents.
+ *  3. Only fall back to blending with the previous message when the current
  *     message is genuinely ambiguous: it matched nothing, OR it matched only
  *     CHITCHAT (pure follow-up like "yes that's what I'm asking").
  *
@@ -539,13 +630,21 @@ export function classifyIntent(
 ): CoachIntent {
   const currentNorm = normalize(latestUserMessage);
 
-  // ── Step 1: classify current message alone ────────────────────────────────
+  // ── Step 1: classify current message alone via keyword table ──────────────
   let currentIntent: CoachIntent = CoachIntent.COACHING;
   for (const intent of PRIORITY_ORDER) {
     const keywords = INTENT_KEYWORDS[intent];
     if (keywords.length > 0 && hasKeyword(currentNorm, keywords)) {
       currentIntent = intent;
       break;
+    }
+  }
+
+  // ── Step 1b: Structural regex detector for phrases missed by keyword table
+  if (currentIntent === CoachIntent.COACHING) {
+    const structural = detectStructuralIntent(currentNorm);
+    if (structural) {
+      currentIntent = structural;
     }
   }
 
@@ -571,6 +670,11 @@ export function classifyIntent(
     if (keywords.length > 0 && hasKeyword(combined, keywords)) {
       return intent;
     }
+  }
+
+  const combinedStructural = detectStructuralIntent(combined);
+  if (combinedStructural) {
+    return combinedStructural;
   }
 
   return CoachIntent.COACHING;

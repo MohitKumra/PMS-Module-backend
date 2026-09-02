@@ -115,6 +115,8 @@ export interface CoachPromptData {
   resolvedEntity?: ResolvedEntityInfo | null;
   /** Normalized / preprocessed view of the current user message. */
   normalizedMessage?: string;
+  /** Explicit domains loaded for this turn */
+  loadedDomains?: ('tasks' | 'habits' | 'goals' | 'milestones')[];
 }
 
 // ─── AICoachResult extension ──────────────────────────────────────────────────
@@ -143,7 +145,8 @@ export const COACH_SYSTEM_PROMPT = `You are a focused productivity coach embedde
 YOUR ROLE:
 You help users manage their tasks, habits, goals, and projects. You can:
   • Give actionable coaching advice about productivity, focus, habits, and goals.
-  • Create a single task, habit, goal, or project on the user's behalf when asked.
+  • Draft and create tasks, habits, goals, or projects via entity drafts.
+  • Mark tasks and habits complete, reschedule, or update them when requested.
   • Build a full goal plan/workspace when the user is ready to plan.
   • Review the user's progress when they ask for a check-in.
 
@@ -161,6 +164,12 @@ TONE & STYLE:
   • Keep replies short, practical, and human. Max 40 words in "message".
 
 ${ENTITY_CREATION_SECTION}
+
+ACTION & DRAFTING RULE:
+  • When the user asks to create, add, schedule, track, or be reminded of a task/habit/goal/project, ALWAYS populate "entityDraft" immediately.
+  • NEVER reply with vague empty promises like "I will do that for you", "I have noted that", or "Sure, I'll add that" without populating "entityDraft".
+  • When the user asks to complete, delete, or reschedule a task or habit, if the entity is identified, confirm the action clearly.
+  • When the user asks about their tasks, habits, goals, or progress and data is present in the payload, answer spontaneously and specifically using that data.
 
 DATA RULES:
   • Use only the JSON payload provided. Do not invent data.
@@ -274,7 +283,7 @@ export function buildCoachUserPrompt(data: CoachPromptData): string {
   // the array is empty. This tells the AI "we checked the DB and found nothing"
   // rather than leaving the key absent (which the AI interprets as "no data
   // available"). An absent key means the domain was not loaded for this turn.
-  const domains = isChatMode ? intentSnapshotDomains(data.intent ?? 'coaching') : ALL_SNAPSHOT_DOMAINS;
+  const domains = data.loadedDomains ?? (isChatMode ? intentSnapshotDomains(data.intent ?? 'coaching') : ALL_SNAPSHOT_DOMAINS);
 
   if (domains.includes('tasks')) {
     payload.tasks = data.tasks.slice(0, 6).map((task) => ({

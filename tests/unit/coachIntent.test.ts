@@ -66,6 +66,12 @@ describe('classifyIntent', () => {
   });
 
   it.each([
+    'i want to know my upcoming tasks',
+    'what are my upcoming tasks',
+    'show me upcoming tasks',
+    'tell me my upcoming tasks',
+    'whats on my plate',
+    'view my tasks',
     'how many tasks are pending',
     'which tasks are pending',
     'tasks are overdue',

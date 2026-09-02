@@ -1,6 +1,8 @@
 // backend/src/controllers/storage.controller.ts
 // GET /api/storage — lists the authenticated user's stored files with a
 // per-type / per-folder summary so the Storage page can render stats + filters.
+// Filtering, sorting and pagination are ALL done server-side; the frontend only
+// asks for a page and renders whatever comes back.
 import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../lib/prismaClient';
 import { deleteStoredFile } from '../lib/fileStorage';
@@ -8,12 +10,26 @@ import {
   getUserStorageFiles,
   getUserStorageUsedBytes,
   getUserStorageLimitBytes,
+  filterAndSortStorageFiles,
   StorageFileType,
+  StorageQuickTab,
 } from '../services/storage.service';
+
+const MB = 1024 * 1024;
 
 export async function listStorageFiles(req: Request, res: Response, next: NextFunction) {
   try {
     const userId = req.user!.sub || (req.user as any)!.id;
+
+    // ── Server-side query params (filters + sort + pagination) ──────────────
+    const tab     = ((req.query.tab as string) || 'all') as StorageQuickTab;
+    const type    = ((req.query.type as string) || 'all') as StorageFileType | 'all';
+    const folder  = (req.query.folder as string) || 'all';
+    const search  = (req.query.search as string) || '';
+    const sortBy  = (req.query.sortBy as string) || 'newest';
+    const page    = Math.max(1, parseInt(req.query.page as string, 10) || 1);
+    const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize as string, 10) || 8));
+
     const [files, totalBytes, storageLimitBytes] = await Promise.all([
       getUserStorageFiles(userId),
       getUserStorageUsedBytes(userId),
@@ -37,14 +53,30 @@ export async function listStorageFiles(req: Request, res: Response, next: NextFu
       byFolder[f.folder].bytes += f.sizeBytes;
     }
 
+    const largeFileCount = files.filter((f) => f.sizeBytes >= MB).length;
+
+    // Filter + sort the full set, then slice the requested offset page.
+    const filtered = filterAndSortStorageFiles(files, { tab, type, folder, search, sortBy });
+    const total = filtered.length;
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    const pageFiles = filtered.slice((page - 1) * pageSize, page * pageSize);
+
     return res.json({
       data: {
-        files,
+        files: pageFiles,
         summary: {
           totalBytes: totalBytes ?? 0,
           storageLimitBytes: Number.isFinite(storageLimitBytes) ? storageLimitBytes : null,
           byType,
           byFolder,
+          largeFileCount,
+          fileIds: files.map((f) => f.id),
+        },
+        pagination: {
+          total,
+          page,
+          pageSize,
+          totalPages,
         },
       },
     });

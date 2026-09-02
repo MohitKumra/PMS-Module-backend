@@ -28,6 +28,7 @@ import {
 } from '../services/ai/coachChat.service';
 import { classifyIntent } from '../services/ai/coachIntent';
 import { confirmCoachEntity } from '../services/ai/coachActions';
+import { executeCoachMutation } from '../services/ai/coachMutation';
 import { getSummary, getWeeklyProgress, getUpcomingDeadlines } from '../services/analytics.service';
 import { prisma } from '../lib/prismaClient';
 import * as goalService from '../services/goal.service';
@@ -439,9 +440,47 @@ export async function postCoachChatMessage(req: Request, res: Response) {
       imageUrls: resolvedImageUrls.length > 0 ? resolvedImageUrls : undefined,
     });
 
-    const result = enabled
-      ? await generateAICoach(userId, promptData)
-      : buildFallbackCoachResult(promptData);
+    // ── Phase 4: Deterministic mutation execution ────────────────────────────
+    const isMutationIntent =
+      intent === 'task_complete' ||
+      intent === 'task_delete' ||
+      intent === 'task_reschedule' ||
+      intent === 'habit_complete';
+
+    let mutationEntityId = promptData.resolvedEntity?.id;
+    let mutationEntityType = promptData.resolvedEntity?.type;
+
+    if (!mutationEntityId && isMutationIntent) {
+      if (intent === 'task_complete' || intent === 'task_delete' || intent === 'task_reschedule') {
+        mutationEntityType = 'task';
+        const overdueTasks = promptData.tasks.filter((t) => t.overdue);
+        if (overdueTasks.length === 1 && /\b(overdue|late|past due)\b/i.test(message)) {
+          mutationEntityId = overdueTasks[0].id;
+        } else if (promptData.tasks.length === 1) {
+          mutationEntityId = promptData.tasks[0].id;
+        }
+      } else if (intent === 'habit_complete') {
+        mutationEntityType = 'habit';
+        if (promptData.habits.length === 1) {
+          mutationEntityId = promptData.habits[0].id;
+        }
+      }
+    }
+
+    let mutationResult = null;
+    if (isMutationIntent && mutationEntityId && mutationEntityType) {
+      mutationResult = await executeCoachMutation(userId, {
+        intent,
+        entityId: mutationEntityId,
+        entityType: mutationEntityType as 'task' | 'habit',
+      });
+    }
+
+    const result = mutationResult
+      ? mutationResult.result
+      : enabled
+        ? await generateAICoach(userId, promptData)
+        : buildFallbackCoachResult(promptData);
 
     const assistantMessage = result.message?.trim() || 'I need a little more detail to help with that.';
     // Store the original URLs (not base64) in the DB

@@ -617,7 +617,27 @@ export async function buildCoachPromptData(
   // ── Entity snapshot — only the domains the current intent actually needs ──
   // Chat mode sends ONLY what the user asked about (e.g. tasks for
   // TASK_STATUS). Summary mode (PROGRESS_REVIEW) loads everything.
-  const snapshotDomains = isChatMode ? intentSnapshotDomains(intent) : ALL_SNAPSHOT_DOMAINS;
+  let snapshotDomains = isChatMode ? intentSnapshotDomains(intent) : ALL_SNAPSHOT_DOMAINS;
+
+  // Domain Safety Net: If the user's message explicitly mentions entity terms,
+  // ensure the respective domains are included so the AI never lacks context.
+  if (isChatMode && normalizedMessage) {
+    const domainSet = new Set(snapshotDomains);
+    if (/\b(tasks?|todos?|to-dos?|upcoming|backlog|action items?)\b/i.test(normalizedMessage)) {
+      domainSet.add('tasks');
+    }
+    if (/\b(habits?|routines?|streaks?)\b/i.test(normalizedMessage)) {
+      domainSet.add('habits');
+    }
+    if (/\b(goals?|targets?|objectives?)\b/i.test(normalizedMessage)) {
+      domainSet.add('goals');
+      domainSet.add('milestones');
+    }
+    if (/\b(milestones?)\b/i.test(normalizedMessage)) {
+      domainSet.add('milestones');
+    }
+    snapshotDomains = Array.from(domainSet);
+  }
 
   const entitySnapshot =
     snapshotDomains.length > 0
@@ -710,6 +730,7 @@ export async function buildCoachPromptData(
     goals: entitySnapshot.goals,
     habits: entitySnapshot.habits,
     milestones: entitySnapshot.milestones,
+    loadedDomains: snapshotDomains,
 
     // Persistent
     timeOfDay: persistent.timeOfDay,
