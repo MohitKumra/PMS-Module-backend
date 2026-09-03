@@ -15,22 +15,35 @@ export function verifyRazorpayWebhookSignature(
   signature: string | undefined | null,
   webhookSecret?: string
 ): boolean {
-  if (!signature) return false;
+  if (!signature || typeof signature !== 'string') return false;
   const secret = webhookSecret || env.RAZORPAY_WEBHOOK_SECRET;
-  if (!secret) return false;
+  if (!secret) {
+    console.error('[RazorpayWebhook] Signature verification rejected: Webhook secret is not configured.');
+    return false;
+  }
 
   try {
+    const rawBuffer = Buffer.isBuffer(rawBody)
+      ? rawBody
+      : Buffer.from(typeof rawBody === 'string' ? rawBody : '', 'utf8');
+
+    if (rawBuffer.length === 0) return false;
+
     const expectedSignature = crypto
       .createHmac('sha256', secret)
-      .update(typeof rawBody === 'string' ? rawBody : rawBody.toString('utf8'))
+      .update(rawBuffer)
       .digest('hex');
 
-    return crypto.timingSafeEqual(
-      Buffer.from(expectedSignature, 'utf8'),
-      Buffer.from(signature, 'utf8')
-    );
-  } catch (err) {
-    console.error('[RazorpayWebhook] Signature verification error:', err);
+    const expectedBuf = Buffer.from(expectedSignature, 'utf8');
+    const signatureBuf = Buffer.from(signature.trim(), 'utf8');
+
+    if (expectedBuf.length !== signatureBuf.length) {
+      return false;
+    }
+
+    return crypto.timingSafeEqual(expectedBuf, signatureBuf);
+  } catch (err: any) {
+    console.error('[RazorpayWebhook] Signature verification error:', err?.message);
     return false;
   }
 }

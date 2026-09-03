@@ -31,5 +31,6 @@ function isAdminOrPublic(path: string): boolean {
   if (path.startsWith('/api/admin')) return true;
   if (path === '/health' || path === '/ready') return true;
   if (path.startsWith('/api/system/maintenance')) return true;
+  if (path.startsWith('/api/webhooks')) return true;
   return false;
 }

@@ -12,6 +12,7 @@ import {
   fetchRazorpaySubscription,
 } from '../providers/razorpay/razorpay.subscription';
 import { sendNotification } from './notification.service';
+import { computeNextCycleTimestamp } from './billing.service';
 import type { SubscriptionStatus, SubscriptionEventType, Prisma } from '@prisma/client';
 
 export async function listSubscriptions(params?: {
@@ -134,7 +135,7 @@ export async function initiateSubscription(params: {
   });
 
   const now = new Date();
-  const periodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+  const periodEnd = new Date(computeNextCycleTimestamp(plan.billingInterval, now) * 1000);
 
   const sub = await prisma.subscription.create({
     data: {

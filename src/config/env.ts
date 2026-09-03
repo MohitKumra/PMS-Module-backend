@@ -76,6 +76,16 @@ const envSchema = z.object({
   AI_BASE_URL: z.string().optional(),
   AI_max_completion_tokens: z.string().default('1024'),
   AI_TEMPERATURE: z.string().default('1'),
+}).superRefine((data, ctx) => {
+  if (data.NODE_ENV === 'production') {
+    if (!data.RAZORPAY_WEBHOOK_SECRET || data.RAZORPAY_WEBHOOK_SECRET === 'rzp_webhook_secret_key_123') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'RAZORPAY_WEBHOOK_SECRET must be configured with a dedicated live secret in production',
+        path: ['RAZORPAY_WEBHOOK_SECRET'],
+      });
+    }
+  }
 });
 
 const parsed = envSchema.safeParse(process.env);

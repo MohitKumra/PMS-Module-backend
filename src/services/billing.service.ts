@@ -11,6 +11,7 @@ import {
 } from '../lib/mailer';
 import { createError } from '../middleware/errorHandler';
 import { createRazorpayOrder, createRazorpayRefund, fetchRazorpayPayment, verifyRazorpayPaymentSignature } from '../providers/razorpay/razorpay.payment';
+import { createRazorpayProviderPlan, createRazorpaySubscription, createRazorpayOffer, listRazorpayOffers } from '../providers/razorpay/razorpay.subscription';
 import { verifyRazorpayWebhookSignature } from '../providers/razorpay/razorpay.webhook';
 import { validateCoupon, redeemCouponAtomic } from './coupon.service';
 import { recordSubscriptionEvent } from './subscription.service';
@@ -316,6 +317,87 @@ export async function calculatePlanUpgradeProration(params: {
   };
 }
 
+/**
+ * Ensures an active Razorpay Plan exists for the specified Plan and billing interval
+ * with the full undiscounted plan price (priceCents + GST).
+ */
+export async function ensureRazorpayPlanForPlan(planId: string) {
+  const plan = await prisma.plan.findUnique({
+    where: { id: planId },
+    include: { paymentProviderPlans: { where: { provider: 'razorpay', isActive: true } } },
+  });
+  if (!plan) throw createError(404, 'PLAN_NOT_FOUND', 'Plan not found');
+
+  const gstPercent =
+    typeof plan.gstPercent === 'number' && Number.isFinite(plan.gstPercent)
+      ? Math.max(0, Math.min(100, plan.gstPercent))
+      : 18;
+  const fullPriceWithTax = plan.priceCents + Math.round((plan.priceCents * gstPercent) / 100);
+
+  // Check if we already have an active PaymentProviderPlan with matching amount and interval
+  const existingProviderPlan = plan.paymentProviderPlans.find(
+    (p) => p.amountCents === fullPriceWithTax && p.billingInterval === plan.billingInterval
+  );
+
+  if (existingProviderPlan) {
+    return existingProviderPlan;
+  }
+
+  // Create recurring plan in Razorpay
+  const interval = plan.billingInterval === 'YEAR' ? 'yearly' : 'monthly';
+  const rzpPlan = await createRazorpayProviderPlan({
+    name: `${plan.name} (${plan.billingInterval})`,
+    amountCents: fullPriceWithTax,
+    currency: plan.currency || 'INR',
+    interval,
+    description: plan.description || `${plan.name} recurring subscription`,
+  });
+
+  // Save to DB
+  const providerPlan = await prisma.paymentProviderPlan.create({
+    data: {
+      planId: plan.id,
+      provider: 'razorpay',
+      providerPlanId: rzpPlan.id,
+      currency: plan.currency || 'INR',
+      amountCents: fullPriceWithTax,
+      billingInterval: plan.billingInterval,
+      isActive: true,
+    },
+  });
+
+  return providerPlan;
+}
+/**
+ * Computes the Unix timestamp (in seconds) for the start of the next billing cycle.
+ * Uses strict UTC calendar month clamping (e.g. Jan 31 -> Feb 28/29 instead of March) to match
+ * Razorpay's recurring subscription anchor schedule across all timezones.
+ */
+export function computeNextCycleTimestamp(
+  billingInterval: 'MONTH' | 'YEAR' | 'ONE_TIME' | string,
+  fromDate: Date = new Date()
+): number {
+  const next = new Date(fromDate);
+  if (billingInterval === 'YEAR') {
+    const currentYear = next.getUTCFullYear();
+    const currentMonth = next.getUTCMonth();
+    const currentDay = next.getUTCDate();
+
+    next.setUTCFullYear(currentYear + 1);
+    // If anchored on Feb 29 in a leap year, clamp to Feb 28 in a non-leap year
+    if (currentMonth === 1 && currentDay === 29 && next.getUTCMonth() !== 1) {
+      next.setUTCMonth(1, 28);
+    }
+  } else {
+    const targetDay = next.getUTCDate();
+    next.setUTCMonth(next.getUTCMonth() + 1);
+    if (next.getUTCDate() !== targetDay) {
+      next.setUTCDate(0); // Clamps to last valid day of target month (e.g. Feb 28/29 or April 30)
+    }
+  }
+  return Math.floor(next.getTime() / 1000);
+}
+
 export async function createCheckoutOrder(params: {
   userId: string;
   planId: string;
@@ -351,9 +433,12 @@ export async function createCheckoutOrder(params: {
       where: { idempotencyKey: params.idempotencyKey },
     });
     if (existingOrder) {
+      const isSub = existingOrder.type === 'SUBSCRIPTION_INITIAL' && !existingOrder.providerOrderId.startsWith('free_');
       return {
         orderId: existingOrder.id,
         providerOrderId: existingOrder.providerOrderId,
+        providerSubscriptionId: isSub ? existingOrder.providerOrderId : undefined,
+        isSubscription: isSub,
         amountCents: existingOrder.totalCents,
         currency: existingOrder.currency,
         subtotalCents: existingOrder.subtotalCents,
@@ -365,9 +450,9 @@ export async function createCheckoutOrder(params: {
     }
   }
 
-  let subtotalCents = plan.priceCents;
+  const subtotalCents = plan.priceCents;
   let discountCents = 0;
-  let couponId: string | null = null;
+  let couponId: string | undefined;
   let prorationCreditCents = 0;
   let isUpgrade = false;
 
@@ -383,6 +468,7 @@ export async function createCheckoutOrder(params: {
     isUpgrade = true;
   }
 
+  let appliedCoupon: any = null;
   if (params.couponCode?.trim()) {
     const validated = await validateCoupon({
       code: params.couponCode,
@@ -392,6 +478,7 @@ export async function createCheckoutOrder(params: {
     });
     discountCents += validated.discountCents;
     couponId = validated.coupon.id;
+    appliedCoupon = validated.coupon;
   }
 
   const totalCents = Math.max(0, subtotalCents - discountCents);
@@ -410,12 +497,76 @@ export async function createCheckoutOrder(params: {
   // Razorpay order — Razorpay rejects zero-amount orders. Instead we synthesize
   // an order id and let the paymentOrder record the zero-amount grant.
   const noPaymentRequired = finalTotalCents <= 0;
+  const isSubscriptionCheckout = type === 'SUBSCRIPTION_INITIAL' && !noPaymentRequired;
 
   let rzpOrderId: string;
+  let providerSubscriptionId: string | undefined;
+  let scheduledStartAt: number | undefined;
+
   if (noPaymentRequired) {
     rzpOrderId = `free_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+  } else if (isSubscriptionCheckout) {
+    // Ensure recurring Razorpay Provider Plan exists at full price
+    const providerPlan = await ensureRazorpayPlanForPlan(plan.id);
+
+    const totalCycles = plan.billingInterval === 'YEAR' ? 5 : 60;
+    if (totalCycles <= 1) {
+      throw createError(
+        400,
+        'INVALID_SUBSCRIPTION_CYCLES',
+        'Recurring auto-pay requires at least 2 billing cycles. Use one-time payment for single-period access.'
+      );
+    }
+    const isDiscountedFirstCycle = finalTotalCents < providerPlan.amountCents;
+
+    let rzpSub: any;
+
+    if (isDiscountedFirstCycle) {
+      // Calculate start of cycle 2 using calendar month alignment
+      scheduledStartAt = computeNextCycleTimestamp(plan.billingInterval);
+
+      rzpSub = await createRazorpaySubscription({
+        planId: providerPlan.providerPlanId,
+        totalCount: totalCycles - 1,
+        customerNotify: 1,
+        startAt: scheduledStartAt,
+        addons: [
+          {
+            item: {
+              name: `${plan.name} (Discounted 1st Cycle)`,
+              amount: finalTotalCents,
+              currency: plan.currency || 'INR',
+            },
+          },
+        ],
+        notes: {
+          userId: params.userId,
+          planId: plan.id,
+          couponId: couponId || undefined,
+          discountCents: discountCents > 0 ? String(discountCents) : undefined,
+          prorationCreditCents: prorationCreditCents > 0 ? String(prorationCreditCents) : undefined,
+          isUpgrade: isUpgrade ? 'true' : undefined,
+        },
+      });
+    } else {
+      rzpSub = await createRazorpaySubscription({
+        planId: providerPlan.providerPlanId,
+        totalCount: totalCycles,
+        customerNotify: 1,
+        notes: {
+          userId: params.userId,
+          planId: plan.id,
+          couponId: couponId || undefined,
+          prorationCreditCents: prorationCreditCents > 0 ? String(prorationCreditCents) : undefined,
+          isUpgrade: isUpgrade ? 'true' : undefined,
+        },
+      });
+    }
+
+    rzpOrderId = rzpSub.id;
+    providerSubscriptionId = rzpSub.id;
   } else {
-    // Create Razorpay Order
+    // Create one-time Razorpay Order
     const rzpOrder = await createRazorpayOrder({
       amountCents: finalTotalCents,
       currency,
@@ -454,6 +605,10 @@ export async function createCheckoutOrder(params: {
           priceCents: plan.priceCents,
           billingInterval: plan.billingInterval,
           gstPercent,
+          isSubscription: isSubscriptionCheckout,
+          providerSubscriptionId,
+          startAt: scheduledStartAt || null,
+          isDiscountedFirstCycle: Boolean(isSubscriptionCheckout && finalTotalCents < (plan.priceCents + Math.round((plan.priceCents * gstPercent) / 100))),
         },
       },
       include: { plan: true },
@@ -464,9 +619,14 @@ export async function createCheckoutOrder(params: {
         where: { idempotencyKey: params.idempotencyKey },
       });
       if (existingOrder) {
+        const isSub = existingOrder.type === 'SUBSCRIPTION_INITIAL' && !existingOrder.providerOrderId.startsWith('free_');
+        const existingMeta = (existingOrder.metadata as Record<string, any>) || {};
         return {
           orderId: existingOrder.id,
           providerOrderId: existingOrder.providerOrderId,
+          providerSubscriptionId: isSub ? existingOrder.providerOrderId : undefined,
+          offerId: existingMeta.offerId || undefined,
+          isSubscription: isSub,
           amountCents: existingOrder.totalCents,
           currency: existingOrder.currency,
           subtotalCents: existingOrder.subtotalCents,
@@ -483,6 +643,9 @@ export async function createCheckoutOrder(params: {
   return {
     orderId: order.id,
     providerOrderId: order.providerOrderId,
+    providerSubscriptionId,
+    offerId: undefined,
+    isSubscription: isSubscriptionCheckout,
     amountCents: order.totalCents,
     currency: order.currency,
     subtotalCents: order.subtotalCents,
@@ -509,6 +672,7 @@ export async function recordSuccessfulPayment(params: {
   discountCents?: number;
   taxCents?: number;
   autoRenew?: boolean;
+  isRenewal?: boolean;
   metadata?: any;
 }) {
   // Idempotency: Check if transaction already recorded
@@ -543,7 +707,7 @@ export async function recordSuccessfulPayment(params: {
     // one-time purchase. Renewals always happen at the full plan price — the
     // coupon was already applied only to this initial charge.
     let subscriptionId = params.subscriptionId || null;
-    if (!subscriptionId && params.orderId && params.planId) {
+    if (!subscriptionId && (params.orderId || params.providerSubscriptionId) && params.planId) {
       const existingSub = await tx.subscription.findFirst({
         where: {
           userId: params.userId,
@@ -554,10 +718,30 @@ export async function recordSuccessfulPayment(params: {
 
       const plan = await tx.plan.findUnique({ where: { id: params.planId } });
       const now = new Date();
-      const isYearly = plan?.billingInterval === 'YEAR';
-      const periodEnd = new Date(
-        now.getTime() + (isYearly ? 365 : 30) * 24 * 60 * 60 * 1000
-      );
+
+      // Synchronize initial periodEnd with startAt if scheduled in payment order metadata,
+      // otherwise use calendar-accurate month/year arithmetic
+      let periodEnd: Date;
+      let orderRecord = null;
+      if (params.orderId) {
+        orderRecord = await tx.paymentOrder.findUnique({ where: { id: params.orderId } });
+      } else if (params.providerSubscriptionId) {
+        orderRecord = await tx.paymentOrder.findFirst({
+          where: { provider: params.provider, providerOrderId: params.providerSubscriptionId },
+        });
+      }
+
+      const orderMeta = (orderRecord?.metadata as Record<string, any>) || {};
+      if (orderMeta.startAt) {
+        periodEnd = new Date(Number(orderMeta.startAt) * 1000);
+      } else {
+        const nextCycleTs = computeNextCycleTimestamp(plan?.billingInterval || 'MONTH', now);
+        periodEnd = new Date(nextCycleTs * 1000);
+      }
+
+      const targetProviderSubId =
+        params.providerSubscriptionId ||
+        (params.autoRenew ? `rzp_sub_${params.orderId || Date.now()}` : `local_${params.orderId || Date.now()}`);
 
       if (existingSub) {
         // Upgrade/Update existing subscription to the new plan!
@@ -565,6 +749,8 @@ export async function recordSuccessfulPayment(params: {
           where: { id: existingSub.id },
           data: {
             planId: params.planId,
+            provider: params.provider,
+            providerSubscriptionId: params.providerSubscriptionId || existingSub.providerSubscriptionId,
             status: 'ACTIVE',
             billingInterval: plan?.billingInterval || 'MONTH',
             currentPeriodStart: now,
@@ -592,7 +778,7 @@ export async function recordSuccessfulPayment(params: {
             userId: params.userId,
             planId: params.planId,
             provider: params.provider,
-            providerSubscriptionId: `local_${params.orderId}`,
+            providerSubscriptionId: targetProviderSubId,
             status: 'ACTIVE',
             billingInterval: plan?.billingInterval || 'MONTH',
             quantity: 1,
@@ -653,7 +839,9 @@ export async function recordSuccessfulPayment(params: {
         providerPaymentId: params.providerPaymentId,
         providerOrderId: params.providerOrderId || null,
         providerSubscriptionId: params.providerSubscriptionId || null,
-        transactionType: subscriptionId ? 'SUBSCRIPTION_INITIAL' : 'PAYMENT',
+        transactionType: params.isRenewal
+          ? 'SUBSCRIPTION_RENEWAL'
+          : (subscriptionId ? 'SUBSCRIPTION_INITIAL' : 'PAYMENT'),
         status: 'CAPTURED',
         currency: params.currency,
         grossAmountCents,
@@ -756,7 +944,7 @@ export async function recordSuccessfulPayment(params: {
               currency: params.currency || 'INR',
             }).format(params.amountCents / 100),
             periodEnd: new Date(
-              Date.now() + (plan.billingInterval === 'YEAR' ? 365 : 30) * 24 * 60 * 60 * 1000
+              computeNextCycleTimestamp(plan.billingInterval) * 1000
             ).toLocaleDateString('en-IN'),
             appUrl: `${env.FRONTEND_URL}/settings?tab=billing`,
           }),
@@ -770,7 +958,7 @@ export async function recordSuccessfulPayment(params: {
   return result.transaction;
 }
 
-export async function processRazorpayWebhook(rawBody: string, signature: string | undefined) {
+export async function processRazorpayWebhook(rawBody: Buffer | string, signature: string | undefined) {
   const isValid = verifyRazorpayWebhookSignature(rawBody, signature);
   if (!isValid) {
     throw createError(400, 'INVALID_SIGNATURE', 'Razorpay webhook signature verification failed.');
@@ -778,7 +966,8 @@ export async function processRazorpayWebhook(rawBody: string, signature: string 
 
   let event: any;
   try {
-    event = JSON.parse(rawBody);
+    const rawString = Buffer.isBuffer(rawBody) ? rawBody.toString('utf8') : rawBody;
+    event = typeof rawString === 'string' ? JSON.parse(rawString) : rawString;
   } catch {
     throw createError(400, 'MALFORMED_JSON', 'Failed to parse webhook JSON body.');
   }
@@ -821,9 +1010,13 @@ export async function processRazorpayWebhook(rawBody: string, signature: string 
         if (payment) {
           const notes = payment.notes || {};
           let order = null;
-          if (payment.order_id) {
+          const targetOrderId = payment.subscription_id || payment.order_id;
+          if (targetOrderId) {
             order = await prisma.paymentOrder.findFirst({
-              where: { providerOrderId: payment.order_id },
+              where: {
+                provider: 'razorpay',
+                providerOrderId: targetOrderId,
+              },
             });
           }
 
@@ -831,23 +1024,32 @@ export async function processRazorpayWebhook(rawBody: string, signature: string 
           if (userId) {
             const subtotalCents = order?.subtotalCents || payment.amount;
             const taxCents = order?.taxCents || 0;
+            const discountCents = order?.discountCents || 0;
+            const planId = notes.planId || order?.planId;
+            const couponId = notes.couponId || order?.couponId;
+            const isSub = Boolean(payment.subscription_id || (order && order.type === 'SUBSCRIPTION_INITIAL'));
+
             await recordSuccessfulPayment({
               userId,
               provider: 'razorpay',
               providerPaymentId: payment.id,
-              providerOrderId: payment.order_id,
+              providerOrderId: payment.order_id || undefined,
+              providerSubscriptionId: payment.subscription_id || (isSub ? order?.providerOrderId : undefined),
               amountCents: payment.amount,
               currency: payment.currency,
               orderId: order?.id,
-              planId: notes.planId || order?.planId,
-              couponId: notes.couponId || order?.couponId,
+              planId,
+              couponId,
               subtotalCents,
-              discountCents: order?.discountCents || 0,
+              discountCents,
               taxCents,
+              autoRenew: isSub,
+              isRenewal: false,
               metadata: {
                 paymentMethod: payment.method,
                 email: payment.email,
                 contact: payment.contact,
+                source: 'WEBHOOK_PAYMENT_CAPTURED',
               },
             });
           }
@@ -855,11 +1057,72 @@ export async function processRazorpayWebhook(rawBody: string, signature: string 
         break;
       }
 
-      case 'subscription.activated':
+      case 'payment.failed': {
+        const payment = event.payload?.payment?.entity;
+        if (payment) {
+          const targetOrderId = payment.subscription_id || payment.order_id;
+          if (targetOrderId) {
+            await prisma.paymentOrder.updateMany({
+              where: {
+                provider: 'razorpay',
+                providerOrderId: targetOrderId,
+                status: 'CREATED',
+              },
+              data: { status: 'FAILED' },
+            });
+          }
+          console.warn(
+            `[Webhook payment.failed] paymentId=${payment.id} targetRef=${targetOrderId || 'unknown'} reason=${payment.error_description || payment.error_code || 'Payment declined'}`
+          );
+        }
+        break;
+      }
+
+      case 'subscription.authenticated': {
+        const subEntity = event.payload?.subscription?.entity;
+        if (subEntity) {
+          // Mandate authorized: record event but do NOT treat as cash capture
+          console.info(`[Webhook subscription.authenticated] subscriptionId=${subEntity.id}`);
+          const sub = await prisma.subscription.findUnique({
+            where: {
+              provider_providerSubscriptionId: {
+                provider: 'razorpay',
+                providerSubscriptionId: subEntity.id,
+              },
+            },
+          });
+          if (sub) {
+            await recordSubscriptionEvent({
+              subscriptionId: sub.id,
+              eventType: 'CREATED',
+              provider: 'razorpay',
+              providerEventId,
+              payload: subEntity,
+            });
+          }
+        }
+        break;
+      }
+
+      case 'subscription.activated': {
+        const subEntity = event.payload?.subscription?.entity;
+        if (subEntity) {
+          console.info(`[Webhook subscription.activated] subscriptionId=${subEntity.id}`);
+          await prisma.subscription.updateMany({
+            where: {
+              provider: 'razorpay',
+              providerSubscriptionId: subEntity.id,
+            },
+            data: { status: 'ACTIVE' },
+          });
+        }
+        break;
+      }
+
       case 'subscription.charged': {
         const subEntity = event.payload?.subscription?.entity;
         const paymentEntity = event.payload?.payment?.entity;
-        if (subEntity) {
+        if (subEntity && paymentEntity) {
           const sub = await prisma.subscription.findUnique({
             where: {
               provider_providerSubscriptionId: {
@@ -871,9 +1134,12 @@ export async function processRazorpayWebhook(rawBody: string, signature: string 
           });
 
           if (sub) {
+            const nextStart = subEntity.current_start
+              ? new Date(subEntity.current_start * 1000)
+              : new Date();
             const nextEnd = subEntity.current_end
               ? new Date(subEntity.current_end * 1000)
-              : new Date(Date.now() + 30 * 86400 * 1000);
+              : new Date(computeNextCycleTimestamp(sub.billingInterval, nextStart) * 1000);
             const planSubtotal = sub.plan.priceCents;
             const planTax = Math.round((planSubtotal * (sub.plan.gstPercent || 18)) / 100);
 
@@ -881,37 +1147,61 @@ export async function processRazorpayWebhook(rawBody: string, signature: string 
               where: { id: sub.id },
               data: {
                 status: 'ACTIVE',
+                currentPeriodStart: nextStart,
                 currentPeriodEnd: nextEnd,
               },
             });
 
             await recordSubscriptionEvent({
               subscriptionId: sub.id,
-              eventType: eventType === 'subscription.activated' ? 'ACTIVATED' : 'CHARGED',
+              eventType: 'CHARGED',
               provider: 'razorpay',
               providerEventId,
               payload: subEntity,
             });
 
-            if (paymentEntity) {
-              await recordSuccessfulPayment({
-                userId: sub.userId,
-                provider: 'razorpay',
-                providerPaymentId: paymentEntity.id,
-                providerSubscriptionId: subEntity.id,
-                amountCents: paymentEntity.amount,
-                currency: paymentEntity.currency,
-                subscriptionId: sub.id,
-                planId: sub.planId,
-                subtotalCents: planSubtotal,
-                taxCents: planTax,
-                metadata: {
-                  planName: sub.plan.name,
-                  billingInterval: sub.billingInterval,
-                },
-              });
-            }
+            // Recurring renewal: STRICTLY full plan price with zero coupon discount
+            await recordSuccessfulPayment({
+              userId: sub.userId,
+              provider: 'razorpay',
+              providerPaymentId: paymentEntity.id,
+              providerSubscriptionId: subEntity.id,
+              amountCents: paymentEntity.amount,
+              currency: paymentEntity.currency,
+              subscriptionId: sub.id,
+              planId: sub.planId,
+              subtotalCents: planSubtotal,
+              taxCents: planTax,
+              discountCents: 0,
+              isRenewal: true,
+              autoRenew: true,
+              metadata: {
+                planName: sub.plan.name,
+                billingInterval: sub.billingInterval,
+                source: 'WEBHOOK_SUBSCRIPTION_CHARGED',
+              },
+            });
+            console.info(`[Webhook subscription.charged] subscriptionId=${sub.id} paymentId=${paymentEntity.id} amount=${paymentEntity.amount}`);
           }
+        }
+        break;
+      }
+
+      case 'subscription.halted':
+      case 'subscription.pending': {
+        const subEntity = event.payload?.subscription?.entity;
+        if (subEntity) {
+          await prisma.subscription.updateMany({
+            where: {
+              provider: 'razorpay',
+              providerSubscriptionId: subEntity.id,
+            },
+            data: {
+              status: 'PAST_DUE',
+              autoRenew: false,
+            },
+          });
+          console.warn(`[Webhook subscription.${eventType.split('.')[1]}] subscriptionId=${subEntity.id} marked PAST_DUE`);
         }
         break;
       }
@@ -928,9 +1218,16 @@ export async function processRazorpayWebhook(rawBody: string, signature: string 
             },
           });
           if (sub) {
+            const now = new Date();
+            const hasRemainingPaidTime = sub.currentPeriodEnd > now;
             await prisma.subscription.update({
               where: { id: sub.id },
-              data: { status: 'CANCELLED', endedAt: new Date() },
+              data: {
+                status: hasRemainingPaidTime ? sub.status : 'CANCELLED',
+                autoRenew: false,
+                cancelAtPeriodEnd: hasRemainingPaidTime,
+                endedAt: hasRemainingPaidTime ? null : now,
+              },
             });
             await recordSubscriptionEvent({
               subscriptionId: sub.id,
@@ -939,6 +1236,7 @@ export async function processRazorpayWebhook(rawBody: string, signature: string 
               providerEventId,
               payload: subEntity,
             });
+            console.info(`[Webhook subscription.cancelled] subscriptionId=${sub.id} cancelAtPeriodEnd=${hasRemainingPaidTime}`);
           }
         }
         break;
@@ -1647,12 +1945,8 @@ export async function renewDueLocalSubscriptions(): Promise<number> {
   let renewed = 0;
   for (const sub of due) {
     const plan = sub.plan;
-    const periodMs =
-      plan.billingInterval === 'YEAR'
-        ? 365 * 24 * 60 * 60 * 1000
-        : 30 * 24 * 60 * 60 * 1000;
     const nextStart = new Date(sub.currentPeriodEnd);
-    const nextEnd = new Date(nextStart.getTime() + periodMs);
+    const nextEnd = new Date(computeNextCycleTimestamp(plan.billingInterval, nextStart) * 1000);
     const invoiceNumber = `INV-${nextStart.getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`;
     const simPaymentId = `sim_${sub.id}_${nextStart.getTime()}`;
     const gross = plan.priceCents;

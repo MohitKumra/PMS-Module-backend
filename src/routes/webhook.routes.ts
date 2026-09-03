@@ -1,5 +1,5 @@
 // backend/src/routes/webhook.routes.ts
-// Router for provider webhook ingestion with raw body parser.
+// Router for provider webhook ingestion with raw body preservation.
 
 import { Router } from 'express';
 import express from 'express';
@@ -7,10 +7,19 @@ import { razorpayWebhookHandler } from '../controllers/webhook.controller';
 
 const router = Router();
 
-// Use express.raw or express.text to preserve raw bytes for HMAC-SHA256 signature verification
+// Ensure raw byte Buffer is preserved for HMAC-SHA256 signature verification
 router.post(
   '/razorpay',
-  express.text({ type: ['application/json', 'text/plain', '*/*'] }),
+  (req, res, next) => {
+    if ((req as any).rawBody) {
+      return next();
+    }
+    express.raw({ type: '*/*', limit: '5mb' })(req, res, (err) => {
+      if (err) return next(err);
+      (req as any).rawBody = req.body;
+      next();
+    });
+  },
   razorpayWebhookHandler
 );
 

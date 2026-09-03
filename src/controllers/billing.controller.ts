@@ -19,7 +19,8 @@ import {
 import { buildInvoicePdfBuffer, getBillingCompanyProfile } from '../services/billingDocuments.service';
 import { cancelSubscriptionAction as cancelSubscriptionService } from '../services/subscription.service';
 import { validateCoupon } from '../services/coupon.service';
-import { verifyRazorpayPaymentSignature } from '../providers/razorpay/razorpay.payment';
+import { verifyRazorpayPaymentSignature, createRazorpayRefund } from '../providers/razorpay/razorpay.payment';
+import { verifyRazorpaySubscriptionSignature } from '../providers/razorpay/razorpay.subscription';
 
 /**
  * GET /api/billing/plans
@@ -209,29 +210,89 @@ export async function verifyPayment(req: Request, res: Response, next: NextFunct
     const userId = req.user!.sub || (req.user as any)!.id;
     const {
       razorpayOrderId,
+      razorpaySubscriptionId,
       razorpayPaymentId,
       razorpaySignature,
       orderId,
     } = req.body;
 
-    if (!razorpayOrderId || !razorpayPaymentId || !razorpaySignature) {
+    const paymentId = razorpayPaymentId || req.body.razorpay_payment_id;
+    const signature = razorpaySignature || req.body.razorpay_signature;
+    const subId = razorpaySubscriptionId || req.body.razorpay_subscription_id;
+    const ordId = razorpayOrderId || req.body.razorpay_order_id;
+
+    if (!paymentId || !signature || (!subId && !ordId)) {
       throw createError(400, 'INVALID_PAYMENT_PAYLOAD', 'Missing Razorpay payment identifiers.');
     }
 
+    if (subId) {
+      const isValid = verifyRazorpaySubscriptionSignature({
+        subscriptionId: subId,
+        paymentId,
+        signature,
+      });
+
+      if (!isValid) {
+        throw createError(400, 'SIGNATURE_VERIFICATION_FAILED', 'Subscription signature could not be verified.');
+      }
+
+      // Find the payment order
+      const order = await prisma.paymentOrder.findFirst({
+        where: {
+          providerOrderId: subId,
+          userId,
+        },
+        include: { plan: true },
+      });
+
+      if (!order) {
+        throw createError(404, 'ORDER_NOT_FOUND', 'Matching subscription payment order was not found.');
+      }
+
+      const tx = await recordSuccessfulPayment({
+        userId,
+        provider: 'razorpay',
+        providerPaymentId: paymentId,
+        providerSubscriptionId: subId,
+        amountCents: order.totalCents,
+        currency: order.currency,
+        orderId: order.id,
+        planId: order.planId || undefined,
+        couponId: order.couponId || undefined,
+        subtotalCents: order.subtotalCents,
+        discountCents: order.discountCents,
+        autoRenew: true,
+        taxCents: order.taxCents,
+        metadata: {
+          verifiedVia: 'CLIENT_SUBSCRIPTION_VERIFICATION',
+        },
+      });
+
+      const effectivePlan = await resolveEffectivePlan(userId);
+
+      return res.json({
+        data: {
+          success: true,
+          transactionId: tx.id,
+          effectivePlan,
+        },
+      });
+    }
+
+    // Otherwise standard one-time order
     const isValid = verifyRazorpayPaymentSignature({
-      orderId: razorpayOrderId,
-      paymentId: razorpayPaymentId,
-      signature: razorpaySignature,
+      orderId: ordId,
+      paymentId,
+      signature,
     });
 
     if (!isValid) {
       throw createError(400, 'SIGNATURE_VERIFICATION_FAILED', 'Payment signature could not be verified.');
     }
 
-    // Find the payment order
     const order = await prisma.paymentOrder.findFirst({
       where: {
-        providerOrderId: razorpayOrderId,
+        providerOrderId: ordId,
         userId,
       },
       include: { plan: true },
@@ -241,26 +302,25 @@ export async function verifyPayment(req: Request, res: Response, next: NextFunct
       throw createError(404, 'ORDER_NOT_FOUND', 'Matching payment order was not found.');
     }
 
-    // Record successful payment and activate subscription/plan
     const tx = await recordSuccessfulPayment({
       userId,
       provider: 'razorpay',
-      providerPaymentId: razorpayPaymentId,
-      providerOrderId: razorpayOrderId,
+      providerPaymentId: paymentId,
+      providerOrderId: ordId,
       amountCents: order.totalCents,
       currency: order.currency,
       orderId: order.id,
       planId: order.planId || undefined,
       couponId: order.couponId || undefined,
       subtotalCents: order.subtotalCents,
-      autoRenew: order.type === 'SUBSCRIPTION_INITIAL',
+      discountCents: order.discountCents,
+      autoRenew: false,
       taxCents: order.taxCents,
       metadata: {
         verifiedVia: 'CLIENT_CHECKOUT_VERIFICATION',
       },
     });
 
-    // Fetch updated effective plan
     const effectivePlan = await resolveEffectivePlan(userId);
 
     return res.json({

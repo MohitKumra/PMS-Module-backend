@@ -104,7 +104,14 @@ app.use('/uploads', (req, res, next) => {
   next();
 });
 app.use('/uploads', express.static(path.resolve(process.cwd(), 'uploads')));
-app.use(express.json({ limit: '12mb' }));
+app.use(
+  express.json({
+    limit: '12mb',
+    verify: (req: any, _res, buf) => {
+      req.rawBody = buf;
+    },
+  })
+);
 app.use(cookieParser());
 
 // ─── Health check ─────────────────────────────────────────────────────────────

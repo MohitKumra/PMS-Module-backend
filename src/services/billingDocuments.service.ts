@@ -227,7 +227,7 @@ export function getInvoiceFrontendUrl(invoiceId?: string): string {
 }
 
 export function getInvoicePdfUrl(invoiceId: string): string {
-  return getInvoiceFrontendUrl(invoiceId);
+  return `${env.BACKEND_URL}/api/billing/invoices/${invoiceId}/pdf`;
 }
 
 function formatMoney(amountCents: number, currency: string): string {
@@ -341,14 +341,17 @@ export function buildInvoiceHtml(doc: BillingInvoiceDocument): string {
       ? doc.invoice.dueAt.toLocaleDateString('en-IN', { dateStyle: 'medium' })
       : 'Not set';
   const billToName = billToProfile.companyName || doc.user.name || doc.user.email.split('@')[0] || 'Customer';
+  const billToAddressLines = Array.isArray(billToProfile.addressLines)
+    ? billToProfile.addressLines
+    : [];
   const billToLines = [
     billToProfile.email || doc.user.email,
-    ...billToProfile.addressLines,
+    ...billToAddressLines,
     [billToProfile.postalCode, billToProfile.country].filter(Boolean).join(', ') || null,
     billToProfile.gstin ? `GSTIN: ${billToProfile.gstin}` : null,
   ];
   const shipToLines = [
-    ...billToProfile.addressLines,
+    ...billToAddressLines,
     [billToProfile.postalCode, billToProfile.country].filter(Boolean).join(', ') || null,
     billToProfile.gstin ? `GSTIN: ${billToProfile.gstin}` : null,
   ];
