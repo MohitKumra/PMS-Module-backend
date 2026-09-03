@@ -250,6 +250,47 @@ export async function resumeRazorpaySubscription(subscriptionId: string): Promis
   }
 }
 
+export async function updateRazorpaySubscription(
+  subscriptionId: string,
+  params: {
+    planId: string;
+    scheduleChangeAt?: 'now' | 'cycle_end';
+    customerNotify?: 0 | 1;
+    remainingCount?: number;
+  }
+): Promise<RazorpaySubscriptionEntity> {
+  try {
+    return await razorpayRequest<RazorpaySubscriptionEntity>(`/subscriptions/${subscriptionId}`, {
+      method: 'PATCH',
+      body: {
+        plan_id: params.planId,
+        schedule_change_at: params.scheduleChangeAt || 'cycle_end',
+        customer_notify: params.customerNotify ?? 1,
+        ...(params.remainingCount !== undefined ? { remaining_count: params.remainingCount } : {}),
+      },
+    });
+  } catch (err) {
+    if (env.RAZORPAY_KEY_ID?.startsWith('rzp_test_dummy')) {
+      const now = Math.floor(Date.now() / 1000);
+      return {
+        id: subscriptionId,
+        entity: 'subscription',
+        plan_id: params.planId,
+        status: 'active',
+        current_start: now,
+        current_end: now + 30 * 86400,
+        quantity: 1,
+        auth_attempts: 0,
+        total_count: 12,
+        paid_count: 1,
+        remaining_count: params.remainingCount ?? 11,
+        created_at: now,
+      };
+    }
+    throw err;
+  }
+}
+
 /**
  * Validates Razorpay subscription checkout signature:
  * HMAC-SHA256(razorpay_payment_id + "|" + razorpay_subscription_id, secret)

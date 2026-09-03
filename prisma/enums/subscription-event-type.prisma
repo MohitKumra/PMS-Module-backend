@@ -9,4 +9,5 @@ enum SubscriptionEventType {
   COMPLETED
   EXPIRED
   FAILED
+  REQUIRES_RECONCILIATION
 }

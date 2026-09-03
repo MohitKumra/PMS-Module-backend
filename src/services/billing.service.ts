@@ -11,7 +11,14 @@ import {
 } from '../lib/mailer';
 import { createError } from '../middleware/errorHandler';
 import { createRazorpayOrder, createRazorpayRefund, fetchRazorpayPayment, verifyRazorpayPaymentSignature } from '../providers/razorpay/razorpay.payment';
-import { createRazorpayProviderPlan, createRazorpaySubscription, createRazorpayOffer, listRazorpayOffers } from '../providers/razorpay/razorpay.subscription';
+import {
+  createRazorpayProviderPlan,
+  createRazorpaySubscription,
+  createRazorpayOffer,
+  listRazorpayOffers,
+  cancelRazorpaySubscription,
+  updateRazorpaySubscription,
+} from '../providers/razorpay/razorpay.subscription';
 import { verifyRazorpayWebhookSignature } from '../providers/razorpay/razorpay.webhook';
 import { validateCoupon, redeemCouponAtomic } from './coupon.service';
 import { recordSubscriptionEvent } from './subscription.service';
@@ -689,6 +696,8 @@ export async function recordSuccessfulPayment(params: {
     return existingTx;
   }
 
+  let oldProviderSubIdToCancel: string | null = null;
+
   const result = await prisma.$transaction(async (tx) => {
     // Generate sequential invoice number: INV-YEAR-RANDOM
     const year = new Date().getFullYear();
@@ -743,7 +752,17 @@ export async function recordSuccessfulPayment(params: {
         params.providerSubscriptionId ||
         (params.autoRenew ? `rzp_sub_${params.orderId || Date.now()}` : `local_${params.orderId || Date.now()}`);
 
+      oldProviderSubIdToCancel = null;
       if (existingSub) {
+        if (
+          existingSub.providerSubscriptionId &&
+          params.providerSubscriptionId &&
+          existingSub.providerSubscriptionId !== params.providerSubscriptionId &&
+          existingSub.providerSubscriptionId.startsWith('sub_')
+        ) {
+          oldProviderSubIdToCancel = existingSub.providerSubscriptionId;
+        }
+
         // Upgrade/Update existing subscription to the new plan!
         const updatedSub = await tx.subscription.update({
           where: { id: existingSub.id },
@@ -751,6 +770,8 @@ export async function recordSuccessfulPayment(params: {
             planId: params.planId,
             provider: params.provider,
             providerSubscriptionId: params.providerSubscriptionId || existingSub.providerSubscriptionId,
+            scheduledPlanId: null,
+            scheduledChangeAt: null,
             status: 'ACTIVE',
             billingInterval: plan?.billingInterval || 'MONTH',
             currentPeriodStart: now,
@@ -927,6 +948,30 @@ export async function recordSuccessfulPayment(params: {
         )?.metadata &&
         ((await prisma.paymentOrder.findUnique({ where: { id: params.orderId } }))?.metadata as any)
           ?.isUpgrade);
+
+    if (isUpgradeOrder && oldProviderSubIdToCancel) {
+      try {
+        await cancelRazorpaySubscription(oldProviderSubIdToCancel, false);
+        console.info(`[Billing] Successfully cancelled old Razorpay subscription ${oldProviderSubIdToCancel} after upgrade`);
+      } catch (cancelErr: any) {
+        console.error(`[Billing] CRITICAL: Failed to cancel old Razorpay subscription ${oldProviderSubIdToCancel} after upgrade:`, cancelErr);
+        if (result.transaction.subscriptionId) {
+          await prisma.subscriptionEvent.create({
+            data: {
+              subscriptionId: result.transaction.subscriptionId,
+              eventType: 'REQUIRES_RECONCILIATION',
+              provider: params.provider,
+              occurredAt: new Date(),
+              payload: {
+                action: 'OLD_SUBSCRIPTION_CANCEL_FAILED',
+                oldProviderSubscriptionId: oldProviderSubIdToCancel,
+                error: cancelErr?.message || String(cancelErr),
+              },
+            },
+          }).catch((evtErr) => console.error('[Billing] Failed to record reconciliation event:', evtErr));
+        }
+      }
+    }
 
     if (isUpgradeOrder && user && plan) {
       sendNotification(
@@ -1140,12 +1185,37 @@ export async function processRazorpayWebhook(rawBody: Buffer | string, signature
             const nextEnd = subEntity.current_end
               ? new Date(subEntity.current_end * 1000)
               : new Date(computeNextCycleTimestamp(sub.billingInterval, nextStart) * 1000);
-            const planSubtotal = sub.plan.priceCents;
-            const planTax = Math.round((planSubtotal * (sub.plan.gstPercent || 18)) / 100);
+
+            // Reconcile plan: Did a scheduled downgrade/plan change take effect?
+            let effectivePlanId = sub.planId;
+            let effectivePlan = sub.plan;
+
+            if (subEntity.plan_id) {
+              const matchedProviderPlan = await prisma.paymentProviderPlan.findFirst({
+                where: { provider: 'razorpay', providerPlanId: subEntity.plan_id },
+                include: { plan: true },
+              });
+              if (matchedProviderPlan?.plan) {
+                effectivePlanId = matchedProviderPlan.plan.id;
+                effectivePlan = matchedProviderPlan.plan;
+              }
+            } else if (sub.scheduledPlanId) {
+              const scheduled = await prisma.plan.findUnique({ where: { id: sub.scheduledPlanId } });
+              if (scheduled) {
+                effectivePlanId = scheduled.id;
+                effectivePlan = scheduled;
+              }
+            }
+
+            const planSubtotal = effectivePlan.priceCents;
+            const planTax = Math.round((planSubtotal * (effectivePlan.gstPercent || 18)) / 100);
 
             await prisma.subscription.update({
               where: { id: sub.id },
               data: {
+                planId: effectivePlanId,
+                scheduledPlanId: null, // Clear scheduled downgrade upon successful charge
+                scheduledChangeAt: null,
                 status: 'ACTIVE',
                 currentPeriodStart: nextStart,
                 currentPeriodEnd: nextEnd,
@@ -1160,7 +1230,7 @@ export async function processRazorpayWebhook(rawBody: Buffer | string, signature
               payload: subEntity,
             });
 
-            // Recurring renewal: STRICTLY full plan price with zero coupon discount
+            // Recurring renewal: full plan price of the effective plan with zero coupon discount
             await recordSuccessfulPayment({
               userId: sub.userId,
               provider: 'razorpay',
@@ -1169,19 +1239,44 @@ export async function processRazorpayWebhook(rawBody: Buffer | string, signature
               amountCents: paymentEntity.amount,
               currency: paymentEntity.currency,
               subscriptionId: sub.id,
-              planId: sub.planId,
+              planId: effectivePlanId,
               subtotalCents: planSubtotal,
               taxCents: planTax,
               discountCents: 0,
               isRenewal: true,
               autoRenew: true,
               metadata: {
-                planName: sub.plan.name,
+                planName: effectivePlan.name,
                 billingInterval: sub.billingInterval,
                 source: 'WEBHOOK_SUBSCRIPTION_CHARGED',
               },
             });
-            console.info(`[Webhook subscription.charged] subscriptionId=${sub.id} paymentId=${paymentEntity.id} amount=${paymentEntity.amount}`);
+            console.info(`[Webhook subscription.charged] subscriptionId=${sub.id} planId=${effectivePlanId} paymentId=${paymentEntity.id} amount=${paymentEntity.amount}`);
+          }
+        }
+        break;
+      }
+
+      case 'subscription.updated': {
+        const subEntity = event.payload?.subscription?.entity;
+        if (subEntity) {
+          const sub = await prisma.subscription.findUnique({
+            where: {
+              provider_providerSubscriptionId: {
+                provider: 'razorpay',
+                providerSubscriptionId: subEntity.id,
+              },
+            },
+          });
+          if (sub) {
+            await recordSubscriptionEvent({
+              subscriptionId: sub.id,
+              eventType: 'ACTIVATED',
+              provider: 'razorpay',
+              providerEventId,
+              payload: subEntity,
+            });
+            console.info(`[Webhook subscription.updated] subscriptionId=${sub.id} plan_id=${subEntity.plan_id}`);
           }
         }
         break;
@@ -1591,9 +1686,12 @@ export async function processBillingLifecycleNotifications(): Promise<{
     }
 
     // Scheduled Downgrade Execution on period end
-    if (msLeft < 0 && sub.providerPlanId?.startsWith('downgrade_')) {
-      const targetPlanId = sub.providerPlanId.replace('downgrade_', '');
-      const targetPlan = await prisma.plan.findUnique({ where: { id: targetPlanId } });
+    const scheduledTargetPlanId =
+      sub.scheduledPlanId ||
+      (sub.providerPlanId?.startsWith('downgrade_') ? sub.providerPlanId.replace('downgrade_', '') : null);
+
+    if (msLeft < 0 && scheduledTargetPlanId) {
+      const targetPlan = await prisma.plan.findUnique({ where: { id: scheduledTargetPlanId } });
 
       // If Auto-Pay is ON and target plan is a paid plan -> renew at new plan price
       if (sub.autoRenew && targetPlan && targetPlan.priceCents > 0) {
@@ -1605,6 +1703,8 @@ export async function processBillingLifecycleNotifications(): Promise<{
           data: {
             planId: targetPlan.id,
             billingInterval: targetPlan.billingInterval,
+            scheduledPlanId: null,
+            scheduledChangeAt: null,
             providerPlanId: null,
             currentPeriodStart: now,
             currentPeriodEnd: newPeriodEnd,
@@ -1634,9 +1734,12 @@ export async function processBillingLifecycleNotifications(): Promise<{
           where: { id: sub.id },
           data: {
             status: 'EXPIRED',
+            scheduledPlanId: null,
+            scheduledChangeAt: null,
             providerPlanId: null,
             endedAt: sub.endedAt || now,
             autoRenew: false,
+            cancelAtPeriodEnd: false,
           },
         });
 
@@ -1756,59 +1859,141 @@ export async function scheduleDowngradeSubscription(params: {
     throw createError(400, 'INVALID_DOWNGRADE', 'Target plan must be a lower tier than your current plan');
   }
 
-  const updatedSub = await prisma.subscription.update({
-    where: { id: activeSub.id },
-    data: {
-      providerPlanId: `downgrade_${targetPlan.id}`,
-    },
-  });
+  const isPaidTarget = targetPlan.priceCents > 0;
+  const isRealRazorpay = Boolean(activeSub.providerSubscriptionId && activeSub.providerSubscriptionId.startsWith('sub_'));
 
-  await prisma.subscriptionEvent.create({
-    data: {
-      subscriptionId: activeSub.id,
-      eventType: 'ACTIVATED',
-      provider: activeSub.provider,
-      occurredAt: new Date(),
-      payload: {
-        action: 'SCHEDULE_DOWNGRADE',
-        previousPlanId: activeSub.planId,
-        targetPlanId: targetPlan.id,
-        targetPlanName: targetPlan.name,
-        effectiveDate: activeSub.currentPeriodEnd,
-      },
-    },
-  });
-
-  sendNotification(
-    activeSub.userId,
-    `Plan downgrade scheduled to ${targetPlan.name}`,
-    `Your plan will switch to ${targetPlan.name} on ${activeSub.currentPeriodEnd.toLocaleDateString('en-IN')}. All your current features remain active until then.`,
-    ['EMAIL'],
-    undefined,
-    {
-      emailSubject: `Plan Downgrade Scheduled: ${targetPlan.name}`,
-      html: renderSubscriptionDowngraded({
-        currentPlanName: activeSub.plan.name,
-        targetPlanName: targetPlan.name,
-        periodEnd: activeSub.currentPeriodEnd.toLocaleDateString('en-IN'),
-        appUrl: `${env.FRONTEND_URL}/settings?tab=billing`,
-      }),
+  if (isPaidTarget) {
+    // Paid -> Paid downgrade: Use Razorpay's native schedule_change_at: 'cycle_end'
+    if (isRealRazorpay) {
+      const providerPlan = await ensureRazorpayPlanForPlan(targetPlan.id);
+      await updateRazorpaySubscription(activeSub.providerSubscriptionId, {
+        planId: providerPlan.providerPlanId,
+        scheduleChangeAt: 'cycle_end',
+        customerNotify: 1,
+      });
     }
-  ).catch((err) => {
-    console.warn('[Billing] Failed to send downgrade scheduled email:', err);
-  });
 
-  return {
-    subscription: updatedSub,
-    scheduledDowngradePlan: {
-      id: targetPlan.id,
-      name: targetPlan.name,
-      slug: targetPlan.slug,
-      priceCents: targetPlan.priceCents,
-      billingInterval: targetPlan.billingInterval,
-    },
-    effectiveDate: activeSub.currentPeriodEnd,
-  };
+    const updatedSub = await prisma.subscription.update({
+      where: { id: activeSub.id },
+      data: {
+        scheduledPlanId: targetPlan.id,
+        scheduledChangeAt: activeSub.currentPeriodEnd,
+        providerPlanId: null,
+        cancelAtPeriodEnd: false,
+      },
+    });
+
+    await prisma.subscriptionEvent.create({
+      data: {
+        subscriptionId: activeSub.id,
+        eventType: 'ACTIVATED',
+        provider: activeSub.provider,
+        occurredAt: new Date(),
+        payload: {
+          action: 'SCHEDULE_DOWNGRADE',
+          previousPlanId: activeSub.planId,
+          targetPlanId: targetPlan.id,
+          targetPlanName: targetPlan.name,
+          effectiveDate: activeSub.currentPeriodEnd,
+          mode: 'CYCLE_END_PLAN_CHANGE',
+        },
+      },
+    });
+
+    sendNotification(
+      activeSub.userId,
+      `Plan downgrade scheduled to ${targetPlan.name}`,
+      `Your plan will switch to ${targetPlan.name} on ${activeSub.currentPeriodEnd.toLocaleDateString('en-IN')}. All your current features remain active until then.`,
+      ['EMAIL'],
+      undefined,
+      {
+        emailSubject: `Plan Downgrade Scheduled: ${targetPlan.name}`,
+        html: renderSubscriptionDowngraded({
+          currentPlanName: activeSub.plan.name,
+          targetPlanName: targetPlan.name,
+          periodEnd: activeSub.currentPeriodEnd.toLocaleDateString('en-IN'),
+          appUrl: `${env.FRONTEND_URL}/settings?tab=billing`,
+        }),
+      }
+    ).catch((err) => {
+      console.warn('[Billing] Failed to send downgrade scheduled email:', err);
+    });
+
+    return {
+      subscription: updatedSub,
+      scheduledDowngradePlan: {
+        id: targetPlan.id,
+        name: targetPlan.name,
+        slug: targetPlan.slug,
+        priceCents: targetPlan.priceCents,
+        billingInterval: targetPlan.billingInterval,
+      },
+      effectiveDate: activeSub.currentPeriodEnd,
+    };
+  } else {
+    // Paid -> Free downgrade: Schedule cancellation at cycle end
+    if (isRealRazorpay) {
+      await cancelRazorpaySubscription(activeSub.providerSubscriptionId, true);
+    }
+
+    const updatedSub = await prisma.subscription.update({
+      where: { id: activeSub.id },
+      data: {
+        cancelAtPeriodEnd: true,
+        scheduledPlanId: targetPlan.id,
+        scheduledChangeAt: activeSub.currentPeriodEnd,
+        providerPlanId: null,
+      },
+    });
+
+    await prisma.subscriptionEvent.create({
+      data: {
+        subscriptionId: activeSub.id,
+        eventType: 'CANCELLED',
+        provider: activeSub.provider,
+        occurredAt: new Date(),
+        payload: {
+          action: 'SCHEDULE_DOWNGRADE_TO_FREE',
+          previousPlanId: activeSub.planId,
+          targetPlanId: targetPlan.id,
+          targetPlanName: targetPlan.name,
+          effectiveDate: activeSub.currentPeriodEnd,
+          mode: 'CYCLE_END_CANCELLATION',
+        },
+      },
+    });
+
+    sendNotification(
+      activeSub.userId,
+      `Plan downgrade to Free scheduled`,
+      `Your paid plan will end on ${activeSub.currentPeriodEnd.toLocaleDateString('en-IN')}. All your current features remain active until then.`,
+      ['EMAIL'],
+      undefined,
+      {
+        emailSubject: `Plan Downgrade Scheduled: Free Tier`,
+        html: renderSubscriptionDowngraded({
+          currentPlanName: activeSub.plan.name,
+          targetPlanName: 'Free',
+          periodEnd: activeSub.currentPeriodEnd.toLocaleDateString('en-IN'),
+          appUrl: `${env.FRONTEND_URL}/settings?tab=billing`,
+        }),
+      }
+    ).catch((err) => {
+      console.warn('[Billing] Failed to send downgrade scheduled email:', err);
+    });
+
+    return {
+      subscription: updatedSub,
+      scheduledDowngradePlan: {
+        id: targetPlan.id,
+        name: targetPlan.name,
+        slug: targetPlan.slug,
+        priceCents: 0,
+        billingInterval: targetPlan.billingInterval,
+      },
+      effectiveDate: activeSub.currentPeriodEnd,
+    };
+  }
 }
 
 export async function cancelScheduledDowngrade(params: { userId: string }) {
@@ -1816,18 +2001,43 @@ export async function cancelScheduledDowngrade(params: { userId: string }) {
     where: {
       userId: params.userId,
       status: 'ACTIVE',
-      providerPlanId: { startsWith: 'downgrade_' },
+      OR: [
+        { scheduledPlanId: { not: null } },
+        { providerPlanId: { startsWith: 'downgrade_' } },
+        { cancelAtPeriodEnd: true },
+      ],
     },
+    include: { plan: true },
   });
 
   if (!activeSub) {
     throw createError(400, 'NO_SCHEDULED_DOWNGRADE', 'No scheduled downgrade found on your subscription');
   }
 
+  const isRealRazorpay = Boolean(activeSub.providerSubscriptionId && activeSub.providerSubscriptionId.startsWith('sub_'));
+
+  // If it was a paid -> paid scheduled change, revert Razorpay plan back to activeSub.plan
+  if (isRealRazorpay && activeSub.scheduledPlanId) {
+    const targetScheduledPlan = await prisma.plan.findUnique({ where: { id: activeSub.scheduledPlanId } });
+    if (targetScheduledPlan && targetScheduledPlan.priceCents > 0) {
+      const currentProviderPlan = await ensureRazorpayPlanForPlan(activeSub.planId);
+      await updateRazorpaySubscription(activeSub.providerSubscriptionId, {
+        planId: currentProviderPlan.providerPlanId,
+        scheduleChangeAt: 'cycle_end',
+        customerNotify: 1,
+      }).catch((err) => {
+        console.warn('[Billing] Failed to revert Razorpay scheduled plan change:', err);
+      });
+    }
+  }
+
   const updatedSub = await prisma.subscription.update({
     where: { id: activeSub.id },
     data: {
+      scheduledPlanId: null,
+      scheduledChangeAt: null,
       providerPlanId: null,
+      cancelAtPeriodEnd: false,
     },
   });
 
@@ -1843,7 +2053,10 @@ export async function cancelScheduledDowngrade(params: { userId: string }) {
     },
   });
 
-  return { success: true, subscription: updatedSub };
+  return {
+    subscription: updatedSub,
+    message: 'Scheduled downgrade cancelled. Your subscription will renew at its current plan.',
+  };
 }
 
 export async function listAdminTransactions(params?: {

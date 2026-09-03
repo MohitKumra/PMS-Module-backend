@@ -328,3 +328,51 @@ export async function redeemCouponAtomic(
     return redemption;
   });
 }
+
+export async function deleteCoupon(id: string, adminAccountId?: string) {
+  const coupon = await prisma.coupon.findUnique({
+    where: { id },
+    include: {
+      _count: {
+        select: {
+          redemptions: true,
+        },
+      },
+    },
+  });
+
+  if (!coupon) {
+    throw createError(404, 'COUPON_NOT_FOUND', 'Coupon not found');
+  }
+
+  // Check if coupon has redemption records (due to onDelete: Restrict on CouponRedemption)
+  if (coupon._count.redemptions > 0) {
+    throw createError(
+      400,
+      'COUPON_HAS_REDEMPTIONS',
+      `Cannot delete coupon "${coupon.code}" because it has been redeemed ${coupon._count.redemptions} time(s). Deactivate the coupon instead to prevent future redemptions.`
+    );
+  }
+
+  await prisma.$transaction(async (tx) => {
+    // Delete couponPlan links
+    await tx.couponPlan.deleteMany({ where: { couponId: id } });
+    // Nullify references in payment orders and billing transactions
+    await tx.paymentOrder.updateMany({ where: { couponId: id }, data: { couponId: null } });
+    await tx.billingTransaction.updateMany({ where: { couponId: id }, data: { couponId: null } });
+    // Delete coupon
+    await tx.coupon.delete({ where: { id } });
+  });
+
+  if (adminAccountId) {
+    await logAdminAction({
+      adminAccountId,
+      action: 'COUPON_DELETED',
+      entityType: 'Coupon',
+      entityId: id,
+      before: coupon,
+    });
+  }
+
+  return { success: true, message: `Coupon "${coupon.code}" was deleted successfully.` };
+}

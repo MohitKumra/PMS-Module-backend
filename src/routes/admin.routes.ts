@@ -23,6 +23,7 @@ import {
   getPlanDetailHandler,
   createPlanHandler,
   updatePlanHandler,
+  deletePlanHandler,
 } from '../controllers/adminPlans.controller';
 import {
   listCouponsHandler,
@@ -30,6 +31,7 @@ import {
   createCouponHandler,
   updateCouponHandler,
   validateCouponHandler,
+  deleteCouponHandler,
 } from '../controllers/adminCoupons.controller';
 import {
   listTransactionsHandler,
@@ -92,12 +94,14 @@ router.get('/plans', requireAdmin, requirePermission('plans.read'), listPlansHan
 router.get('/plans/:id', requireAdmin, requirePermission('plans.read'), getPlanDetailHandler);
 router.post('/plans', requireAdmin, requirePermission('plans.write'), createPlanHandler);
 router.put('/plans/:id', requireAdmin, requirePermission('plans.write'), updatePlanHandler);
+router.delete('/plans/:id', requireAdmin, requirePermission('plans.write'), deletePlanHandler);
 
 // ─── Coupons Management ───────────────────────────────────────────────────
 router.get('/coupons', requireAdmin, requirePermission('coupons.read'), listCouponsHandler);
 router.get('/coupons/:id', requireAdmin, requirePermission('coupons.read'), getCouponDetailHandler);
 router.post('/coupons', requireAdmin, requirePermission('coupons.write'), createCouponHandler);
 router.put('/coupons/:id', requireAdmin, requirePermission('coupons.write'), updateCouponHandler);
+router.delete('/coupons/:id', requireAdmin, requirePermission('coupons.write'), deleteCouponHandler);
 router.post('/coupons/validate', validateCouponHandler); // Public/Client helper
 
 // ─── Subscriptions & Billing Ledger ───────────────────────────────────────

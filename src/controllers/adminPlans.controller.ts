@@ -3,7 +3,7 @@
 
 import type { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
-import { listPlans, getPlanById, createPlan, updatePlan } from '../services/plan.service';
+import { listPlans, getPlanById, createPlan, updatePlan, deletePlan } from '../services/plan.service';
 
 const createPlanSchema = z.object({
   slug: z.string().min(2).max(50),
@@ -72,6 +72,16 @@ export async function updatePlanHandler(req: Request, res: Response, next: NextF
       adminAccountId: req.admin?.sub,
     });
     res.json({ success: true, message: 'Plan updated successfully', data: plan });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function deletePlanHandler(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const id = req.params.id as string;
+    const result = await deletePlan(id, req.admin?.sub);
+    res.json(result);
   } catch (err) {
     next(err);
   }

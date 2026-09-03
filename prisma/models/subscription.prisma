@@ -5,6 +5,8 @@ model Subscription {
   provider               String
   providerSubscriptionId String
   providerPlanId         String?
+  scheduledPlanId        String?
+  scheduledChangeAt      DateTime?
   status                 SubscriptionStatus
   billingInterval        BillingInterval
   quantity               Int                  @default(1)
@@ -14,6 +16,7 @@ model Subscription {
   trialStartAt           DateTime?
   trialEndAt             DateTime?
   cancelAtPeriodEnd      Boolean              @default(false)
+  cancelledAt            DateTime?
   endedAt                DateTime?
   autoRenew              Boolean              @default(true)
   createdAt              DateTime             @default(now())

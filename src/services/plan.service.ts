@@ -249,3 +249,54 @@ export async function updatePlan(
 
   return getPlanById(updated.id);
 }
+
+export async function deletePlan(id: string, adminAccountId?: string) {
+  const plan = await prisma.plan.findUnique({
+    where: { id },
+    include: {
+      _count: {
+        select: {
+          subscriptions: true,
+        },
+      },
+    },
+  });
+
+  if (!plan) {
+    throw createError(404, 'PLAN_NOT_FOUND', 'Plan not found');
+  }
+
+  // Check for any subscriptions referencing this plan (due to onDelete: Restrict on Subscription)
+  if (plan._count.subscriptions > 0) {
+    throw createError(
+      400,
+      'PLAN_HAS_SUBSCRIBERS',
+      `Cannot delete plan "${plan.name}" because it has ${plan._count.subscriptions} subscription record(s) associated with it. Deactivate the plan instead to prevent new subscribers.`
+    );
+  }
+
+  // Clean up relations and delete plan in a transaction
+  await prisma.$transaction(async (tx) => {
+    // Delete associated paymentProviderPlans
+    await tx.paymentProviderPlan.deleteMany({ where: { planId: id } });
+    // Delete associated couponPlan links
+    await tx.couponPlan.deleteMany({ where: { planId: id } });
+    // Nullify plan references on payment orders and billing transactions
+    await tx.paymentOrder.updateMany({ where: { planId: id }, data: { planId: null } });
+    await tx.billingTransaction.updateMany({ where: { planId: id }, data: { planId: null } });
+    // Delete the plan
+    await tx.plan.delete({ where: { id } });
+  });
+
+  if (adminAccountId) {
+    await logAdminAction({
+      adminAccountId,
+      action: 'PLAN_DELETED',
+      entityType: 'Plan',
+      entityId: id,
+      before: plan,
+    });
+  }
+
+  return { success: true, message: `Plan "${plan.name}" was deleted successfully.` };
+}

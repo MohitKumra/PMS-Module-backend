@@ -3,7 +3,7 @@
 
 import type { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
-import { listCoupons, getCouponById, createCoupon, updateCoupon, validateCoupon } from '../services/coupon.service';
+import { listCoupons, getCouponById, createCoupon, updateCoupon, validateCoupon, deleteCoupon } from '../services/coupon.service';
 
 const createCouponSchema = z.object({
   code: z.string().min(2).max(30),
@@ -101,6 +101,16 @@ export async function validateCouponHandler(req: Request, res: Response, next: N
       subtotalCents,
     });
     res.json({ success: true, data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function deleteCouponHandler(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const id = req.params.id as string;
+    const result = await deleteCoupon(id, req.admin?.sub);
+    res.json(result);
   } catch (err) {
     next(err);
   }

@@ -87,9 +87,13 @@ export async function getUserSubscription(req: Request, res: Response, next: Nex
     const invoices = await listUserInvoices(userId);
 
     let scheduledDowngradePlan: any = null;
-    if (latestSub?.providerPlanId?.startsWith('downgrade_')) {
-      const targetId = latestSub.providerPlanId.replace('downgrade_', '');
-      const target = await prisma.plan.findUnique({ where: { id: targetId } });
+    const scheduledTargetId =
+      latestSub?.scheduledPlanId ||
+      (latestSub?.providerPlanId?.startsWith('downgrade_')
+        ? latestSub.providerPlanId.replace('downgrade_', '')
+        : null);
+    if (scheduledTargetId) {
+      const target = await prisma.plan.findUnique({ where: { id: scheduledTargetId } });
       if (target) {
         scheduledDowngradePlan = {
           id: target.id,
