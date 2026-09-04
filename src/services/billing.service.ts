@@ -18,6 +18,7 @@ import {
   listRazorpayOffers,
   cancelRazorpaySubscription,
   updateRazorpaySubscription,
+  verifyRazorpaySubscriptionSignature,
 } from '../providers/razorpay/razorpay.subscription';
 import { verifyRazorpayWebhookSignature } from '../providers/razorpay/razorpay.webhook';
 import { validateCoupon, redeemCouponAtomic } from './coupon.service';
@@ -1123,43 +1124,52 @@ export async function processRazorpayWebhook(rawBody: Buffer | string, signature
         break;
       }
 
-      case 'subscription.authenticated': {
-        const subEntity = event.payload?.subscription?.entity;
-        if (subEntity) {
-          // Mandate authorized: record event but do NOT treat as cash capture
-          console.info(`[Webhook subscription.authenticated] subscriptionId=${subEntity.id}`);
-          const sub = await prisma.subscription.findUnique({
-            where: {
-              provider_providerSubscriptionId: {
-                provider: 'razorpay',
-                providerSubscriptionId: subEntity.id,
-              },
-            },
-          });
-          if (sub) {
-            await recordSubscriptionEvent({
-              subscriptionId: sub.id,
-              eventType: 'CREATED',
-              provider: 'razorpay',
-              providerEventId,
-              payload: subEntity,
-            });
-          }
-        }
-        break;
-      }
-
+      case 'subscription.authenticated':
       case 'subscription.activated': {
         const subEntity = event.payload?.subscription?.entity;
+        const paymentEntity = event.payload?.payment?.entity;
         if (subEntity) {
-          console.info(`[Webhook subscription.activated] subscriptionId=${subEntity.id}`);
-          await prisma.subscription.updateMany({
-            where: {
-              provider: 'razorpay',
-              providerSubscriptionId: subEntity.id,
-            },
-            data: { status: 'ACTIVE' },
-          });
+          const isUpdate = subEntity.notes?.isPaymentMethodUpdate === 'true';
+          if (isUpdate) {
+            console.info(`[Webhook ${eventType}] Reconciling payment method update for mandate=${subEntity.id}`);
+            await applyPaymentMethodUpdate({
+              newProviderSubscriptionId: subEntity.id,
+              paymentId: paymentEntity?.id,
+              paymentEntity,
+              userId: subEntity.notes?.userId,
+              subscriptionId: subEntity.notes?.oldSubscriptionId,
+              source: 'WEBHOOK',
+            });
+          } else {
+            console.info(`[Webhook ${eventType}] subscriptionId=${subEntity.id}`);
+            const sub = await prisma.subscription.findUnique({
+              where: {
+                provider_providerSubscriptionId: {
+                  provider: 'razorpay',
+                  providerSubscriptionId: subEntity.id,
+                },
+              },
+            });
+            if (sub) {
+              if (eventType === 'subscription.authenticated') {
+                await recordSubscriptionEvent({
+                  subscriptionId: sub.id,
+                  eventType: 'CREATED',
+                  provider: 'razorpay',
+                  providerEventId,
+                  payload: subEntity,
+                });
+              } else if (eventType === 'subscription.activated') {
+                await prisma.subscription.updateMany({
+                  where: {
+                    provider: 'razorpay',
+                    providerSubscriptionId: subEntity.id,
+                  },
+                  data: { status: 'ACTIVE' },
+                });
+              }
+            }
+          }
         }
         break;
       }
@@ -2253,4 +2263,277 @@ export async function renewDueLocalSubscriptions(): Promise<number> {
   }
 
   return renewed;
+}
+
+/**
+ * Sets up a replacement Razorpay subscription mandate for updating the payment method
+ * or turning Auto-Pay back ON.
+ * The new mandate starts at `activeSub.currentPeriodEnd`, so no upfront payment is taken.
+ */
+export async function setupPaymentMethodUpdateOrder(userId: string) {
+  const activeSub = await prisma.subscription.findFirst({
+    where: {
+      userId,
+      status: { in: ['ACTIVE', 'PAST_DUE'] },
+    },
+    include: { plan: true },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  if (!activeSub) {
+    throw createError(400, 'NO_ACTIVE_SUBSCRIPTION', 'No active subscription found to update payment method.');
+  }
+
+  // Ensure Razorpay Provider Plan exists
+  const providerPlan = await ensureRazorpayPlanForPlan(activeSub.planId);
+  const totalCycles = activeSub.billingInterval === 'YEAR' ? 5 : 60;
+
+  // The replacement subscription starts at currentPeriodEnd (Unix timestamp)
+  const scheduledStartAt = Math.floor(new Date(activeSub.currentPeriodEnd).getTime() / 1000);
+
+  // Call createRazorpaySubscription with start_at: scheduledStartAt
+  const rzpSub = await createRazorpaySubscription({
+    planId: providerPlan.providerPlanId,
+    totalCount: totalCycles,
+    customerNotify: 1,
+    startAt: scheduledStartAt,
+    notes: {
+      userId,
+      planId: activeSub.planId,
+      isPaymentMethodUpdate: 'true',
+      oldSubscriptionId: activeSub.id,
+      oldProviderSubscriptionId: activeSub.providerSubscriptionId,
+    },
+  });
+
+  return {
+    providerSubscriptionId: rzpSub.id,
+    keyId: process.env.RAZORPAY_KEY_ID,
+    planName: activeSub.plan.name,
+    amountCents: providerPlan.amountCents,
+    currency: activeSub.plan.currency || 'INR',
+    scheduledStartAt,
+    shortUrl: rzpSub.short_url,
+  };
+}
+
+/**
+ * Unified helper to apply a payment method update or mandate re-authorization.
+ * Called by BOTH frontend verification (confirmPaymentMethodUpdate) and
+ * authoritative webhooks (subscription.authenticated / subscription.activated).
+ */
+export async function applyPaymentMethodUpdate(params: {
+  newProviderSubscriptionId: string;
+  paymentId?: string;
+  paymentEntity?: any;
+  userId?: string;
+  subscriptionId?: string;
+  source: 'FRONTEND' | 'WEBHOOK';
+}) {
+  // 1. Locate the subscription to update
+  let activeSub = null;
+  if (params.subscriptionId) {
+    activeSub = await prisma.subscription.findUnique({
+      where: { id: params.subscriptionId },
+      include: { plan: true },
+    });
+  }
+
+  if (!activeSub && params.userId) {
+    activeSub = await prisma.subscription.findFirst({
+      where: {
+        userId: params.userId,
+        status: { in: ['ACTIVE', 'PAST_DUE'] },
+      },
+      include: { plan: true },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  if (!activeSub) {
+    activeSub = await prisma.subscription.findFirst({
+      where: {
+        provider: 'razorpay',
+        providerSubscriptionId: params.newProviderSubscriptionId,
+      },
+      include: { plan: true },
+    });
+  }
+
+  if (!activeSub) {
+    console.warn(`[Billing] applyPaymentMethodUpdate: No active subscription found for new mandate ${params.newProviderSubscriptionId}`);
+    return { success: false, message: 'Active subscription not found' };
+  }
+
+  // Idempotency: If this subscription is already pointed to the new mandate, do not cancel again
+  if (activeSub.providerSubscriptionId === params.newProviderSubscriptionId && activeSub.autoRenew && !activeSub.cancelAtPeriodEnd) {
+    return { success: true, alreadyProcessed: true, subscription: activeSub };
+  }
+
+  const oldProviderSubId = activeSub.providerSubscriptionId;
+
+  // 2. Cancel old subscription in Razorpay immediately
+  if (
+    oldProviderSubId &&
+    oldProviderSubId !== params.newProviderSubscriptionId &&
+    !oldProviderSubId.startsWith('dummy_') &&
+    !oldProviderSubId.startsWith('local_')
+  ) {
+    try {
+      await cancelRazorpaySubscription(oldProviderSubId, false);
+      console.log(`[Billing] Successfully cancelled old Razorpay subscription ${oldProviderSubId} after payment method update (${params.source})`);
+    } catch (err: any) {
+      console.error(
+        `[Billing] CRITICAL: Failed to cancel old Razorpay subscription ${oldProviderSubId} after payment method update:`,
+        err
+      );
+      await prisma.subscriptionEvent.create({
+        data: {
+          subscriptionId: activeSub.id,
+          eventType: 'REQUIRES_RECONCILIATION',
+          provider: 'razorpay',
+          occurredAt: new Date(),
+          payload: {
+            action: 'OLD_SUBSCRIPTION_CANCEL_FAILED_ON_PAYMENT_METHOD_UPDATE',
+            oldProviderSubscriptionId: oldProviderSubId,
+            newProviderSubscriptionId: params.newProviderSubscriptionId,
+            source: params.source,
+            error: err.message,
+          },
+        },
+      });
+    }
+  }
+
+  // 3. Update DB subscription to point to the new replacement subscription
+  const updatedSub = await prisma.subscription.update({
+    where: { id: activeSub.id },
+    data: {
+      providerSubscriptionId: params.newProviderSubscriptionId,
+      autoRenew: true,
+      cancelAtPeriodEnd: false,
+      status: 'ACTIVE',
+    },
+    include: { plan: true },
+  });
+
+  // 4. Fetch & record payment method details (card last4, UPI VPA, bank)
+  let paymentDetails: any = params.paymentEntity;
+  if (!paymentDetails && params.paymentId) {
+    try {
+      paymentDetails = await fetchRazorpayPayment(params.paymentId);
+    } catch (err) {
+      console.warn(`[Billing] Could not fetch payment details for ${params.paymentId}:`, err);
+    }
+  }
+
+  if (params.paymentId) {
+    const method = paymentDetails?.method || 'card';
+    const cardLast4 = paymentDetails?.card?.last4 || null;
+    const vpa = paymentDetails?.vpa || null;
+    const bank = paymentDetails?.bank || null;
+
+    try {
+      await prisma.billingTransaction.upsert({
+        where: {
+          provider_providerPaymentId: {
+            provider: 'razorpay',
+            providerPaymentId: params.paymentId,
+          },
+        },
+        create: {
+          userId: activeSub.userId,
+          subscriptionId: activeSub.id,
+          planId: activeSub.planId,
+          provider: 'razorpay',
+          providerPaymentId: params.paymentId,
+          providerSubscriptionId: params.newProviderSubscriptionId,
+          transactionType: 'SUBSCRIPTION_INITIAL',
+          status: 'CAPTURED',
+          currency: activeSub.plan.currency || 'INR',
+          grossAmountCents: paymentDetails?.amount || 0,
+          netAmountCents: paymentDetails?.amount || 0,
+          paidAt: new Date(),
+          metadata: {
+            paymentMethod: method,
+            cardLast4,
+            vpa,
+            bank,
+            source: params.source,
+            isPaymentMethodUpdate: true,
+          },
+        },
+        update: {
+          metadata: {
+            paymentMethod: method,
+            cardLast4,
+            vpa,
+            bank,
+            source: params.source,
+            isPaymentMethodUpdate: true,
+          },
+        },
+      });
+    } catch (txErr) {
+      console.warn('[Billing] Failed to persist billingTransaction for payment method update:', txErr);
+    }
+  }
+
+  // 5. Audit event
+  await prisma.subscriptionEvent.create({
+    data: {
+      subscriptionId: activeSub.id,
+      eventType: 'ACTIVATED',
+      provider: 'razorpay',
+      occurredAt: new Date(),
+      payload: {
+        action: 'PAYMENT_METHOD_UPDATED',
+        source: params.source,
+        newProviderSubscriptionId: params.newProviderSubscriptionId,
+        paymentId: params.paymentId,
+        paymentMethod: paymentDetails?.method,
+      },
+    },
+  });
+
+  return {
+    success: true,
+    message: 'Payment method updated successfully. Auto-Pay is now active on your new payment method.',
+    subscription: updatedSub,
+  };
+}
+
+/**
+ * Confirms payment method update:
+ * 1. Cryptographically verifies the Razorpay signature for the new subscription.
+ * 2. Applies the update idempotently via applyPaymentMethodUpdate.
+ */
+export async function confirmPaymentMethodUpdate(params: {
+  userId: string;
+  newProviderSubscriptionId: string;
+  paymentId: string;
+  signature: string;
+}) {
+  const isValid = verifyRazorpaySubscriptionSignature({
+    subscriptionId: params.newProviderSubscriptionId,
+    paymentId: params.paymentId,
+    signature: params.signature,
+  });
+
+  if (!isValid) {
+    throw createError(400, 'SIGNATURE_VERIFICATION_FAILED', 'New payment method signature verification failed.');
+  }
+
+  const result = await applyPaymentMethodUpdate({
+    newProviderSubscriptionId: params.newProviderSubscriptionId,
+    paymentId: params.paymentId,
+    userId: params.userId,
+    source: 'FRONTEND',
+  });
+
+  if (!result.success) {
+    throw createError(404, 'SUBSCRIPTION_NOT_FOUND', result.message || 'Active subscription was not found.');
+  }
+
+  return result;
 }

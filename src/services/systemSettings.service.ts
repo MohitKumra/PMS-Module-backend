@@ -18,6 +18,7 @@ export interface InvoiceSettings {
   addressLine2: string;
   cityState: string;
   pincode: string;
+  website?: string;
 }
 
 export interface SystemSettings {
@@ -44,6 +45,7 @@ const INVOICE_DEFAULTS: InvoiceSettings = {
   addressLine2: '',
   cityState: '',
   pincode: '',
+  website: 'finamite.in',
 };
 
 const DEFAULTS: SystemSettings = {
@@ -87,6 +89,7 @@ export async function loadSystemSettings(): Promise<SystemSettings> {
         addressLine2: typeof obj.addressLine2 === 'string' ? obj.addressLine2 : INVOICE_DEFAULTS.addressLine2,
         cityState: typeof obj.cityState === 'string' ? obj.cityState : INVOICE_DEFAULTS.cityState,
         pincode: typeof obj.pincode === 'string' ? obj.pincode : INVOICE_DEFAULTS.pincode,
+        website: typeof obj.website === 'string' ? obj.website : INVOICE_DEFAULTS.website,
       };
     }
   }
@@ -164,5 +167,12 @@ export async function getInvoiceSettings(): Promise<InvoiceSettings> {
  */
 export function getCachedInvoiceSettings(): InvoiceSettings {
   return { ...(cache.invoice || INVOICE_DEFAULTS) };
+}
+
+/**
+ * Synchronous read of system settings from cache.
+ */
+export function getCachedSystemSettings(): SystemSettings {
+  return { ...cache, invoice: { ...(cache.invoice || INVOICE_DEFAULTS) } };
 }
 

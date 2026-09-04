@@ -15,6 +15,8 @@ import {
   getUserInvoice,
   getUserBillingProfile,
   updateUserBillingProfile,
+  setupPaymentMethodUpdateOrder,
+  confirmPaymentMethodUpdate,
 } from '../services/billing.service';
 import { buildInvoicePdfBuffer, getBillingCompanyProfile } from '../services/billingDocuments.service';
 import { cancelSubscriptionAction as cancelSubscriptionService } from '../services/subscription.service';
@@ -106,6 +108,30 @@ export async function getUserSubscription(req: Request, res: Response, next: Nex
       }
     }
 
+    let paymentMethodDetails: { method: string; summary: string } | null = null;
+    const latestCapturedTx = transactions.find((t) => t.status === 'CAPTURED');
+    if (latestCapturedTx && latestCapturedTx.metadata && typeof latestCapturedTx.metadata === 'object') {
+      const meta = latestCapturedTx.metadata as Record<string, any>;
+      const method = meta.paymentMethod || 'card';
+      let summary = 'Card / UPI Mandate';
+      if (method === 'upi') {
+        summary = meta.vpa ? `UPI (${meta.vpa})` : 'UPI AutoPay';
+      } else if (method === 'card') {
+        summary = meta.cardLast4 ? `Card ending in •••• ${meta.cardLast4}` : 'Credit / Debit Card';
+      } else if (method === 'netbanking') {
+        summary = meta.bank ? `Netbanking (${meta.bank})` : 'Netbanking';
+      }
+      paymentMethodDetails = {
+        method,
+        summary,
+      };
+    } else if (activeSub && activeSub.provider === 'razorpay') {
+      paymentMethodDetails = {
+        method: 'online',
+        summary: 'Razorpay Auto-Pay Mandate',
+      };
+    }
+
     return res.json({
       data: {
         effectivePlan,
@@ -115,6 +141,7 @@ export async function getUserSubscription(req: Request, res: Response, next: Nex
               scheduledDowngradePlan,
             }
           : null,
+        paymentMethod: paymentMethodDetails,
         billingProfile: await getUserBillingProfile(userId),
         usage: {
           projects: projectsCount,
@@ -522,6 +549,49 @@ export async function cancelScheduledDowngradeHandler(req: Request, res: Respons
   try {
     const userId = req.user!.sub || (req.user as any)!.id;
     const result = await cancelScheduledDowngrade({ userId });
+    return res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * POST /api/billing/setup-payment-method
+ * Prepares a replacement Razorpay subscription mandate starting at currentPeriodEnd.
+ */
+export async function setupPaymentMethodUpdate(req: Request, res: Response, next: NextFunction) {
+  try {
+    const userId = req.user!.sub || (req.user as any)!.id;
+    const data = await setupPaymentMethodUpdateOrder(userId);
+    return res.json({ data });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * POST /api/billing/confirm-payment-method
+ * Verifies the new mandate signature and swaps the active subscription to the new provider ID.
+ */
+export async function confirmPaymentMethodUpdateHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    const userId = req.user!.sub || (req.user as any)!.id;
+    const { razorpaySubscriptionId, razorpayPaymentId, razorpaySignature } = req.body;
+    const subId = razorpaySubscriptionId || req.body.razorpay_subscription_id;
+    const paymentId = razorpayPaymentId || req.body.razorpay_payment_id;
+    const signature = razorpaySignature || req.body.razorpay_signature;
+
+    if (!subId || !paymentId || !signature) {
+      throw createError(400, 'INVALID_PAYLOAD', 'Missing required payment method update credentials.');
+    }
+
+    const result = await confirmPaymentMethodUpdate({
+      userId,
+      newProviderSubscriptionId: subId,
+      paymentId,
+      signature,
+    });
+
     return res.json({ data: result });
   } catch (err) {
     next(err);

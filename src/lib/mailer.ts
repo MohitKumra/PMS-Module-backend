@@ -7,7 +7,7 @@ import nodemailer from 'nodemailer';
 import * as fs from 'fs';
 import * as path from 'path';
 import { env } from '../config/env';
-import { getCachedInvoiceSettings } from '../services/systemSettings.service';
+import { getCachedInvoiceSettings, getCachedSystemSettings } from '../services/systemSettings.service';
 
 let _transporter: nodemailer.Transporter | null = null;
 
@@ -50,17 +50,52 @@ export interface MailOptions {
   html: string;
   attachments?: Array<{
     filename: string;
-    content: Buffer | string;
+    content?: Buffer | string;
+    path?: string;
     contentType?: string;
+    cid?: string;
+    contentDisposition?: 'attachment' | 'inline';
   }>;
+}
+
+export function resolveLogoPath(): string | null {
+  const candidates = [
+    path.join(process.cwd(), 'src', 'email-template', 'logo.png'),
+    path.join(__dirname, '..', 'email-template', 'logo.png'),
+    path.join(__dirname, '..', 'src', 'email-template', 'logo.png'),
+    path.join(__dirname, '..', '..', 'src', 'email-template', 'logo.png'),
+    path.join(process.cwd(), 'email-template', 'logo.png'),
+    path.join(process.cwd(), '..', 'frontend', 'public', 'logo.png'),
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  return null;
 }
 
 /** Send an email. Logs a preview URL in dev when using Ethereal. */
 export async function sendMail(opts: MailOptions): Promise<void> {
   const transporter = await getTransporter();
-  const info = await transporter.sendMail({
+  const attachments: any[] = [...(opts.attachments || [])];
+
+  // Auto-attach logo.png as inline CID attachment if template references cid:brand-logo
+  if (opts.html && opts.html.includes('cid:brand-logo')) {
+    const logoPath = resolveLogoPath();
+    if (logoPath && !attachments.some((a) => a.cid === 'brand-logo')) {
+      attachments.push({
+        filename: 'logo.png',
+        path: logoPath,
+        cid: 'brand-logo',
+        contentType: 'image/png',
+        contentDisposition: 'inline',
+      });
+    }
+  }
+
+  const info: any = await transporter.sendMail({
     from: env.EMAIL_FROM,
     ...opts,
+    attachments,
   });
 
   if (process.env.NODE_ENV !== 'production') {
@@ -74,9 +109,12 @@ export async function sendMail(opts: MailOptions): Promise<void> {
 function getAppUrls() {
   const base = env.FRONTEND_URL;
   return {
+    appUrl: base,
+    currentYear: new Date().getFullYear(),
     app: {
-      habitUrl: `${base}/habits`,
+      url: base,
       taskUrl: `${base}/tasks`,
+      habitUrl: `${base}/habits`,
       projectUrl: `${base}/projects`,
       preferencesUrl: `${base}/settings`,
       billingUrl: `${base}/settings?tab=billing`,
@@ -86,10 +124,37 @@ function getAppUrls() {
 
 // Brand name injected into every email template as {{brand.name}} so a rebrand
 // only requires changing the admin Billing → Invoice Settings (or COMPANY_NAME
-// env), not the individual HTML files. Mirrors how invoices resolve their name.
+// env), not the individual HTML files.
 function getBrand() {
-  const name = getCachedInvoiceSettings().companyName?.trim() || env.COMPANY_NAME?.trim() || 'Finamite';
-  return { name };
+  const sys = getCachedSystemSettings();
+  const inv = getCachedInvoiceSettings();
+
+  // Website name from company data / invoice settings / system settings
+  const rawWebsite = inv.website?.trim() || env.COMPANY_WEBSITE?.trim() || '';
+  const cleanWebsite = rawWebsite.replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+
+  // Website brand name displayed in headers (e.g. "finamite.in" or "Finamite")
+  const websiteName = cleanWebsite || sys.appName?.trim() || 'Finamite';
+  // Legal company name (e.g. "Finamite Solutions LLP") used for tax/invoice compliance & footer
+  const companyName = inv.companyName?.trim() || env.COMPANY_NAME?.trim() || 'Finamite Solutions LLP';
+
+  const websiteUrl = rawWebsite
+    ? (rawWebsite.startsWith('http') ? rawWebsite : `https://${rawWebsite}`)
+    : (env.FRONTEND_URL || 'https://finamite.in');
+
+  return {
+    name: websiteName,
+    websiteName,
+    companyName,
+    websiteUrl,
+    logoUrl: 'cid:brand-logo',
+    address: [
+      inv.addressLine1?.trim() || env.COMPANY_ADDRESS_LINE1,
+      inv.cityState?.trim() || env.COMPANY_CITY_STATE,
+    ]
+      .filter(Boolean)
+      .join(', '),
+  };
 }
 
 // ─── Template engine ───────────────────────────────────────────

@@ -14,6 +14,8 @@ import {
   updateBillingProfile,
   scheduleDowngrade,
   cancelScheduledDowngradeHandler,
+  setupPaymentMethodUpdate,
+  confirmPaymentMethodUpdateHandler,
 } from '../controllers/billing.controller';
 
 const router = Router();
@@ -30,6 +32,8 @@ router.post('/apply-coupon', authenticate, previewCoupon);
 router.post('/checkout', authenticate, createCheckout);
 router.post('/verify-payment', authenticate, verifyPayment);
 router.post('/cancel-subscription', authenticate, cancelSubscription);
+router.post('/setup-payment-method', authenticate, setupPaymentMethodUpdate);
+router.post('/confirm-payment-method', authenticate, confirmPaymentMethodUpdateHandler);
 router.post('/downgrade', authenticate, scheduleDowngrade);
 router.post('/cancel-downgrade', authenticate, cancelScheduledDowngradeHandler);
 router.get('/invoices/:id/pdf', authenticate, getInvoicePdf);

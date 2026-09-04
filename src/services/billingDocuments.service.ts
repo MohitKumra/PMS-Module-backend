@@ -84,7 +84,7 @@ export function getBillingCompanyProfile(): BillingCompanyProfile {
     gstin: invSettings.gstin?.trim() || env.COMPANY_GSTIN?.trim() || null,
     email: invSettings.supportEmail?.trim() || env.COMPANY_EMAIL?.trim() || null,
     phone: env.COMPANY_PHONE?.trim() || null,
-    website: env.COMPANY_WEBSITE?.trim() || null,
+    website: invSettings.website?.trim() || env.COMPANY_WEBSITE?.trim() || 'finamite.in',
     sac: invSettings.sac?.trim() || env.COMPANY_SAC?.trim() || null,
     notes: invSettings.notes?.trim() || 'All monthly and usage payments are non-refundable.',
     addressLines,

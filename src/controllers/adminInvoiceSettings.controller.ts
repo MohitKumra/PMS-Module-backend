@@ -24,6 +24,7 @@ const invoiceSettingsSchema = z.object({
   addressLine2: z.string().max(200).optional(),
   cityState: z.string().max(120).optional(),
   pincode: z.string().max(20).optional(),
+  website: z.string().max(200).optional(),
 });
 
 export async function getAdminInvoiceSettingsHandler(_req: Request, res: Response): Promise<void> {

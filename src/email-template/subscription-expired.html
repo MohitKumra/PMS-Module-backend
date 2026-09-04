@@ -1,104 +1,85 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="color-scheme" content="light" />
-  <title>Plan expired</title>
-  <style>
-    @media only screen and (max-width: 480px) {
-      .container { width: 100% !important; border-radius: 0 !important; }
-      .px { padding-left: 24px !important; padding-right: 24px !important; }
-      .hero-pad { padding: 32px 24px !important; }
-    }
-  </style>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="color-scheme" content="light" />
+<title>Plan expired</title>
+<style>
+  @media only screen and (max-width: 480px) {
+    .container { width: 100% !important; }
+    .px { padding-left: 24px !important; padding-right: 24px !important; }
+  }
+</style>
 </head>
-<body style="margin:0;padding:0;background-color:#EEF0FA;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#EEF0FA;">
+<body style="margin:0;padding:0;background-color:#F5F5F4;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#F5F5F4;">
     <tr>
-      <td align="center" style="padding:40px 16px;">
-        <table role="presentation" class="container" width="560" cellpadding="0" cellspacing="0" style="width:560px;max-width:100%;background-color:#ffffff;border-radius:20px;border:1px solid #ECECF5;overflow:hidden;">
+      <td align="center" style="padding:48px 16px;">
+        <table role="presentation" class="container" width="560" cellpadding="0" cellspacing="0" style="width:560px;max-width:100%;background-color:#ffffff;border:1px solid #E5E5E3;">
 
-          <!-- Logo bar -->
+          <tr><td style="height:3px;line-height:3px;font-size:0;background-color:#B42318;">&nbsp;</td></tr>
+
           <tr>
-            <td class="px" style="padding:28px 40px;">
+            <td class="px" style="padding:32px 40px 0;">
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
                 <tr>
                   <td>
-                    <table role="presentation" cellpadding="0" cellspacing="0">
-                      <tr>
-                        <td style="width:26px;height:26px;background-color:#6C5DD3;border-radius:8px;text-align:center;vertical-align:middle;font-family:Arial,sans-serif;font-size:13px;color:#ffffff;line-height:26px;">&#10022;</td>
-                        <td style="padding-left:9px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;font-size:16px;font-weight:700;color:#14142B;">{{brand.name}}</td>
-                      </tr>
-                    </table>
+                    <a href="{{{brand.websiteUrl}}}" style="text-decoration:none;display:inline-block;vertical-align:middle;">
+                    <img src="{{{brand.logoUrl}}}" alt="{{brand.name}}" height="28" width="28" style="height:28px;width:28px;border-radius:6px;display:inline-block;vertical-align:middle;border:0;" />
+                    <span style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;font-size:18px;font-weight:600;color:#1A1A18;vertical-align:middle;padding-left:9px;">{{brand.name}}</span>
+                  </a>
                   </td>
-                  <td align="right">
-                    <span style="display:inline-block;background-color:#F0EDFC;color:#6C5DD3;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:.03em;padding:6px 12px;border-radius:999px;">PLAN EXPIRED</span>
-                  </td>
+                  <td align="right" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;font-size:12px;color:#B42318;font-weight:600;vertical-align:middle;">Plan expired</td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr><td class="px" style="padding:24px 40px 0;"><div style="border-top:1px solid #E5E5E3;"></div></td></tr>
+
+          <tr>
+            <td class="px" style="padding:32px 40px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
+              <h1 style="margin:0 0 8px;font-size:21px;line-height:1.3;font-weight:600;color:#1A1A18;">Your plan has expired</h1>
+              <p style="margin:0;font-size:15px;line-height:1.6;color:#3F3F3B;">Your <strong style="color:#1A1A18;">{{planName}}</strong> plan ended on <strong style="color:#1A1A18;">{{expiryDate}}</strong>.</p>
+            </td>
+          </tr>
+
+          <tr>
+            <td class="px" style="padding:24px 40px 0;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #E5E5E3;">
+                <tr>
+                  <td style="padding:16px 20px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;font-size:14px;color:#6B6B67;">Current status</td>
+                  <td style="padding:16px 20px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;font-size:14px;color:#1A1A18;text-align:right;">{{statusText}}</td>
                 </tr>
               </table>
             </td>
           </tr>
 
-          <!-- Hero -->
           <tr>
-            <td class="hero-pad" style="padding:8px 40px 36px;background:linear-gradient(135deg,#E05A5A,#F0815D);">
+            <td class="px" style="padding:24px 40px 0;">
               <table role="presentation" cellpadding="0" cellspacing="0">
                 <tr>
-                  <td style="width:44px;height:44px;background-color:rgba(255,255,255,0.18);border-radius:12px;text-align:center;vertical-align:middle;font-family:Arial,sans-serif;font-size:20px;color:#ffffff;line-height:44px;">&#128276;</td>
-                </tr>
-              </table>
-              <h1 style="margin:18px 0 6px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;font-size:22px;line-height:1.35;font-weight:800;color:#ffffff;">Plan expired</h1>
-              <p style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;font-size:14px;color:rgba(255,255,255,0.85);">Your <strong style="color:#ffffff;">{{planName}}</strong> plan ended on <strong style="color:#ffffff;">{{expiryDate}}</strong>.</p>
-            </td>
-          </tr>
-
-          <!-- Status card -->
-          <tr>
-            <td class="px" style="padding:32px 40px 0;">
-              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#F7F6FD;border:1px solid #ECE9FB;border-radius:16px;">
-                <tr>
-                  <td style="padding:18px 24px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
-                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-                      <tr>
-                        <td style="font-size:13px;color:#8A8FA8;">Current status</td>
-                        <td style="font-size:14px;font-weight:700;color:#14142B;text-align:right;">{{statusText}}</td>
-                      </tr>
-                    </table>
+                  <td style="background-color:#1A1A18;">
+                    <a href="{{app.preferencesUrl}}" style="display:inline-block;padding:13px 28px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;font-size:14px;font-weight:600;color:#ffffff;text-decoration:none;">View plans</a>
                   </td>
                 </tr>
               </table>
             </td>
           </tr>
 
-          <!-- CTA -->
           <tr>
-            <td class="px" align="center" style="padding:28px 40px 8px;">
-              <table role="presentation" cellpadding="0" cellspacing="0">
-                <tr>
-                  <td style="border-radius:12px;background-color:#6C5DD3;">
-                    <a href="{{app.preferencesUrl}}" style="display:inline-block;padding:15px 34px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;font-size:15px;font-weight:700;color:#ffffff;text-decoration:none;border-radius:12px;">View plans</a>
-                  </td>
-                </tr>
-              </table>
+            <td class="px" style="padding:28px 40px 36px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;font-size:13px;color:#6B6B67;">
+              Your account has been returned to the free tier. <a href="{{app.preferencesUrl}}" style="color:#1A1A18;">Manage subscription</a>
             </td>
           </tr>
 
-          <!-- Footer -->
           <tr>
-            <td class="px" style="padding:28px 40px 22px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;font-size:12px;color:#9AA0B4;text-align:center;">
-              Your account has been returned to the free tier &middot;
-              <a href="{{app.preferencesUrl}}" style="color:#6C5DD3;text-decoration:underline;">Manage subscription</a>
+            <td class="px" style="padding:20px 40px;background-color:#FAFAF9;border-top:1px solid #E5E5E3;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;font-size:12px;color:#9A9A96;line-height:1.6;">
+              {{brand.name}}, {{brand.address}}<br />
+              &copy; {{currentYear}} {{brand.name}}. All rights reserved.
             </td>
           </tr>
 
-        </table>
-        <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="width:560px;max-width:100%;">
-          <tr>
-            <td align="center" style="padding:20px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;font-size:12px;color:#B0B3C6;">
-              &copy; {{brand.name}}. All rights reserved.
-            </td>
-          </tr>
         </table>
       </td>
     </tr>
