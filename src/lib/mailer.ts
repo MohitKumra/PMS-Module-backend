@@ -304,6 +304,7 @@ export function renderCustomPlanAdminNotify(vars: {
   limitsSummary: string;
   featuresSummary: string;
   requirements: string;
+  adminUrl: string;
 }): string {
   return renderTemplate('custom-plan-admin-notify', vars);
 }

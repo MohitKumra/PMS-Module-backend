@@ -4,6 +4,7 @@ import {
   renderSubscriptionUpgraded,
   renderSubscriptionCancelled,
   renderInvoiceReceipt,
+  renderCustomPlanAdminNotify,
   resolveLogoPath,
 } from '../../src/lib/mailer';
 import { loadSystemSettings } from '../../src/services/systemSettings.service';
@@ -47,5 +48,51 @@ describe('Email Branding & Logo Integration', () => {
 
     expect(html).toContain('cid:brand-logo');
     expect(html).toContain('finamite.in');
+  });
+
+  it('renders custom plan admin notify template correctly with all fields', () => {
+    const html = renderCustomPlanAdminNotify({
+      requestId: 'req_12345',
+      customerName: 'Alice Smith',
+      customerEmail: 'alice@example.com',
+      limitsSummary: '50 projects, 100GB storage',
+      featuresSummary: 'Dedicated support, API access',
+      requirements: 'Must comply with SOC2 requirements',
+      adminUrl: 'https://finamite.in/admin/custom-plans',
+    });
+
+    expect(html).toContain('New custom plan request');
+    expect(html).toContain('#req_12345');
+    expect(html).toContain('Alice Smith');
+    expect(html).toContain('alice@example.com');
+    expect(html).toContain('50 projects, 100GB storage');
+    expect(html).toContain('Dedicated support, API access');
+    expect(html).toContain('Must comply with SOC2 requirements');
+    expect(html).toContain('https://finamite.in/admin/custom-plans');
+    // Ensure no unrendered {{#if}} or {{/if}} tags remain
+    expect(html).not.toContain('{{#if');
+    expect(html).not.toContain('{{/if}}');
+  });
+
+  it('renders custom plan admin notify template correctly when optional fields are omitted', () => {
+    const html = renderCustomPlanAdminNotify({
+      requestId: 'req_67890',
+      customerName: 'Bob Jones',
+      customerEmail: 'bob@example.com',
+      limitsSummary: '',
+      featuresSummary: '',
+      requirements: '',
+      adminUrl: 'https://finamite.in/admin/custom-plans',
+    });
+
+    expect(html).toContain('New custom plan request');
+    expect(html).toContain('#req_67890');
+    expect(html).toContain('Bob Jones');
+    expect(html).toContain('bob@example.com');
+    expect(html).not.toContain('Requested limits');
+    expect(html).not.toContain('Requested features');
+    expect(html).not.toContain('Requirements');
+    expect(html).not.toContain('{{#if');
+    expect(html).not.toContain('{{/if}}');
   });
 });

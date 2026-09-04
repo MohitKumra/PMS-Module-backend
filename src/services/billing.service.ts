@@ -461,6 +461,7 @@ export async function createCheckoutOrder(params: {
   const subtotalCents = plan.priceCents;
   let discountCents = 0;
   let couponId: string | undefined;
+  let couponDiscountCents = 0;
   let prorationCreditCents = 0;
   let isUpgrade = false;
 
@@ -472,7 +473,6 @@ export async function createCheckoutOrder(params: {
 
   if (proration.isUpgrade && proration.proratedCreditCents > 0) {
     prorationCreditCents = proration.proratedCreditCents;
-    discountCents += prorationCreditCents;
     isUpgrade = true;
   }
 
@@ -482,13 +482,15 @@ export async function createCheckoutOrder(params: {
       code: params.couponCode,
       userId: params.userId,
       planId: plan.id,
-      subtotalCents: Math.max(0, subtotalCents - prorationCreditCents),
+      subtotalCents,
     });
-    discountCents += validated.discountCents;
+    couponDiscountCents = validated.discountCents;
     couponId = validated.coupon.id;
     appliedCoupon = validated.coupon;
   }
 
+  // Combined discount: proration credit + coupon discount, capped at subtotal
+  discountCents = Math.min(subtotalCents, prorationCreditCents + couponDiscountCents);
   const totalCents = Math.max(0, subtotalCents - discountCents);
   // GST is set per-plan by an admin (stored on the Plan row) and applied to the
   // taxable (post-discount) value. Defaulting to 18 for safety.
@@ -552,6 +554,7 @@ export async function createCheckoutOrder(params: {
           planId: plan.id,
           couponId: couponId || undefined,
           discountCents: discountCents > 0 ? String(discountCents) : undefined,
+          couponDiscountCents: couponDiscountCents > 0 ? String(couponDiscountCents) : undefined,
           prorationCreditCents: prorationCreditCents > 0 ? String(prorationCreditCents) : undefined,
           isUpgrade: isUpgrade ? 'true' : undefined,
         },

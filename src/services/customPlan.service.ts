@@ -228,6 +228,7 @@ async function notifyAdminOfNewRequest(request: any) {
         limitsSummary,
         featuresSummary,
         requirements,
+        adminUrl: `${env.FRONTEND_URL}/admin/custom-plans`,
       }),
     });
   } catch (err) {

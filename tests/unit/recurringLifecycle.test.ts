@@ -39,53 +39,9 @@ describe('Recurring Subscription Lifecycle & Edge Cases', () => {
       });
     }
 
-    basePlan = await prisma.plan.findFirst({ where: { slug: 'basic' } });
-    if (!basePlan) {
-      basePlan = await prisma.plan.create({
-        data: {
-          name: 'Pro Plan',
-          slug: 'test_lifecycle_basic',
-          priceCents: 99900,
-          currency: 'INR',
-          billingInterval: 'MONTH',
-          isActive: true,
-          features: [],
-        },
-      });
-      createdPlanIds.push(basePlan.id);
-    }
-
+    basePlan = (await prisma.plan.findFirst({ where: { slug: 'premium' } })) || (await prisma.plan.findFirst({ where: { slug: 'basic' } }));
     upgradePlan = await prisma.plan.findFirst({ where: { slug: 'ultimate' } });
-    if (!upgradePlan) {
-      upgradePlan = await prisma.plan.create({
-        data: {
-          name: 'Ultimate Plan',
-          slug: 'test_lifecycle_ultimate',
-          priceCents: 199900,
-          currency: 'INR',
-          billingInterval: 'MONTH',
-          isActive: true,
-          features: [],
-        },
-      });
-      createdPlanIds.push(upgradePlan.id);
-    }
-
-    lowerPlan = await prisma.plan.findFirst({ where: { slug: 'test_lifecycle_starter' } });
-    if (!lowerPlan) {
-      lowerPlan = await prisma.plan.create({
-        data: {
-          name: 'Starter Plan',
-          slug: 'test_lifecycle_starter',
-          priceCents: 49900,
-          currency: 'INR',
-          billingInterval: 'MONTH',
-          isActive: true,
-          features: [],
-        },
-      });
-      createdPlanIds.push(lowerPlan.id);
-    }
+    lowerPlan = (await prisma.plan.findFirst({ where: { slug: 'basic' } })) || (await prisma.plan.findFirst({ where: { priceCents: { gt: 0, lt: upgradePlan?.priceCents || 100000 } } }));
   });
 
   afterAll(async () => {
@@ -94,6 +50,13 @@ describe('Recurring Subscription Lifecycle & Edge Cases', () => {
       await prisma.couponPlan.deleteMany({ where: { planId } }).catch(() => null);
       await prisma.subscription.deleteMany({ where: { planId } }).catch(() => null);
       await prisma.plan.delete({ where: { id: planId } }).catch(() => null);
+    }
+    if (testUser?.email?.endsWith('@finamite.test')) {
+      await prisma.subscriptionEvent.deleteMany({ where: { subscription: { userId: testUser.id } } }).catch(() => null);
+      await prisma.billingTransaction.deleteMany({ where: { userId: testUser.id } }).catch(() => null);
+      await prisma.paymentOrder.deleteMany({ where: { userId: testUser.id } }).catch(() => null);
+      await prisma.subscription.deleteMany({ where: { userId: testUser.id } }).catch(() => null);
+      await prisma.user.delete({ where: { id: testUser.id } }).catch(() => null);
     }
   });
 
@@ -280,19 +243,9 @@ describe('Recurring Subscription Lifecycle & Edge Cases', () => {
     const activeSubId = `sub_to_free_${Date.now()}`;
 
     // Free plan (₹0)
-    let freePlan = await prisma.plan.findFirst({ where: { priceCents: 0 } });
+    const freePlan = await prisma.plan.findFirst({ where: { priceCents: 0 } });
     if (!freePlan) {
-      freePlan = await prisma.plan.create({
-        data: {
-          name: 'Free Tier',
-          slug: `free_${Date.now()}`,
-          priceCents: 0,
-          currency: 'INR',
-          billingInterval: 'MONTH',
-          isActive: true,
-          features: [],
-        },
-      });
+      throw new Error('Default Free plan not found in database. Please run db seed.');
     }
 
     const activeSub = await prisma.subscription.create({
